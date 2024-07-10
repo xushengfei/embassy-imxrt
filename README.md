@@ -10,17 +10,20 @@ This is the Embassy HAL for IMXRT family. For development, we will be focusing o
 
 * ADC
 * I2C
-*	eSPI
-*	SPI
-*	GPIO
-*	Timer
-*	Clocks
-*	Interrupt
-*	RTC
-*	UART
-*	Watchdog
-*	PWM
+* eSPI
+  * Need more investigation, ignore for now
+* SPI
+* GPIO
+* Timer
+* Clocks
+* Interrupt
+* RTC
+* UART
+* Watchdog
+* PWM
 
 ## Plan
 
 We will focus on Asyn HALs first. Blocking HAL can be optional.
+
+Considering various degrees of familiarity with Rust + Embadded HAL, before you start on a HAL piece, feel free to reach out to Felipe Balbi, Jerry Xie, Jimi Huard, or Madeleyne to sketch out your ideas.
