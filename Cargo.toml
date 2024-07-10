@@ -4,20 +4,60 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Embassy Hardware Abstraction Layer (HAL) for the IMXRT microcontroller"
-keywords = ["embedded", "async", "imxrt", "rp2040", "embedded-hal"]
+keywords = ["embedded", "async", "imxrt", "rt600", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-imxrt"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-imxrt-v$VERSION/embassy-imxrt/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-imxrt/src/"
+features = ["defmt", "unstable-pac", "time-driver"]
+flavors = [
+    { name = "imxrt685s", target = "thumbv8m.main-none-eabihf" },
+]
+
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "time-driver"]
+
+[features]
+default = [ "rt" ]
+## Enable the rt feature of [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
+rt = [ "mimxrt685s-pac/rt" ]
+
+## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
+defmt = ["dep:defmt"]
 
 [dependencies]
+embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
+embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = ["cortex-m", "prio-bits-2"] }
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+nb = "1.0.0"
+cfg-if = "1.0.0"
+cortex-m-rt = ">=0.6.15,<0.8"
+cortex-m = "0.7.6"
+critical-section = "1.1"
+chrono = { version = "0.4", default-features = false, optional = true }
+embedded-io = { version = "0.6.1" }
+embedded-io-async = { version = "0.6.1" }
+embedded-storage = { version = "0.3" }
+embedded-storage-async = { version = "0.4.1" }
+rand_core = "0.6.4"
+fixed = "1.23.1"
+
+mimxrt685s-pac = { version = "*" }
+
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.1" }
+embedded-hal-nb = { version = "1.0" }
 
-cortex-m = { version = "0.7.7", features = [ "inline-asm", "critical-section-single-core"] }
-cortex-m-rt = "0.7.3"
-defmt = "0.3.6"
-defmt-rtt = "0.4.0"
-panic-probe = { version = "0.3.1", features = ["print-defmt"] }
-mimxrt685s-pac = { version = "0.1.0", features = [ "rt", "critical-section" ] }
+document-features = "0.2.7"
 
+[dev-dependencies]
+embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
+static_cell = { version = "2" }
