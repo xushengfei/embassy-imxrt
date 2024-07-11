@@ -32,6 +32,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+          targets: "thumbv8m.main-none-eabihf"
       - name: cargo fmt --check
         run: cargo fmt --check
   clippy:
@@ -54,6 +55,7 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
+          targets: "thumbv8m.main-none-eabihf"
       - name: cargo clippy
         uses: giraffate/clippy-action@v1
         with:
@@ -70,6 +72,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+          targets: "thumbv8m.main-none-eabihf"
       - name: cargo-semver-checks
         uses: obi1kenobi/cargo-semver-checks-action@v2
   doc:
@@ -84,6 +87,8 @@ jobs:
           submodules: true
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: "thumbv8m.main-none-eabihf"
       - name: cargo doc
         run: cargo doc --no-deps --all-features
         env:
@@ -99,6 +104,8 @@ jobs:
           submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: "thumbv8m.main-none-eabihf"
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       # intentionally no target specifier; see https://github.com/jonhoo/rust-ci-conf/pull/4
@@ -122,5 +129,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.msrv }}
+          targets: "thumbv8m.main-none-eabihf"
       - name: cargo +${{ matrix.msrv }} check
         run: cargo check
