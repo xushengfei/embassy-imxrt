@@ -13,10 +13,7 @@ pub mod clocks;
 
 // Reexports
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
-#[cfg(feature = "unstable-pac")]
 pub use mimxrt685s_pac as pac;
-#[cfg(not(feature = "unstable-pac"))]
-pub(crate) use mimxrt685s_pac as pac;
 
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
