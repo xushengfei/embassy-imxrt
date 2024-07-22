@@ -10,6 +10,7 @@
 // pub(crate) mod fmt;
 
 pub mod clocks;
+pub mod uart;
 
 // Reexports
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
@@ -220,6 +221,7 @@ pub fn init(config: config::Config) -> Peripherals {
         // time_driver::init();
         // dma::init();
         // gpio::init();
+        // uart::init();
     }
 
     peripherals
