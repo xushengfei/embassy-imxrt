@@ -10,6 +10,8 @@
 // pub(crate) mod fmt;
 
 pub mod clocks;
+//#[cfg(feature = "time-driver")]
+mod time_driver;
 
 // Reexports
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
