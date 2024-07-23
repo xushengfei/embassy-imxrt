@@ -8,6 +8,7 @@ use crate::pac::flexcomm2;
 use crate::pac::flexcomm3;
 use crate::pac::flexcomm4;
 use crate::pac::usart0;
+
 //use crate::pac::dma1;
 //use crate::{pac};
 //use crate::{pac, Peripheral};
@@ -83,4 +84,50 @@ impl FlexComm{
             eFLEXCOMM_SURFLINK_UART => unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm0::RegisterBlock)},
         }
     }
+
+    fn set_peripheral(&self, peripheral:u8, lock: bool) -> bool {
+// todo: Ask if I can change peripheral from u8 to "enum Persel"
+        if (peripheral != 0x0){
+            if (peripheral == 0x3 && self.regs().pselid().read().i2cpresent().is_not_present()){
+                return false;
+                //todo add a panic here
+            } else if (peripheral == 0x2 && self.regs().pselid().read().spipresent().is_not_present()){
+                return false;
+                //todo add a panic here
+            } else if (peripheral == 0x1 && self.regs().pselid().read().usartpresent().is_not_present()){
+                return false;
+                //todo add a panic here
+            }else if ((peripheral == 0x4 ||  peripheral == 0x5) && self.regs().pselid().read().i2spresent().is_not_present()){
+                return false;
+                //todo add a panic here
+            }
+        }
+        
+        if self.regs().pselid().read().lock().is_locked() && self.regs().pselid().read().persel().bits() != peripheral{
+            // Flexcomm is locked to different peripheral type than expected
+            return false;
+        } else {
+            // Handle the case when the condition is not met.
+            // Add your logic here.
+            return true;
+        }
+        
+        if (lock ){
+            self.regs().pselid().write(|w| w.lock().locked());
+        } else {
+            self.regs().pselid().write(|w| w.lock().unlocked());
+        }
+        unsafe {self.regs().pselid().write(|w| w.persel().bits(peripheral))};
+
+        return true;
+    }
+}
+
+pub struct Uart{
+    baudrate: u32,
+    flexcomm: FlexComm,
+    //dma: dma0::RegisterBlock,
+    //tx_dma: dma0::RegisterBlock,
+    //rx_dma: dma0::RegisterBlock,
+
 }
