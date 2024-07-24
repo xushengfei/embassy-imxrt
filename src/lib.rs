@@ -10,6 +10,7 @@
 // pub(crate) mod fmt;
 
 pub mod clocks;
+pub mod wwdt;
 
 // Reexports
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
