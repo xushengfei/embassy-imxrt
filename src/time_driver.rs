@@ -106,11 +106,11 @@ impl TimerDriver {
                 .mr3r()
                 .set_bit()
         });
-        //enable rtc clk
-        r.ctrl().modify(|_r, w| w.rtc_en().set_bit());
         //enable subsecond ticking so it actually counts at 32kHz instead of 1Hz
-        r.ctrl().modify(|_r, w| w.rtc_subsec_ena().set_bit()); //??
-                                                               //enable RTC int (1Hz or 1kHz since subsecond doesn't generate an int?)
+        // TODO: this would be a power suck, can we get away with either 1kHz or 1Hz for RTC to generate time stamp?
+        r.ctrl().modify(|_r, w| w.rtc_subsec_ena().set_bit());
+
+        //enable RTC int (1kHz since subsecond doesn't generate an int)
         r.ctrl()
             .modify(|_r, w| w.rtc1khz_en().set_bit().wakedpd_en().set_bit());
 
@@ -239,21 +239,37 @@ impl Driver for TimerDriver {
                 return false;
             }
 
+            // If it hasn't triggered yet, setup it by writing to the counter field
+
+            // nrf52 docs say:
+            //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
+            // To workaround this, we never write a timestamp smaller than N+3.
+            // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+            //
+            // It is impossible for rtc to tick more than once because
+            //  - this code takes less time than 1 tick
+            //  - it runs with interrupts disabled so nothing else can preempt it.
+            //
+            // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
+            // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
+            // and we don't do that here.
             let safe_timestamp = timestamp.max(t + 3); //+3 was done for nrf chip
-                                                       //r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+
+            //r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
             t0.tc()
                 .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
 
-            let diff = timestamp - t;
-            if diff < 0xc00000 {
-                //TODO
+            // TODO: the following checks that the difference in timestamp is less than the overflow period
+            // on nrf chip overflow period is 8 minutes but it's much longer (we use 32 bits instead of 24) on rt6xx
+            /* let diff = timestamp - t;
+            if diff < 1<<31 {
                 //set interrupt but nxp chip doesn't allow manual setting
                 //t0.intenset.write(|w| unsafe { w.bits(1<<n) });
             } else {
                 // If it's too far in the future, don't setup the compare channel yet.
                 // It will be setup later by `next_period`.
-                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
-            }
+                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) }); //this clears the interrupt bit
+            }*/
 
             true
         })

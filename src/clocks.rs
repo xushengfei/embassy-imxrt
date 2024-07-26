@@ -229,5 +229,7 @@ pub(crate) unsafe fn init(_config: ClockConfig) {
     r.ctrl().modify(|_r, w| w.rtc_osc_pd().clear_bit()); // Make sure the RTC OSC is powered up
     cc0.osc32khzctl0().modify(|_r, w| w.ena32khz().set_bit()); // Enable 32K OSC
 
-    //TODO: verify that the CTimern register don't need more that'd be better suited here than in the driver
+    //enable rtc clk
+    r.ctrl().modify(|_r, w| w.rtc_en().set_bit());
+    //TODO: verify that the CTimer0..3 register don't need more that'd be better suited here than in the driver
 }
