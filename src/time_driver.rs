@@ -11,9 +11,6 @@ use embassy_time_driver::{AlarmHandle, Driver}; //cargo build can't find this
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
-fn clock_ctrls () -> (&'static pac::clkctl0::RegisterBlock, &'static pac::clkctl1::RegisterBlock) {
-    unsafe {( &*pac::Clkctl0::ptr(), &*pac::Clkctl1::ptr())}
-}
 fn rtc() -> &'static pac::rtc::RegisterBlock {
     unsafe { &*pac::Rtc::ptr() }
 }
@@ -34,51 +31,14 @@ fn timer4() -> &'static pac::ctimer4::RegisterBlock {
 }
 /// Calculate the timestamp from the period count and the tick count.
 ///
-/// The RTC counter is 24 bit. Ticking at 32768hz, it overflows every ~8 minutes. This is
-/// too short. We must make it "never" overflow.
-///
-/// The obvious way would be to count overflow periods. Every time the counter overflows,
-/// increase a `periods` variable. `now()` simply does `periods << 24 + counter`. So, the logic
-/// around an overflow would look like this:
-///
-/// ```not_rust
-/// periods = 1, counter = 0xFF_FFFE --> now = 0x1FF_FFFE
-/// periods = 1, counter = 0xFF_FFFF --> now = 0x1FF_FFFF
-/// **OVERFLOW**
-/// periods = 2, counter = 0x00_0000 --> now = 0x200_0000
-/// periods = 2, counter = 0x00_0001 --> now = 0x200_0001
-/// ```
-///
-/// The problem is this is vulnerable to race conditions if `now()` runs at the exact time an
-/// overflow happens.
-///
-/// If `now()` reads `periods` first and `counter` later, and overflow happens between the reads,
-/// it would return a wrong value:
-///
-/// ```not_rust
-/// periods = 1 (OLD), counter = 0x00_0000 (NEW) --> now = 0x100_0000 -> WRONG
-/// ```
-///
-/// It fails similarly if it reads `counter` first and `periods` second.
-///
-/// To fix this, we define a "period" to be 2^23 ticks (instead of 2^24). One "overflow cycle" is 2 periods.
-///
-/// - `period` is incremented on overflow (at counter value 0)
-/// - `period` is incremented "midway" between overflows (at counter value 0x80_0000)
-///
-/// Therefore, when `period` is even, counter is in 0..0x7f_ffff. When odd, counter is in 0x80_0000..0xFF_FFFF
-/// This allows for now() to return the correct value even if it races an overflow.
-///
 /// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
 /// the expected range for the `period` parity, we're done. If it doesn't, this means that
 /// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
 /// corresponds to the next period.
 ///
-/// `period` is a 32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865
-/// years. For comparison, flash memory like the one containing your firmware is usually rated to retain
-/// data for only 10-20 years. 34865 years is long enough!
+/// `period` is a 32bit integer,
 fn calc_now(period: u32, counter: u32) -> u64 {
-    ((period as u64) << 32) + ((counter ^ ((period & 1) << 32)) as u64)
+    ((period as u64) << 31) + ((counter ^ ((period & 1) << 31)) as u64)
 }
 
 struct AlarmState {
@@ -122,62 +82,58 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 
 impl TimerDriver {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
-        let (cc0, cc1) = clock_ctrls();
         let r = rtc();
         let t0 = timer0();
-        /*let t1 = timer1();
-        let t2 = timer2();
-        let t3 = timer3();
-        */
-
-        // 32-bit compare register write 1<<23 since their RTC counter is only 24 bits
-        //r.cc[3].write(|w| unsafe { w.bits(0x800000) });
-
-        cc1.pscctl2().write(|w| w.rtc_lite_clk().enable_clock());// Enable the RTC peripheral clock
-        r.ctrl().write(|w| w.swreset().clear_bit()); // Make sure the reset bit is cleared
-        r.ctrl().write(|w| w.rtc_osc_pd().clear_bit()); // Make sure the RTC OSC is powered up
-        cc0.osc32khzctl0().write(|w| w.ena32khz().set_bit()); // Enable 32K OSC
 
         //enable timer reset on int and interrupts
         // should we clear on int if we're using the same timer but different alarms?
-        t0.mcr().write(|w| 
-            w.mr0i().set_bit()
-            .mr0r().set_bit()
-            .mr1i().set_bit()
-            .mr1r().set_bit()
-            .mr2i().set_bit()
-            .mr2r().set_bit()
-            .mr3i().set_bit()
-            .mr3r().set_bit());
+
+        t0.mcr().modify(|_r, w| {
+            w.mr0i()
+                .set_bit()
+                .mr0r()
+                .set_bit()
+                .mr1i()
+                .set_bit()
+                .mr1r()
+                .set_bit()
+                .mr2i()
+                .set_bit()
+                .mr2r()
+                .set_bit()
+                .mr3i()
+                .set_bit()
+                .mr3r()
+                .set_bit()
+        });
         //enable rtc clk
-        r.ctrl().write(|w| w.rtc_en());
+        r.ctrl().modify(|_r, w| w.rtc_en().set_bit());
         //enable subsecond ticking so it actually counts at 32kHz instead of 1Hz
-        r.ctrl().write(|w| w.rtc_subsec_ena());//??
-        //enable RTC int (1Hz or 1kHz since subsecond doesn't generate an int?)
-        r.ctrl().write(|w| w.rtc1khz_en().set_bit()
-                                             .wakedpd_en().set_bit());
+        r.ctrl().modify(|_r, w| w.rtc_subsec_ena().set_bit()); //??
+                                                               //enable RTC int (1Hz or 1kHz since subsecond doesn't generate an int?)
+        r.ctrl()
+            .modify(|_r, w| w.rtc1khz_en().set_bit().wakedpd_en().set_bit());
 
         // reset timer counters and then start them
-        t0.tcr().write(|w| w.crst().set_bit());
-        /*t1.tcr().write(|w| w.crst().set_bit());
-        t2.tcr().write(|w| w.crst().set_bit());
-        t3.tcr().write(|w| w.crst().set_bit());*/
+        t0.tcr().modify(|_r, w| w.crst().set_bit());
+        /*t1.tcr().modify(|_r,w| w.crst().set_bit());
+        t2.tcr().modify(|_r,w| w.crst().set_bit());
+        t3.tcr().modify(|_r,w| w.crst().set_bit());*/
 
         // Wait for counters to clear
         // probably don't need to wait for each timer counter to reset?
-        while r.counter.read().bits() != 0 {} // will this work or will the RTC have already ticked by this point?
+        while r.count().read().bits() != 0 {} // will this work or will the RTC have already ticked by this point?
         while t0.tc().read().bits() != 0 {}
         /*while t1.tc().read().bits() != 0 {}
         while t2.tc().read().bits() != 0 {}
         while t3.tc().read().bits() != 0 {}*/
         // clear reset bit
-        t0.tcr().write(|w| w.crst().clear_bit());
-        /*t1.tcr().write(|w| w.crst().clear_bit());
-        t2.tcr().write(|w| w.crst().clear_bit());
-        t3.tcr().write(|w| w.crst().clear_bit());*/
-        //clear the interrupts 
-        unsafe {t0.ir().write(|w| w.bits(0));}
-
+        t0.tcr().modify(|_r, w| w.crst().clear_bit());
+        /*t1.tcr().modify(|_r,w| w.crst().clear_bit());
+        t2.tcr().modify(|_r,w| w.crst().clear_bit());
+        t3.tcr().modify(|_r,w| w.crst().clear_bit());*/
+        //clear the interrupts
+        t0.ir().modify(|_r, w| unsafe { w.bits(0) });
 
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
@@ -187,20 +143,28 @@ impl TimerDriver {
         let r = rtc();
         let t0 = timer0();
         //compare rtc mask
-        if r.ctrl().read().alarm1hz() == 1 {
-            r.ctrl().write(|w| w.alarm1hz().set_bit());
+        if r.ctrl().read().alarm1hz().bit_is_set() == true {
+            r.ctrl().modify(|_r, w| w.alarm1hz().set_bit());
             //need to reset the rtc counter register?
             self.next_period();
         }
         //compare mask for all other alarms
         for n in 0..ALARM_COUNT {
-            if (t0.ir().read().bits() && (1<<n)) == 1 {
-                t0.ir().write(|w| unsafe{w.bits(1<<n)});
+            if (t0.ir().read().bits() & (1 << n)) != 0 {
+                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
                 critical_section::with(|cs| {
                     self.trigger_alarm(n, cs);
                 })
             }
         }
+    }
+
+    fn next_period(&self) {
+        critical_section::with(|_cs| {
+            let period = self.period.load(Ordering::Relaxed) + 1;
+            self.period.store(period, Ordering::Relaxed);
+            //let t = (period as u64) << 31;
+        })
     }
 
     fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
@@ -211,7 +175,7 @@ impl TimerDriver {
 
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         let t0 = timer0();
-        t0.ir().write(|w| unsafe { w.bits(1<<n) });
+        t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -258,7 +222,7 @@ impl Driver for TimerDriver {
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
-            let n = alarm.id() as _;
+            let n = alarm.id();
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
@@ -268,16 +232,17 @@ impl Driver for TimerDriver {
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                t0.ir().write(|w| unsafe { w.bits(1<<n) });
+                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
 
                 alarm.timestamp.set(u64::MAX);
 
                 return false;
             }
 
-            let safe_timestamp = timestamp.max(t + 3); //+3 was done for nrf chip 
-            //r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
-            t0.tc().write(|w| unsafe{w.bits(safe_timestamp as u32 & 0xFFFFFF)});
+            let safe_timestamp = timestamp.max(t + 3); //+3 was done for nrf chip
+                                                       //r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+            t0.tc()
+                .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
 
             let diff = timestamp - t;
             if diff < 0xc00000 {
@@ -287,7 +252,7 @@ impl Driver for TimerDriver {
             } else {
                 // If it's too far in the future, don't setup the compare channel yet.
                 // It will be setup later by `next_period`.
-                t0.ir().write(|w| unsafe { w.bits(1<<n) });
+                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
             }
 
             true

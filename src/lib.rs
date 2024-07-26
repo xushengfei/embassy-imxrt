@@ -10,7 +10,7 @@
 // pub(crate) mod fmt;
 
 pub mod clocks;
-//#[cfg(feature = "time-driver")]
+#[cfg(feature = "time-driver")]
 mod time_driver;
 
 // Reexports
@@ -188,12 +188,22 @@ pub mod config {
     pub struct Config {
         /// Clock configuration.
         pub clocks: ClockConfig,
+        /// GPIOTE interrupt priority. Should be lower priority than softdevice if used.
+        #[cfg(feature = "gpiote")]
+        pub gpiote_interrupt_priority: crate::interrupt::Priority,
+        /// Time driver interrupt priority. Should be lower priority than softdevice if used.
+        #[cfg(feature = "time-driver")]
+        pub time_interrupt_priority: crate::interrupt::Priority,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
                 clocks: ClockConfig::crystal(24_000_000),
+                #[cfg(feature = "gpiote")]
+                gpiote_interrupt_priority: crate::interrupt::Priority::P0,
+                #[cfg(feature = "time-driver")]
+                time_interrupt_priority: crate::interrupt::Priority::P0,
             }
         }
     }
@@ -201,7 +211,13 @@ pub mod config {
     impl Config {
         /// Create a new configuration with the provided clock config.
         pub fn new(clocks: ClockConfig) -> Self {
-            Self { clocks }
+            Self {
+                clocks,
+                #[cfg(feature = "gpiote")]
+                gpiote_interrupt_priority: crate::interrupt::Priority::P0,
+                #[cfg(feature = "time-driver")]
+                time_interrupt_priority: crate::interrupt::Priority::P0,
+            }
         }
     }
 }
@@ -218,8 +234,8 @@ pub fn init(config: config::Config) -> Peripherals {
 
     unsafe {
         clocks::init(config.clocks);
-        // #[cfg(feature = "time-driver")]
-        // time_driver::init();
+        #[cfg(feature = "time-driver")]
+        time_driver::init(config.time_interrupt_priority);
         // dma::init();
         // gpio::init();
     }

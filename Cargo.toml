@@ -28,15 +28,15 @@ rt = [ "mimxrt685s-pac/rt" ]
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt"]
 ## Enable features requiring `embassy-time`
-time = ["dep:embassy-time"]
+#time = ["dep:embassy-time"]
 
 
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"] #todo: determine if RTC should be 1Hz or 32kHz
 
 [dependencies]
 embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", optional = true}
-embassy-time = { git = "https://github.com/embassy-rs/embassy", optional = true }
+embassy-time = { git = "https://github.com/embassy-rs/embassy" }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = ["cortex-m", "prio-bits-2"] }
 defmt = { version = "0.3", optional = true }
