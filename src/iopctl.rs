@@ -15,6 +15,8 @@ use crate::pac::{iopctl, Iopctl};
 type PioM_N = iopctl::Pio0_0;
 
 /// Pin function number.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Function {
     /// Function 0
     F0,
@@ -37,6 +39,8 @@ pub enum Function {
 }
 
 /// Internal pull-up/down resistors on a pin.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
     /// No pull-up or pull-down resistor selected
     None,
@@ -47,6 +51,8 @@ pub enum Pull {
 }
 
 /// Pin slew rate.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SlewRate {
     /// Standard slew rate
     Standard,
@@ -55,6 +61,8 @@ pub enum SlewRate {
 }
 
 /// Output drive strength of a pin.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DriveStrength {
     /// Normal
     Normal,
@@ -63,6 +71,8 @@ pub enum DriveStrength {
 }
 
 /// Output drive mode of a pin.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DriveMode {
     /// Push-Pull
     PushPull,
@@ -71,6 +81,8 @@ pub enum DriveMode {
 }
 
 /// Input polarity of a pin.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Polarity {
     /// Active-high
     ActiveHigh,
