@@ -24,7 +24,17 @@ Used to download bits to and debug the target device
 cargo install flip-link --locked
 ```
 
-Handle stack overflows better with a hardware exception by positioning the stack smartly
+Handle stack overflows better with a hardware exception by positioning the stack smartly.  Used by build process directly during linking.
+
+cargo install cargo-bloat --locked
+
+### bloat
+
+```shell
+cargo install cargo-bloat --locked
+```
+
+Run with `cargo bloat` to see the function memory usage for the built binary
 
 ## Build
 
