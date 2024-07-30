@@ -23,3 +23,19 @@ embassy-futures = "0.1.1"
 futures = { version = "0.3.30", default-features = false, features = [
     "async-await",
 ] }
+
+[profile.dev]
+opt-level = 0      # Enable basic optimizations to preven super large binaries
+codegen-units = 16
+debug = true
+lto = false
+
+# Set the default for dependencies to optimized even for debug build to prevent super large binaries
+[profile.dev.package."*"]
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"   # optimize for size
+codegen-units = 1 # better optimizations
+debug = true      # symbols are nice and they don't increase the size on Flash
+lto = true        # better optimizations

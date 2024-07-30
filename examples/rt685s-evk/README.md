@@ -5,14 +5,35 @@
 These examples illustrates how to use the embassy-imxrt HAL.
 
 ## Adding Examples
-Add uniquely named example to `src/bin` like `adc.rs`
+
+Add uniquely named example to `src/bin` like `hello-world.rs`
+
+## Prerequisite tools
+
+### probe-rs-tools
+
+```shell
+cargo install probe-rs-tools --git https://github.com/probe-rs/probe-rs --locked
+```
+
+Used to download bits to and debug the target device
+
+### flip-link
+
+```shell
+cargo install flip-link --locked
+```
+
+Handle stack overflows better with a hardware exception by positioning the stack smartly
 
 ## Build
-`cd` to examples folder
-`cargo build --bin <example_name>` for example, `cargo build --bin adc`
+
+`cd` to examples/rt685s-evk folder
+`cargo build --bin <example_name>` for example, `cargo build --bin hello-world`
 
 ## Run
-Assuming RT685 is powered and connected to Jlink debug probe and the latest probe-rs is installed via  
-  `$ cargo install probe-rs-tools --git https://github.com/probe-rs/probe-rs --locked`  
-`cd` to examples folder  
-`cargo run --bin <example_name>` for example, `cargo run --bin adc`
+
+Assuming RT685 is powered and connected to Jlink debug probe and the latest probe-rs is installed:
+
+- `cd` to examples/rt685s-evk folder
+- `cargo run --bin <example_name>` for example, `cargo run --bin hello-world`
