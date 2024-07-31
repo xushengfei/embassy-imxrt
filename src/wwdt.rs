@@ -1,7 +1,22 @@
 //! Windowed Watchdog Timer (WWDT)
 
+use crate::interrupt;
+use crate::pac::Interrupt;
+use core::future::Future;
 use core::marker::PhantomData;
-use embassy_hal_internal::{into_ref, Peripheral};
+use core::pin::Pin;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::{Context, Poll};
+use cortex_m::peripheral::NVIC;
+use embassy_hal_internal::Peripheral;
+use embassy_sync::waitqueue::AtomicWaker;
+
+// Tracks state of watchdog warning futures
+const WWDT_COUNT: usize = 2;
+const NEW_AW: AtomicWaker = AtomicWaker::new();
+const NEW_AB: AtomicBool = AtomicBool::new(false);
+static WWDT_WAKERS: [AtomicWaker; WWDT_COUNT] = [NEW_AW; WWDT_COUNT];
+static WWDT_WARNINGS: [AtomicBool; WWDT_COUNT] = [NEW_AB; WWDT_COUNT];
 
 /// Windowed watchdog timer (WWDT) driver.
 pub struct WindowedWatchdog<'d, T: Instance, M: Mode> {
@@ -10,11 +25,20 @@ pub struct WindowedWatchdog<'d, T: Instance, M: Mode> {
 }
 
 trait SealedInstance {
+    /// Peripheral's instance number.
+    const INST: usize;
+
     /// Returns a reference to peripheral's register block.
     fn regs() -> &'static crate::pac::wwdt0::RegisterBlock;
 
     /// Initializes power and clocks to peripheral.
     fn init();
+
+    /// Disables peripheral when going out-of-scope.
+    ///
+    /// If the peripheral was previously locked, only interrupts
+    /// are disabled as the clock can no longer be disabled by software.
+    fn drop();
 }
 
 /// WWDT instance trait
@@ -23,6 +47,8 @@ pub trait Instance: SealedInstance {}
 
 // Cortex-M33 watchdog
 impl SealedInstance for crate::peripherals::WDT0 {
+    const INST: usize = 0;
+
     fn regs() -> &'static crate::pac::wwdt0::RegisterBlock {
         unsafe { &*crate::pac::Wwdt0::ptr() }
     }
@@ -44,12 +70,26 @@ impl SealedInstance for crate::peripherals::WDT0 {
         // Allow WDT0 interrupts to wake device from deep-sleep mode
         let sysctl0 = unsafe { &*crate::pac::Sysctl0::ptr() };
         sysctl0.starten0_set().write(|w| w.wdt0().set_bit());
+
+        // Enable interrupts
+        unsafe { NVIC::unmask(Interrupt::WDT0) };
+    }
+
+    fn drop() {
+        // Disable interrupt
+        NVIC::mask(Interrupt::WDT0);
+
+        // Disable watchdog clock
+        let clkctl0 = unsafe { &*crate::pac::Clkctl0::ptr() };
+        clkctl0.pscctl2_clr().write(|w| w.wwdt0_clk().set_bit());
     }
 }
 impl Instance for crate::peripherals::WDT0 {}
 
 // HiFi4 DSP watchdog
 impl SealedInstance for crate::peripherals::WDT1 {
+    const INST: usize = 1;
+
     fn regs() -> &'static crate::pac::wwdt0::RegisterBlock {
         unsafe { &*crate::pac::Wwdt1::ptr() }
     }
@@ -69,6 +109,18 @@ impl SealedInstance for crate::peripherals::WDT1 {
         rstctl1
             .prstctl2_clr()
             .write(|w| w.wwdt1_rst_clr().set_bit());
+
+        // Enable interrupts
+        unsafe { NVIC::unmask(Interrupt::WDT1) };
+    }
+
+    fn drop() {
+        // Disable interrupt
+        NVIC::mask(Interrupt::WDT1);
+
+        // Disable watchdog clock
+        let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
+        clkctl1.pscctl2_clr().write(|w| w.wwdt1_clk_clr().set_bit());
     }
 }
 impl Instance for crate::peripherals::WDT1 {}
@@ -144,9 +196,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     ///
     /// This is not automatically cleared here because application code may wish to check
     /// if it is set via a call to [Self::timed_out] to determine if a watchdog reset occurred previously.
-    pub fn new(_instance: impl Peripheral<P = T>, timeout_us: u32) -> Self {
-        into_ref!(_instance);
-
+    pub fn new(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
         let mut wwdt = Self {
             _wwdt: PhantomData,
             _mode: PhantomData,
@@ -217,6 +267,10 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn unleash(self) -> WindowedWatchdog<'d, T, Unleashed> {
         T::regs().mod_().modify(|_, w| w.wden().set_bit());
 
+        // Our destructor disables the watchdog peripheral, but we don't want that here.
+        // So we take ownership of self WITHOUT calling drop().
+        core::mem::forget(self);
+
         let mut unleashed_wwdt = WindowedWatchdog {
             _wwdt: PhantomData,
             _mode: PhantomData,
@@ -238,6 +292,13 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Unleashed> {
                 .iter()
                 .for_each(|byte| T::regs().feed().write(|w| unsafe { w.feed().bits(*byte) }))
         });
+    }
+
+    /// Asynchronously wait for watchdog warning interrupt to be generated.
+    ///
+    /// Can be used to handle last-millisecond tasks before system reset occurs.
+    pub async fn wait_for_warning(&mut self) {
+        WatchdogFuture::<T>::new().await
     }
 }
 
@@ -306,3 +367,50 @@ impl<'d, T: Instance, M: Mode> WindowedWatchdog<'d, T, M> {
         counter_to_time(counter as u32)
     }
 }
+
+impl<'d, T: Instance, M: Mode> Drop for WindowedWatchdog<'d, T, M> {
+    fn drop(&mut self) {
+        T::drop();
+    }
+}
+
+struct WatchdogFuture<'d, T: Instance> {
+    _wwdt: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Instance> WatchdogFuture<'d, T> {
+    fn new() -> Self {
+        Self { _wwdt: PhantomData }
+    }
+}
+
+impl<'d, T: Instance> Future for WatchdogFuture<'d, T> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        WWDT_WAKERS[T::INST].register(cx.waker());
+
+        if WWDT_WARNINGS[T::INST].load(Ordering::Acquire) {
+            WWDT_WARNINGS[T::INST].store(false, Ordering::Release);
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+macro_rules! wwdt_isr {
+    ($n:expr, $WDTx:ident, $Wwdtx:ident) => {
+        #[allow(non_snake_case)]
+        #[interrupt]
+        fn $WDTx() {
+            let wwdt = unsafe { &*$crate::pac::$Wwdtx::ptr() };
+            wwdt.mod_().modify(|_, w| w.wdint().set_bit());
+            WWDT_WARNINGS[$n].store(true, Ordering::Release);
+            WWDT_WAKERS[$n].wake();
+        }
+    };
+}
+
+wwdt_isr!(0, WDT0, Wwdt0);
+wwdt_isr!(1, WDT1, Wwdt1);
