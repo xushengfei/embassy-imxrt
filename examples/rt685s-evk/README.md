@@ -47,3 +47,11 @@ Assuming RT685 is powered and connected to Jlink debug probe and the latest prob
 
 - `cd` to examples/rt685s-evk folder
 - `cargo run --bin <example_name>` for example, `cargo run --bin hello-world`
+
+## Binary Sections and Memory Map
+
+To see the memory usage and placement by section, run:
+
+```shell
+cargo size --bin hello-world -- -A
+```
