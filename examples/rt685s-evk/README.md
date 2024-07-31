@@ -26,9 +26,7 @@ cargo install flip-link --locked
 
 Handle stack overflows better with a hardware exception by positioning the stack smartly.  Used by build process directly during linking.
 
-cargo install cargo-bloat --locked
-
-### bloat
+### cargo-bloat
 
 ```shell
 cargo install cargo-bloat --locked

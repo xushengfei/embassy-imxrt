@@ -51,7 +51,7 @@ default-features = false
 features = ["defmt"]
 
 [profile.dev]
-opt-level = 0      # Enable basic optimizations to preven super large binaries
+opt-level = 0      # Enable basic optimizations to prevent super large binaries
 codegen-units = 16
 debug = true
 lto = false
