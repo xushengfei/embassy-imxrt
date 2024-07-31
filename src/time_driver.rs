@@ -1,34 +1,21 @@
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr};
+use core::{mem, ptr, u32, u64};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
-//TODO
-use embassy_time_driver::{AlarmHandle, Driver}; //cargo build can't find this
+use embassy_time_driver::{AlarmHandle, Driver};
+use mimxrt685s_pac::powerquad::gpreg;
 
+
+use crate::{clocks, interrupt, pac};
 use crate::interrupt::InterruptExt;
-use crate::{interrupt, pac};
 
 fn rtc() -> &'static pac::rtc::RegisterBlock {
     unsafe { &*pac::Rtc::ptr() }
 }
-fn timer0() -> &'static pac::ctimer0::RegisterBlock {
-    unsafe { &*pac::Ctimer0::ptr() }
-}
-fn timer1() -> &'static pac::ctimer1::RegisterBlock {
-    unsafe { &*pac::Ctimer1::ptr() }
-}
-fn timer2() -> &'static pac::ctimer2::RegisterBlock {
-    unsafe { &*pac::Ctimer2::ptr() }
-}
-fn timer3() -> &'static pac::ctimer3::RegisterBlock {
-    unsafe { &*pac::Ctimer3::ptr() }
-}
-fn timer4() -> &'static pac::ctimer4::RegisterBlock {
-    unsafe { &*pac::Ctimer4::ptr() }
-}
+
 /// Calculate the timestamp from the period count and the tick count.
 ///
 /// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
@@ -36,14 +23,15 @@ fn timer4() -> &'static pac::ctimer4::RegisterBlock {
 /// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
 /// corresponds to the next period.
 ///
-/// `period` is a 32bit integer,
+/// the 1kHz RTC counter is 16 bits and RTC doesnt have separate compare channels,
+/// so using a 32 bit GPREG0-2 as counter, compare, and int_en
+/// `period` is a 32bit integer, gpreg 'counter' is 31 bits plus the parity bit for overflow detection
 fn calc_now(period: u32, counter: u32) -> u64 {
     ((period as u64) << 31) + ((counter ^ ((period & 1) << 31)) as u64)
 }
 
 struct AlarmState {
     timestamp: Cell<u64>,
-
     // This is really a Option<(fn(*mut ()), *mut ())>
     // but fn pointers aren't allowed in const yet
     callback: Cell<*const ()>,
@@ -62,10 +50,10 @@ impl AlarmState {
     }
 }
 
-const ALARM_COUNT: usize = 4;
+const ALARM_COUNT: usize = 1;
 
 struct TimerDriver {
-    /// Number of 2^32 periods elapsed since boot.
+    /// Number of 2^31 periods elapsed since boot.
     period: AtomicU32,
     alarm_count: AtomicU8,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
@@ -83,87 +71,55 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 impl TimerDriver {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
-        let t0 = timer0();
-
-        //enable timer reset on int and interrupts
-        // should we clear on int if we're using the same timer but different alarms?
-
-        t0.mcr().modify(|_r, w| {
-            w.mr0i()
-                .set_bit()
-                .mr0r()
-                .set_bit()
-                .mr1i()
-                .set_bit()
-                .mr1r()
-                .set_bit()
-                .mr2i()
-                .set_bit()
-                .mr2r()
-                .set_bit()
-                .mr3i()
-                .set_bit()
-                .mr3r()
-                .set_bit()
-        });
-        //enable subsecond ticking so it actually counts at 32kHz instead of 1Hz
-        // TODO: this would be a power suck, can we get away with either 1kHz or 1Hz for RTC to generate time stamp?
-        r.ctrl().modify(|_r, w| w.rtc_subsec_ena().set_bit());
-
         //enable RTC int (1kHz since subsecond doesn't generate an int)
         r.ctrl()
-            .modify(|_r, w| w.rtc1khz_en().set_bit().wakedpd_en().set_bit());
+            .modify(|_r, w| w.rtc1khz_en().set_bit());//.wakedpd_en().set_bit());
 
-        // reset timer counters and then start them
-        t0.tcr().modify(|_r, w| w.crst().set_bit());
-        /*t1.tcr().modify(|_r,w| w.crst().set_bit());
-        t2.tcr().modify(|_r,w| w.crst().set_bit());
-        t3.tcr().modify(|_r,w| w.crst().set_bit());*/
-
-        // Wait for counters to clear
-        // probably don't need to wait for each timer counter to reset?
-        while r.count().read().bits() != 0 {} // will this work or will the RTC have already ticked by this point?
-        while t0.tc().read().bits() != 0 {}
-        /*while t1.tc().read().bits() != 0 {}
-        while t2.tc().read().bits() != 0 {}
-        while t3.tc().read().bits() != 0 {}*/
-        // clear reset bit
-        t0.tcr().modify(|_r, w| w.crst().clear_bit());
-        /*t1.tcr().modify(|_r,w| w.crst().clear_bit());
-        t2.tcr().modify(|_r,w| w.crst().clear_bit());
-        t3.tcr().modify(|_r,w| w.crst().clear_bit());*/
-        //clear the interrupts
-        t0.ir().modify(|_r, w| unsafe { w.bits(0) });
-
+        //clocks::enable_systick_int();
+        r.gpreg(1).write(|w| unsafe{w.gpdata().bits(u32::MAX)});
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
     }
 
     fn on_interrupt(&self) {
         let r = rtc();
-        let t0 = timer0();
-        //compare rtc mask
-        if r.ctrl().read().alarm1hz().bit_is_set() == true {
-            r.ctrl().modify(|_r, w| w.alarm1hz().set_bit());
-            //need to reset the rtc counter register?
-            self.next_period();
-        }
-        //compare mask for all other alarms
-        for n in 0..ALARM_COUNT {
-            if (t0.ir().read().bits() & (1 << n)) != 0 {
-                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
-                critical_section::with(|cs| {
-                    self.trigger_alarm(n, cs);
-                })
+        //this interrupt fires every 10 ticks of the 1kHz RTC high res clk and adds 10 to the 31 bit counter gpreg0
+        // this is done to avoid needing to calculate # of ticks spent on interrupt handlers to recalibrate
+        if r.ctrl().read().wake1khz().bit_is_set() == true {
+            r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
+            r.wake().write(|w| unsafe{w.bits(0xA)});
+            if (r.gpreg(0).read().bits() + 0xA) > 0x8000_0000 { //if were going to "overflow"
+                self.next_period();
+                let rollover_diff = 0x8000_0000 - (r.gpreg(0).read().bits() + 0xA);
+                r.gpreg(0).write(|w| unsafe{w.bits(rollover_diff)});
+            } else {
+                r.gpreg(0).modify(|r,w| unsafe {w.bits(r.bits() + 0xA)});
             }
         }
+
+        critical_section::with(|cs| {
+            //use gpreg1 as a compare register, gpreg2 as an "int_en"
+            if r.gpreg(2).read().gpdata().bits() == 1{
+                if r.gpreg(0).read().bits() > r.gpreg(1).read().bits() {
+                    self.trigger_alarm(0, cs);
+                }
+            }
+        })
     }
 
     fn next_period(&self) {
-        critical_section::with(|_cs| {
+        critical_section::with(|cs| {
+            let r = rtc();
             let period = self.period.load(Ordering::Relaxed) + 1;
             self.period.store(period, Ordering::Relaxed);
-            //let t = (period as u64) << 31;
+            let t = (period as u64) << 31;
+
+            let alarm = &self.alarms.borrow(cs)[0];
+            let at = alarm.timestamp.get();
+            if at < t + 0xc000_0000 {
+                // just enable it. `set_alarm` has already set the correct CC val.
+                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(1) });
+            }
         })
     }
 
@@ -174,8 +130,10 @@ impl TimerDriver {
     }
 
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        let t0 = timer0();
-        t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
+        let r = rtc();
+        //gpreg 2 is "int_en" and gpreg1 is the compare register
+        r.gpreg(2).write(|w| unsafe{w.bits(0)});
+        r.gpreg(1).write(|w| unsafe{w.bits(0xFFFF_FFFF)});
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -195,7 +153,7 @@ impl Driver for TimerDriver {
         // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = rtc().count().read().bits();
+        let counter = rtc().gpreg(0).read().bits();
         calc_now(period, counter)
     }
 
@@ -226,50 +184,40 @@ impl Driver for TimerDriver {
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
-            let t0 = timer0();
+            let r= rtc();
 
             let t = self.now();
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) });
+                r.gpreg(2).write(|w| unsafe{w.gpdata().bits(0)});
 
                 alarm.timestamp.set(u64::MAX);
 
                 return false;
             }
 
-            // If it hasn't triggered yet, setup it by writing to the counter field
+            // If it hasn't triggered yet, setup it by writing to the compare field
 
-            // nrf52 docs say:
-            //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
-            // To workaround this, we never write a timestamp smaller than N+3.
-            // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
-            //
-            // It is impossible for rtc to tick more than once because
-            //  - this code takes less time than 1 tick
-            //  - it runs with interrupts disabled so nothing else can preempt it.
-            //
-            // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
-            // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
-            // and we don't do that here.
-            let safe_timestamp = timestamp.max(t + 3); //+3 was done for nrf chip
+            // An alarm can be delayed, but this is allowed by the Alarm trait contract.
+            // What's not allowed is triggering alarms *before* their scheduled time,
+            let safe_timestamp = timestamp.max(t+10); //t+3 was done for nrf chip, choosing 10
 
-            //r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
-            t0.tc()
-                .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+            r.gpreg(1)
+                .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
 
             // TODO: the following checks that the difference in timestamp is less than the overflow period
-            // on nrf chip overflow period is 8 minutes but it's much longer (we use 32 bits instead of 24) on rt6xx
-            /* let diff = timestamp - t;
-            if diff < 1<<31 {
-                //set interrupt but nxp chip doesn't allow manual setting
-                //t0.intenset.write(|w| unsafe { w.bits(1<<n) });
+            //do the period + counter calculation to set the timestamp to compare
+
+            let diff = timestamp - t;
+            if diff < 0xc000_0000 { // this is 0b11 << (30). NRF chip which used 23 bit periods used 0b11<<22
+                //set the "int enable"
+                r.gpreg(2).write(|w| unsafe {w.gpdata().bits(1)});
             } else {
-                // If it's too far in the future, don't setup the compare channel yet.
+                // If it's too far in the future, don't setup the int yet.
                 // It will be setup later by `next_period`.
-                t0.ir().modify(|_r, w| unsafe { w.bits(1 << n) }); //this clears the interrupt bit
-            }*/
+                r.gpreg(2).write(|w| unsafe {w.gpdata().bits(0)});
+            }
 
             true
         })
@@ -278,7 +226,7 @@ impl Driver for TimerDriver {
 
 #[cfg(feature = "rt")]
 #[interrupt]
-fn CTIMER0() {
+fn RTC() {
     DRIVER.on_interrupt()
 }
 

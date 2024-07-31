@@ -31,7 +31,7 @@ defmt = ["dep:defmt"]
 #time = ["dep:embassy-time"]
 
 
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"] #todo: determine if RTC should be 1Hz or 32kHz
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000"] #using 1kHz RTC
 
 [dependencies]
 embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
