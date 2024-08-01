@@ -8,9 +8,8 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 use mimxrt685s_pac::powerquad::gpreg;
 
-
-use crate::{clocks, interrupt, pac};
 use crate::interrupt::InterruptExt;
+use crate::{clocks, interrupt, pac};
 
 fn rtc() -> &'static pac::rtc::RegisterBlock {
     unsafe { &*pac::Rtc::ptr() }
@@ -72,34 +71,36 @@ impl TimerDriver {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
         //enable RTC int (1kHz since subsecond doesn't generate an int)
-        r.ctrl()
-            .modify(|_r, w| w.rtc1khz_en().set_bit());//.wakedpd_en().set_bit());
+        r.ctrl().modify(|_r, w| w.rtc1khz_en().set_bit());
+        //TODO: low power support. line above is leaving out write to .wakedpd_en().set_bit()) which enables wake from deep power down
 
         //clocks::enable_systick_int();
-        r.gpreg(1).write(|w| unsafe{w.gpdata().bits(u32::MAX)});
+        r.gpreg(1).write(|w| unsafe { w.gpdata().bits(u32::MAX) });
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
     }
 
     fn on_interrupt(&self) {
         let r = rtc();
-        //this interrupt fires every 10 ticks of the 1kHz RTC high res clk and adds 10 to the 31 bit counter gpreg0
+        // this interrupt fires every 10 ticks of the 1kHz RTC high res clk and adds 10 to the 31 bit counter gpreg0
         // this is done to avoid needing to calculate # of ticks spent on interrupt handlers to recalibrate
+        //TODO: this is admittedly not great for power that we're generating this many interrupts, will probably get updated in future iterations
         if r.ctrl().read().wake1khz().bit_is_set() == true {
             r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
-            r.wake().write(|w| unsafe{w.bits(0xA)});
-            if (r.gpreg(0).read().bits() + 0xA) > 0x8000_0000 { //if were going to "overflow"
+            r.wake().write(|w| unsafe { w.bits(0xA) });
+            if (r.gpreg(0).read().bits() + 0xA) > 0x8000_0000 {
+                //if were going to "overflow"
                 self.next_period();
                 let rollover_diff = 0x8000_0000 - (r.gpreg(0).read().bits() + 0xA);
-                r.gpreg(0).write(|w| unsafe{w.bits(rollover_diff)});
+                r.gpreg(0).write(|w| unsafe { w.bits(rollover_diff) });
             } else {
-                r.gpreg(0).modify(|r,w| unsafe {w.bits(r.bits() + 0xA)});
+                r.gpreg(0).modify(|r, w| unsafe { w.bits(r.bits() + 0xA) });
             }
         }
 
         critical_section::with(|cs| {
             //use gpreg1 as a compare register, gpreg2 as an "int_en"
-            if r.gpreg(2).read().gpdata().bits() == 1{
+            if r.gpreg(2).read().gpdata().bits() == 1 {
                 if r.gpreg(0).read().bits() > r.gpreg(1).read().bits() {
                     self.trigger_alarm(0, cs);
                 }
@@ -132,8 +133,8 @@ impl TimerDriver {
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         let r = rtc();
         //gpreg 2 is "int_en" and gpreg1 is the compare register
-        r.gpreg(2).write(|w| unsafe{w.bits(0)});
-        r.gpreg(1).write(|w| unsafe{w.bits(0xFFFF_FFFF)});
+        r.gpreg(2).write(|w| unsafe { w.bits(0) });
+        r.gpreg(1).write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -184,13 +185,13 @@ impl Driver for TimerDriver {
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
-            let r= rtc();
+            let r = rtc();
 
             let t = self.now();
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                r.gpreg(2).write(|w| unsafe{w.gpdata().bits(0)});
+                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(0) });
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -201,22 +202,21 @@ impl Driver for TimerDriver {
 
             // An alarm can be delayed, but this is allowed by the Alarm trait contract.
             // What's not allowed is triggering alarms *before* their scheduled time,
-            let safe_timestamp = timestamp.max(t+10); //t+3 was done for nrf chip, choosing 10
+            let safe_timestamp = timestamp.max(t + 10); //t+3 was done for nrf chip, choosing 10
 
             r.gpreg(1)
                 .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
 
-            // TODO: the following checks that the difference in timestamp is less than the overflow period
-            //do the period + counter calculation to set the timestamp to compare
-
+            // The following checks that the difference in timestamp is less than the overflow period
             let diff = timestamp - t;
-            if diff < 0xc000_0000 { // this is 0b11 << (30). NRF chip which used 23 bit periods used 0b11<<22
+            if diff < 0xc000_0000 {
+                // this is 0b11 << (30). NRF chip which used 23 bit periods checked against 0b11<<22
                 //set the "int enable"
-                r.gpreg(2).write(|w| unsafe {w.gpdata().bits(1)});
+                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(1) });
             } else {
                 // If it's too far in the future, don't setup the int yet.
                 // It will be setup later by `next_period`.
-                r.gpreg(2).write(|w| unsafe {w.gpdata().bits(0)});
+                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(0) });
             }
 
             true

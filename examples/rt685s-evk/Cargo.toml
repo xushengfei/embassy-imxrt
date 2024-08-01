@@ -1,0 +1,41 @@
+[package]
+name = "embassy-imxrt-examples"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = [
+    "inline-asm",
+    "critical-section-single-core",
+] }
+cortex-m-rt = "0.7.3"
+defmt = "0.3.6"
+defmt-rtt = "0.4.0"
+panic-probe = { version = "0.3.1", features = ["print-defmt"] }
+embassy-imxrt = { version = "0.1.0", path = "../../", features = [
+    "defmt",
+    "time-driver",
+    "time",
+] }
+
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = [
+    "defmt",
+] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
+    "arch-cortex-m",
+    "executor-thread",
+    "executor-interrupt",
+    "defmt",
+    "integrated-timers",
+] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
+#embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["task-arena-size-32768","arch-cortex-m","executor-thread", "executor-interrupt", "defmt", "integrated-timers",] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+] }
+futures = { version = "0.3.30", default-features = false, features = [
+    "async-await",
+] }
+mimxrt685s-pac = { version = "*", features = ["rt", "critical-section"] }

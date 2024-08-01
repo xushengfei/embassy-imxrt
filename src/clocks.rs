@@ -3,8 +3,6 @@ use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
-//use cortex_m::peripheral::syst::SystClkSource;
-//use cortex_m::peripheral::SYST;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 //use crate::gpio::{AnyPin, SealedPin}; //not written yet
@@ -214,57 +212,7 @@ fn clock_ctrls() -> (
 fn rtc() -> &'static pac::rtc::RegisterBlock {
     unsafe { &*pac::Rtc::ptr() }
 }
-fn timer0() -> &'static pac::ctimer0::RegisterBlock {
-    unsafe { &*pac::Ctimer0::ptr() }
-}
 
-/*unsafe fn systick() -> &'static cortex_m::peripheral::SYST {
-    //unsafe { &*cortex_m::peripheral::SYST::PTR}
-    &*(cortex_m::Peripherals::steal().SYST)
-}
-
-pub fn enable_systick() {
-    let mut systickRegs = unsafe{systick()};
-    systickRegs.disable_interrupt();
-    systickRegs.set_clock_source(SystClkSource::Core);
-    systickRegs.set_reload(0x800000);
-    systickRegs.clear_current();
-    systickRegs.enable_counter();
-    //let mut syst = cortex_m::peripheral::SYST;
-    //syst.
-    // Just the RTC
-    //enable timer reset on int and interrupts
-    /*let r = rtc();
-    let t0 = timer0();
-    // TODO: should we clear on int if we're using the same counter for
-    t0.mcr().modify(|_r, w| {
-        w.mr0i()
-            .set_bit()
-            .mr0r()
-            .set_bit()
-            .mr1i()
-            .set_bit()
-            .mr1r()
-            .set_bit()
-            .mr2i()
-            .set_bit()
-            .mr2r()
-            .set_bit()
-            .mr3i()
-            .set_bit()
-            .mr3r()
-            .set_bit()
-    });*/
-}
-
-pub fn get_systick_count() -> u32 {
-    let mut systickRegs = unsafe{systick()};
-    let count = systickRegs.cvr.read().try_into();//?
-}
-pub fn enable_systick_int() {
-    let systickRegs = unsafe{systick()};
-    systickRegs.enable_interrupt();
-}*/
 /// safety: must be called exactly once at bootup
 pub(crate) unsafe fn init(_config: ClockConfig) {
     let (cc0, cc1) = clock_ctrls();
@@ -275,10 +223,11 @@ pub(crate) unsafe fn init(_config: ClockConfig) {
         .modify(|_r, w| w.rtc_lite_clk().enable_clock()); // Enable the RTC peripheral clock
     r.ctrl().modify(|_r, w| w.swreset().clear_bit()); // Make sure the reset bit is cleared
     r.ctrl().modify(|_r, w| w.rtc_osc_pd().clear_bit()); // Make sure the RTC OSC is powered up
-    r.wake().modify(|_r, w| w.bits(0xA));//set initial match value, w.bits(0x8000
+    r.wake().modify(|_r, w| w.bits(0xA)); //set initial match value
+                                          // note on the line above, match value was 0x8000 since this is a 15-bit count-down timer
+                                          // but we are "doing some clever things" in time-driver.rs read more about it in the comments there.
     cc0.osc32khzctl0().modify(|_r, w| w.ena32khz().set_bit()); // Enable 32K OSC
 
     //enable rtc clk
     r.ctrl().modify(|_r, w| w.rtc_en().set_bit());
-
 }
