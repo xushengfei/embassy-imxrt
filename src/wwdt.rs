@@ -144,7 +144,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     ///
     /// This is not automatically cleared here because application code may wish to check
     /// if it is set via a call to [Self::timed_out] to determine if a watchdog reset occurred previously.
-    pub fn new(_instance: impl Peripheral<P = T>, timeout_us: u32) -> Self {
+    pub fn new(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
         into_ref!(_instance);
 
         let mut wwdt = Self {
