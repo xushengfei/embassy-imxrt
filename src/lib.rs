@@ -11,6 +11,7 @@ pub(crate) mod fmt;
 
 pub mod adc;
 pub mod clocks;
+pub mod pwm;
 #[cfg(feature = "time-driver")]
 mod time_driver;
 pub mod wwdt;
