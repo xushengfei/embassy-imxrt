@@ -1,11 +1,21 @@
 //! I2C (Inter-Integrated Circuit) bus support
 
-/// I2C Struct
-pub struct I2c {}
+use embassy_hal_internal::{Peripheral, PeripheralRef};
 
-impl I2c {
-    /// Create a new I2C instance
-    pub fn new() -> Self {
-        Self {}
+/// I2C Struct
+pub struct I2c<'d, T> {
+    peripheral: PeripheralRef<'d, T>,
+}
+
+impl<'d, T> I2c<'d, T> {
+    fn init(&self) -> () {}
+
+    pub fn new(flexcomm: impl Peripheral<P = T> + 'd) -> Self {
+        let r = Self {
+            peripheral: flexcomm.into_ref(),
+        };
+
+        r.init();
+        r
     }
 }

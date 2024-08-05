@@ -31,9 +31,11 @@ async fn main(_spawner: Spawner) {
     info!("i2c example - Configure GPIOs");
     board_init_gpios(&pac);
 
-    let _p = embassy_imxrt::init(Default::default());
+    let p = embassy_imxrt::init(Default::default());
 
-    let mut _i2c = I2c::new();
+    let mut i2c = I2c::new(p.FLEXCOMM2);
+
+    // Read WHO_AM_I register, 0x0D to get value 0xC7
 
     info!("i2c example - Done!  Busy Loop...");
     loop {
@@ -55,6 +57,38 @@ fn board_init_pins(p: &pac::Peripherals) -> () {
     // Input function is not inverted
 
     p.iopctl.pio1_7().write(|w| {
+        w.fsel()
+            .function_0()
+            .pupdena()
+            .disabled()
+            .pupdsel()
+            .pull_down()
+            .ibena()
+            .disabled()
+            .slewrate()
+            .normal()
+            .fulldrive()
+            .normal_drive()
+            .amena()
+            .disabled()
+            .odena()
+            .disabled()
+            .iiena()
+            .disabled()
+    });
+
+    // Configure IO Pad Control 1_5 for ACC Interrupt Pin
+    //
+    // Pin is configured as PIO1_5
+    // Disable pull-up / pull-down function
+    // Enable pull-down function
+    // Disable input buffer function
+    // Normal mode
+    // Normal drive
+    // Analog mux is disabled
+    // Pseudo Output Drain is disabled
+    // Input function is not inverted
+    p.iopctl.pio1_5().write(|w| {
         w.fsel()
             .function_0()
             .pupdena()
@@ -158,5 +192,9 @@ fn board_init_gpios(p: &pac::Peripherals) -> () {
 
     // Set GPIO1_7 (Reset) as low
     info!("Configuring GPIO1_7 as low");
-    p.gpio.set(1).write(|w| unsafe { w.bits(1 << 7) });
+    p.gpio.set(1).write(|w| unsafe { w.bits(1 << 5) });
+
+    // Set GPIO1_5 (Interrupt) as input
+    info!("Configuring GPIO1_5 as input");
+    p.gpio.dirclr(1).write(|w| unsafe { w.bits(1 << 5) });
 }
