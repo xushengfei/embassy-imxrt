@@ -11,6 +11,7 @@
 
 pub mod adc;
 pub mod clocks;
+pub mod i2c;
 pub mod wwdt;
 
 // Reexports
