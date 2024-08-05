@@ -33,7 +33,7 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy" }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
-embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = ["cortex-m", "prio-bits-2"] }
+embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = ["cortex-m", "prio-bits-3"] }
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 nb = "1.0.0"
