@@ -1,8 +1,10 @@
 //! ADC
 
-use crate::peripherals::ADC0;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::Peripheral;
+
+use crate::peripherals::ADC0;
 
 /// ADC driver.
 pub struct Adc<'d> {
