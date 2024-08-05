@@ -1,6 +1,7 @@
 //! Windowed Watchdog Timer (WWDT)
 
 use core::marker::PhantomData;
+
 use embassy_hal_internal::{into_ref, Peripheral};
 
 /// Windowed watchdog timer (WWDT) driver.
@@ -33,9 +34,7 @@ impl SealedInstance for crate::peripherals::WDT0 {
         // Enable WWDT0 clock and set LPOSC as clock source
         let clkctl0 = unsafe { &*crate::pac::Clkctl0::ptr() };
         clkctl0.pscctl2_set().write(|w| w.wwdt0_clk().set_bit());
-        clkctl0
-            .wdt0fclksel()
-            .modify(|_, w| unsafe { w.sel().bits(0) });
+        clkctl0.wdt0fclksel().modify(|_, w| unsafe { w.sel().bits(0) });
 
         // Clear WWDT0 peripheral reset
         let rstctl0 = unsafe { &*crate::pac::Rstctl0::ptr() };
@@ -60,15 +59,11 @@ impl SealedInstance for crate::peripherals::WDT1 {
         // Enable WWDT1 clock and set LPOSC as clock source
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
         clkctl1.pscctl2_set().write(|w| w.wwdt1_clk_set().set_bit());
-        clkctl1
-            .wdt1fclksel()
-            .modify(|_, w| unsafe { w.sel().bits(0) });
+        clkctl1.wdt1fclksel().modify(|_, w| unsafe { w.sel().bits(0) });
 
         // Clear WWDT1 peripheral reset
         let rstctl1 = unsafe { &*crate::pac::Rstctl1::ptr() };
-        rstctl1
-            .prstctl2_clr()
-            .write(|w| w.wwdt1_rst_clr().set_bit());
+        rstctl1.prstctl2_clr().write(|w| w.wwdt1_rst_clr().set_bit());
     }
 }
 impl Instance for crate::peripherals::WDT1 {}
@@ -178,9 +173,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn set_feed_window(&mut self, window_us: u32) -> &mut Self {
         debug_assert!((0..=MAX_COUNTER_US).contains(&window_us));
         let counter = time_to_counter(window_us);
-        T::regs()
-            .window()
-            .write(|w| unsafe { w.window().bits(counter) });
+        T::regs().window().write(|w| unsafe { w.window().bits(counter) });
         self
     }
 
@@ -191,9 +184,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn set_warning_threshold(&mut self, threshold_us: u32) -> &mut Self {
         debug_assert!((0..=MAX_WARNING_US).contains(&threshold_us));
         let counter = time_to_counter(threshold_us) as u16;
-        T::regs()
-            .warnint()
-            .write(|w| unsafe { w.warnint().bits(counter) });
+        T::regs().warnint().write(|w| unsafe { w.warnint().bits(counter) });
         self
     }
 
