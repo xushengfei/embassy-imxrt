@@ -13,17 +13,15 @@ documentation = "https://docs.embassy.dev/embassy-imxrt"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-imxrt-v$VERSION/embassy-imxrt/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-imxrt/src/"
 features = ["defmt", "unstable-pac", "time-driver"]
-flavors = [
-    { name = "imxrt685s", target = "thumbv8m.main-none-eabihf" },
-]
+flavors = [{ name = "imxrt685s", target = "thumbv8m.main-none-eabihf" }]
 
 [package.metadata.docs.rs]
 features = ["defmt", "unstable-pac", "time-driver"]
 
 [features]
-default = [ "rt" ]
+default = ["rt"]
 ## Enable the rt feature of [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
-rt = [ "mimxrt685s-pac/rt" ]
+rt = ["mimxrt685s-pac/rt"]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt"]
@@ -33,7 +31,10 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy" }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
-embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = ["cortex-m", "prio-bits-3"] }
+embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = [
+    "cortex-m",
+    "prio-bits-3",
+] }
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 nb = "1.0.0"
@@ -51,7 +52,9 @@ fixed = "1.23.1"
 
 mimxrt685s-pac = { version = "*" }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
+    "unproven",
+] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
