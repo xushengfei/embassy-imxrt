@@ -9,6 +9,8 @@ use crate::pac::flexcomm3;
 use crate::pac::flexcomm4;
 use crate::pac::usart0;
 
+use flexcomm0::pselid::Persel as PeripheralType;
+
 //use crate::pac::dma1;
 //use crate::{pac};
 //use crate::{pac, Peripheral};
@@ -84,40 +86,39 @@ impl FlexComm{
             eFLEXCOMM_SURFLINK_UART => unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm0::RegisterBlock)},
         }
     }
-
-    fn set_peripheral(&self, peripheral:u8, lock: bool) -> bool {
+    
+    pub fn set_peripheral(&self, peripheral:PeripheralType, lock: bool) -> bool {
 // todo: Ask if I can change peripheral from u8 to "enum Persel"
-        if (peripheral != 0x0){
-            if (peripheral == 0x3 && self.regs().pselid().read().i2cpresent().is_not_present()){
+        if (peripheral != PeripheralType::NoPeriphSelected){
+            if (peripheral == PeripheralType::I2c && self.regs().pselid().read().i2cpresent().is_not_present()){
                 return false;
                 //todo add a panic here
-            } else if (peripheral == 0x2 && self.regs().pselid().read().spipresent().is_not_present()){
+            } else if (peripheral == PeripheralType::Spi && self.regs().pselid().read().spipresent().is_not_present()){
                 return false;
                 //todo add a panic here
-            } else if (peripheral == 0x1 && self.regs().pselid().read().usartpresent().is_not_present()){
+            } else if (peripheral == PeripheralType::Usart && self.regs().pselid().read().usartpresent().is_not_present()){
                 return false;
                 //todo add a panic here
-            }else if ((peripheral == 0x4 ||  peripheral == 0x5) && self.regs().pselid().read().i2spresent().is_not_present()){
+            }else if ((peripheral == PeripheralType::I2sReceive ||  peripheral == PeripheralType::I2sTransmit) && self.regs().pselid().read().i2spresent().is_not_present()){
                 return false;
                 //todo add a panic here
             }
         }
         
-        if self.regs().pselid().read().lock().is_locked() && self.regs().pselid().read().persel().bits() != peripheral{
+        if self.regs().pselid().read().lock().is_locked() && self.regs().pselid().read().persel().ne(&peripheral){
             // Flexcomm is locked to different peripheral type than expected
             return false;
-        } else {
-            // Handle the case when the condition is not met.
-            // Add your logic here.
-            return true;
         }
+
+        //self.regs().pselid().read().persel().into().
+        //self.regs().pselid().read().persel().ne(&peripheral);
         
         if (lock ){
             self.regs().pselid().write(|w| w.lock().locked());
         } else {
             self.regs().pselid().write(|w| w.lock().unlocked());
         }
-        unsafe {self.regs().pselid().write(|w| w.persel().bits(peripheral))};
+        unsafe {self.regs().pselid().write(|w| w.persel().bits(peripheral as u8))};
 
         return true;
     }
