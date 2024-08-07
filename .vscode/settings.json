@@ -1,0 +1,17 @@
+{
+    "[markdown]": {
+        "editor.formatOnSave": false
+    },
+    "[toml]": {
+        "editor.formatOnSave": true
+    },
+    "[rust]": {
+        "editor.formatOnSave": true
+    },
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
+    "rust-analyzer.linkedProjects": [
+        "${workspaceFolder}/Cargo.toml",
+        "${workspaceFolder}/examples/rt685s-evk/Cargo.toml",
+    ]
+}

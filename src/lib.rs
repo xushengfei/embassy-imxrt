@@ -9,8 +9,10 @@
 // This mod MUST go first, so that the others see its macros.
 // pub(crate) mod fmt;
 
+pub mod adc;
 pub mod clocks;
 pub mod uart;
+pub mod wwdt;
 
 // Reexports
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
