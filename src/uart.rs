@@ -173,7 +173,7 @@ impl Uart{
         unsafe { &*(pac::Usart0::ptr() as *const pac::usart0::RegisterBlock)}
     }
 
-    pub fn new(flexcomm: FlexComm, baudrate: u32, bitsPerCharacter: UartBitsPerCharacter, parity: UartParity, stopBits: UartStopBits, controlFlags:u32,_statusFlags:u32,interruptPri:u16 )->Self{
+    pub fn new(flexcomm: FlexComm, baudrate: u32, bitsPerCharacter: UartBitsPerCharacter, parity: UartParity, stopBits: UartStopBits, controlFlags:u32,interruptPri:u16 )->Self{
         Uart{
             flexcomm,
             baudrate,
@@ -181,7 +181,7 @@ impl Uart{
             parity,
             stopBits,
             controlFlags,
-            statusFlags:Cell::new(_statusFlags),
+            statusFlags:Cell::new(0u32),
             interruptPri
         }
     }
