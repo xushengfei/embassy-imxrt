@@ -27,8 +27,21 @@ const UART_ACTION_NEW_RX_BYTES: u32 = 1u32 << 2;
 //use crate::{pac};
 //use crate::{pac, Peripheral};
 
-/// A GPIO port with up to 32 pins.
-//#[derive(Debug, Eq, PartialEq)]
+pub enum DMAContext {
+    HostTxDma,
+    HostRxDma,
+    SurflinkTxDma,
+    SurflinkRxDma,
+    TouchpadTxDma,
+    TouchpadRxDma,
+    TdmTxDma,
+    TdmRxDma,
+}
+
+impl DMAContext {
+    // TODO: add code
+}
+
 pub enum FlexComm {
     FlexcommHostUart = 0,
     FlexcommDebugUart = 1,
@@ -156,6 +169,7 @@ pub enum UartStopBits {
 
 pub struct Uart {
     flexcomm: FlexComm,
+    dmaContext: DMAContext,
     baudrate: u32,
     bitsPerCharacter: UartBitsPerCharacter,
     parity: UartParity,
@@ -174,6 +188,7 @@ impl Uart {
 
     pub fn new(
         flexcomm: FlexComm,
+        dmaContext: DMAContext,
         baudrate: u32,
         bitsPerCharacter: UartBitsPerCharacter,
         parity: UartParity,
@@ -183,6 +198,7 @@ impl Uart {
     ) -> Self {
         Uart {
             flexcomm,
+            dmaContext,
             baudrate,
             bitsPerCharacter,
             parity,
