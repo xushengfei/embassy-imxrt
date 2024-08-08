@@ -2,7 +2,7 @@
 
 [![no-std](https://github.com/pop-project/embassy-imxrt/actions/workflows/nostd.yml/badge.svg)](https://github.com/pop-project/embassy-imxrt/actions/workflows/nostd.yml)
 [![check](https://github.com/pop-project/embassy-imxrt/actions/workflows/check.yml/badge.svg)](https://github.com/pop-project/embassy-imxrt/actions/workflows/check.yml)
-[![LICENSE](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+[![LICENSE](https://img.shields.io/badge/License-MIT-blue)](./LICENSE)
 
 ## Introduction
 
