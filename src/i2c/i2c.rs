@@ -1,3 +1,5 @@
+//! I2C (Inter-Integrated Circuit) bus HAL object
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};

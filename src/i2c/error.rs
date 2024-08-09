@@ -1,6 +1,9 @@
+//! I2C (Inter-Integrated Circuit) bus Errors
+
 use super::i2c::I2c;
 use super::instance::Instance;
 
+/// Error Types for I2C communication
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
