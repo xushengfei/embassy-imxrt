@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::I2c;
+use embassy_imxrt::i2c::{self, I2c};
 use mimxrt685s_pac as pac;
 
 #[embassy_executor::main]
@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
 
     let p = embassy_imxrt::init(Default::default());
 
-    let mut i2c = I2c::new(p.FLEXCOMM2);
+    let mut i2c = I2c::new(p.FLEXCOMM2, i2c::Config::default());
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7
 
@@ -176,15 +176,11 @@ fn board_init_pins(p: &pac::Peripherals) -> () {
 
 fn board_init_gpios(p: &pac::Peripherals) -> () {
     info!("Enabling GPIO1 clock");
-    p.clkctl1
-        .pscctl1_set()
-        .write(|w| w.hsgpio1_clk_set().set_clock());
+    p.clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
 
     // Take GPIO0 out of reset
     info!("Clearing GPIO1 reset");
-    p.rstctl1
-        .prstctl1_clr()
-        .write(|w| w.hsgpio1_rst_clr().clr_reset());
+    p.rstctl1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
 
     // Set GPIO1_7 (Reset) as ouptut
     info!("Configuring GPIO1_7 as output");
