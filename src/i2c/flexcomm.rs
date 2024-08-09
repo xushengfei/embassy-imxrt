@@ -6,6 +6,12 @@ impl SealedInstance for crate::peripherals::FLEXCOMM2 {
         unsafe { &*crate::pac::Flexcomm2::ptr() }
     }
 
-    fn init() {}
+    fn init() {
+        // From Section 21.4 for Flexcomm in User Manual, enable fc2_clk
+        let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
+
+        let pscctl0 = clkctl1.pscctl0();
+        pscctl0.modify(|_, w| w.fc2_clk().set_bit());
+    }
 }
 impl Instance for crate::peripherals::FLEXCOMM2 {}

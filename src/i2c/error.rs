@@ -1,4 +1,5 @@
-use super::{i2c::I2c, instance::Instance};
+use super::i2c::I2c;
+use super::instance::Instance;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
