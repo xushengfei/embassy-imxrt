@@ -74,18 +74,29 @@ impl<'d, T: Instance> I2c<'d, T> {
     }
 }
 
-/*
-impl<'d, T> embedded_hal_1::i2c::I2c for I2c<'d> {
+impl embedded_hal_1::i2c::Error for Error {
+    fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+        match *self {
+            Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
+        }
+    }
+}
+
+impl<'d, T: Instance> embedded_hal_1::i2c::ErrorType for I2c<'d, T> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address, read)
+        todo!();
     }
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address, write)
+        todo!();
     }
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address, write, read)
+        todo!();
     }
 
     fn transaction(
@@ -93,8 +104,6 @@ impl<'d, T> embedded_hal_1::i2c::I2c for I2c<'d> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        self.blocking_transaction(address, operations)
+        todo!();
     }
 }
-
- */
