@@ -49,6 +49,11 @@ version = "0.1.4"
 default-features = false
 features = ["critical-section", "rt"]
 
+[dependencies.embedded-hal-1]
+package = "embedded-hal"
+version = "1.0.0"
+default-features = false
+
 [dependencies.embassy-imxrt]
 version = "0.1.0"
 path = "../.."
