@@ -1,6 +1,6 @@
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr, u32, u64};
+use core::{mem, ptr};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -58,11 +58,10 @@ struct TimerDriver {
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 }
 
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [AlarmState::new(); ALARM_COUNT]),
 });
 
 impl TimerDriver {
@@ -90,7 +89,7 @@ impl TimerDriver {
         //
         // TODO: this is admittedly not great for power that we're generating this
         // many interrupts, will probably get updated in future iterations.
-        if r.ctrl().read().wake1khz().bit_is_set() == true {
+        if r.ctrl().read().wake1khz().bit_is_set() {
             r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
             // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
             // The following reloads 10 into the count-down timer after it triggers an int.
@@ -259,6 +258,7 @@ impl Driver for TimerDriver {
 }
 
 #[cfg(feature = "rt")]
+#[allow(non_snake_case)]
 #[interrupt]
 fn RTC() {
     DRIVER.on_interrupt()
