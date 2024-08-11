@@ -11,6 +11,8 @@
 
 pub mod adc;
 pub mod clocks;
+pub mod flexcomm;
+pub mod uart;
 pub mod wwdt;
 
 // Reexports
