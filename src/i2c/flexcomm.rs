@@ -14,8 +14,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM0 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 0_2 for SDA
+        //
+        // Pin is configured as FC0_RXD_SDA_MOSI_DATA
+        p.iopctl.pio0_2().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 0_1 for SCL
+        //
+        // Pin is configured as FC0_TXD_SCL_MISO_WS
+        p.iopctl.pio0_1().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -50,8 +95,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM1 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 0_9 for SDA
+        //
+        // Pin is configured as FC1_RXD_SDA_MOSI_DATA
+        p.iopctl.pio0_9().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 0_8 for SCL
+        //
+        // Pin is configured as FC1_TXD_SCL_MISO_WS
+        p.iopctl.pio0_8().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -86,17 +176,9 @@ impl SealedInstance for crate::peripherals::FLEXCOMM2 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Configure IO Pad Control 0_17 for SDA for ACC I2C
+        // Configure IO Pad Control 0_17 for SDA
         //
         // Pin is configured as FC2_CTS_SDA_SSEL0
-        // Disable pull-up / pull-down function (Schematic shows external pull ups)
-        // Enable pull-down function
-        // Disable input buffer function
-        // Normal mode
-        // Normal drive
-        // Analog mux is disabled
-        // Pseudo Output Drain is disabled
-        // Input function is not inverted
         p.iopctl.pio0_17().write(|w| {
             w.fsel()
                 .function_1()
@@ -118,17 +200,9 @@ impl SealedInstance for crate::peripherals::FLEXCOMM2 {
                 .disabled()
         });
 
-        // Configure IO Pad Control 0_18 for SDA for ACC I2C
+        // Configure IO Pad Control 0_18 for SDA
         //
         // Pin is configured as FC2_RTS_SCL_SSEL1
-        // Disable pull-up / pull-down function (Schematic shows external pull ups)
-        // Enable pull-down function
-        // Disable input buffer function
-        // Normal mode
-        // Normal drive
-        // Analog mux is disabled
-        // Pseudo Output Drain is disabled
-        // Input function is not inverted
         p.iopctl.pio0_18().write(|w| {
             w.fsel()
                 .function_1()
@@ -183,8 +257,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM3 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 0_23 for SDA
+        //
+        // Pin is configured as FC3_RXD_SDA_MOSI_DATA
+        p.iopctl.pio0_23().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 0_22 for SCL
+        //
+        // Pin is configured as FC3_TXD_SCL_MISO_WS
+        p.iopctl.pio0_22().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -219,8 +338,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM4 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 0_30 for SDA
+        //
+        // Pin is configured as FC4_RXD_SDA_MOSI_DATA
+        p.iopctl.pio0_30().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 0_29 for SCL
+        //
+        // Pin is configured as FC4_TXD_SCL_MISO_WS
+        p.iopctl.pio0_29().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -255,8 +419,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM5 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 1_5 for SDA
+        //
+        // Pin is configured as FC5_RXD_SDA_MOSI_DATA
+        p.iopctl.pio1_5().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 1_4 for SCL
+        //
+        // Pin is configured as FC5_TXD_SCL_MISO_WS
+        p.iopctl.pio1_4().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -291,8 +500,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM6 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 3_28 for SDA
+        //
+        // Pin is configured as FC6_CTS_SDA_SSEL0
+        p.iopctl.pio3_28().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 3_29 for SCL
+        //
+        // Pin is configured as FC6_RTS_SCL_SSEL1
+        p.iopctl.pio3_29().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -327,8 +581,53 @@ impl SealedInstance for crate::peripherals::FLEXCOMM7 {
     }
 
     fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
+        // Configure IO Pad Control 4_2 for SDA
+        //
+        // Pin is configured as FC7_RXD_SDA_MOSI_DATA
+        p.iopctl.pio4_2().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control 4_1 for SCL
+        //
+        // Pin is configured as FC7_TXD_SCL_MISO_WS
+        p.iopctl.pio4_1().write(|w| {
+            w.fsel()
+                .function_1()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
 
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
@@ -362,10 +661,7 @@ impl SealedInstance for crate::peripherals::FLEXCOMM15 {
         unsafe { &*crate::pac::I2c15::ptr() }
     }
 
-    fn init(p: &crate::pac::Peripherals) {
-        // Implement Pinmux for SCL and SDA
-        todo!();
-
+    fn init(_p: &crate::pac::Peripherals) {
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
 
