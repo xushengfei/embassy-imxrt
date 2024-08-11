@@ -35,7 +35,7 @@ async fn main(_spawner: Spawner) {
 
     let p = embassy_imxrt::init(Default::default());
 
-    let mut i2c = I2c::new(p.FLEXCOMM2, Config::default());
+    let mut i2c = I2c::new(&pac, p.FLEXCOMM2, Config::default());
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
     let mut reg = [0u8; 1];
@@ -126,70 +126,6 @@ fn board_init_pins(p: &pac::Peripherals) {
             .disabled()
             .odena()
             .disabled()
-            .iiena()
-            .disabled()
-    });
-
-    // Configure IO Pad Control 0_17 for SDA for ACC I2C
-    //
-    // Pin is configured as FC2_CTS_SDA_SSEL0
-    // Disable pull-up / pull-down function (Schematic shows external pull ups)
-    // Enable pull-down function
-    // Disable input buffer function
-    // Normal mode
-    // Normal drive
-    // Analog mux is disabled
-    // Pseudo Output Drain is disabled
-    // Input function is not inverted
-    p.iopctl.pio0_17().write(|w| {
-        w.fsel()
-            .function_1()
-            .pupdena()
-            .disabled()
-            .pupdsel()
-            .pull_down()
-            .ibena()
-            .enabled()
-            .slewrate()
-            .set_bit()
-            .fulldrive()
-            .normal_drive()
-            .amena()
-            .disabled()
-            .odena()
-            .enabled()
-            .iiena()
-            .disabled()
-    });
-
-    // Configure IO Pad Control 0_18 for SDA for ACC I2C
-    //
-    // Pin is configured as FC2_RTS_SCL_SSEL1
-    // Disable pull-up / pull-down function (Schematic shows external pull ups)
-    // Enable pull-down function
-    // Disable input buffer function
-    // Normal mode
-    // Normal drive
-    // Analog mux is disabled
-    // Pseudo Output Drain is disabled
-    // Input function is not inverted
-    p.iopctl.pio0_18().write(|w| {
-        w.fsel()
-            .function_1()
-            .pupdena()
-            .disabled()
-            .pupdsel()
-            .pull_down()
-            .ibena()
-            .enabled()
-            .slewrate()
-            .set_bit()
-            .fulldrive()
-            .normal_drive()
-            .amena()
-            .disabled()
-            .odena()
-            .enabled()
             .iiena()
             .disabled()
     });
