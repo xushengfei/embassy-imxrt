@@ -3,7 +3,8 @@
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{config::Config, i2c::I2c};
+use embassy_imxrt::i2c::config::Config;
+use embassy_imxrt::i2c::i2c::I2c;
 use embedded_hal_1::i2c::I2c as _;
 use mimxrt685s_pac as pac;
 
@@ -36,14 +37,22 @@ async fn main(_spawner: Spawner) {
 
     let mut i2c = I2c::new(p.FLEXCOMM2, Config::default());
 
-    // Read WHO_AM_I register, 0x0D to get value 0xC7
+    // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
     let mut reg = [0u8; 1];
-
+    reg[0] = 0xAA;
     let result = i2c.write_read(0x1E, &[0x0D], &mut reg);
     if result.is_ok() {
         info!("i2c example - Read WHO_AM_I register: {:02X}", reg[0]);
     } else {
         error!("i2c example - Error reading WHO_AM_I register {}", result.unwrap_err());
+    }
+
+    reg[0] = 0xAA;
+    let result = i2c.write_read(0x1E, &[0x00], &mut reg);
+    if result.is_ok() {
+        info!("i2c example - Read STATUS register: {:02X}", reg[0]);
+    } else {
+        error!("i2c example - Error reading STATUS register {}", result.unwrap_err());
     }
 
     info!("i2c example - Done!  Busy Loop...");
