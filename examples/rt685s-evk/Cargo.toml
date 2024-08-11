@@ -36,19 +36,23 @@ features = [
     "defmt",
     "integrated-timers",
 ]
+git = "https://github.com/embassy-rs/embassy"
 
 [dependencies.embassy-sync]
 version = "0.6.0"
 default-features = false
+git = "https://github.com/embassy-rs/embassy"
 
 [dependencies.embassy-futures]
 version = "0.1.1"
 default-features = false
+git = "https://github.com/embassy-rs/embassy"
 
 [dependencies.embassy-time]
 version = "0.3.2"
 default-features = false
 features = ["defmt", "defmt-timestamp-uptime"]
+git = "https://github.com/embassy-rs/embassy"
 
 [dependencies.futures]
 version = "0.3.30"
