@@ -661,7 +661,55 @@ impl SealedInstance for crate::peripherals::FLEXCOMM15 {
         unsafe { &*crate::pac::I2c15::ptr() }
     }
 
-    fn init(_p: &crate::pac::Peripherals) {
+    fn init(p: &crate::pac::Peripherals) {
+        // Configure IO Pad Control for SDA
+        //
+        // Pin is configured as FC15_I2C_SDA
+        p.iopctl.fc15_i2c_sda().write(|w| {
+            w.fsel()
+                .function_0()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
+        // Configure IO Pad Control for SCL
+        //
+        // Pin is configured as FC15_I2C_SCL
+        p.iopctl.fc15_i2c_scl().write(|w| {
+            w.fsel()
+                .function_0()
+                .pupdena()
+                .disabled()
+                .pupdsel()
+                .pull_down()
+                .ibena()
+                .enabled()
+                .slewrate()
+                .set_bit()
+                .fulldrive()
+                .normal_drive()
+                .amena()
+                .disabled()
+                .odena()
+                .enabled()
+                .iiena()
+                .disabled()
+        });
+
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc0_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
 
