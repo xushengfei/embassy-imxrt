@@ -35,13 +35,13 @@ impl<'d, T: Instance> I2c<'d, T> {
 
         match &self.config.frequency {
             super::config::Frequency::F100_kHz => {
-                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(15) });
+                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(160) });
                 i2cregs
                     .msttime()
                     .write(|w| unsafe { w.mstsclhigh().bits(0).mstscllow().bits(1) });
             }
             super::config::Frequency::F400_kHz => {
-                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(11) });
+                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(40) });
                 i2cregs
                     .msttime()
                     .write(|w| unsafe { w.mstsclhigh().bits(0).mstscllow().bits(1) });

@@ -73,7 +73,7 @@ default-features = false
 version = "0.1.0"
 path = "../.."
 default-features = false
-features = ["defmt", "time-driver", "time"]
+features = ["defmt", "time-driver", "time", "rt"]
 
 [profile.dev]
 opt-level = 0      # Enable basic optimizations to prevent super large binaries

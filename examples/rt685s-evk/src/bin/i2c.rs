@@ -33,11 +33,15 @@ async fn main(_spawner: Spawner) {
     info!("i2c example - Configure GPIOs");
     board_init_gpios(&pac);
 
+    info!("i2c example - embassy_imxrt::init");
     let p = embassy_imxrt::init(Default::default());
 
+    info!("i2c example - I2c::new");
     let mut i2c = I2c::new(&pac, p.FLEXCOMM2, Config::default());
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
+    info!("i2c example - ACC WHO_AM_I register check");
+
     let mut reg = [0u8; 1];
     reg[0] = 0xAA;
     let result = i2c.write_read(0x1E, &[0x0D], &mut reg);
@@ -141,13 +145,13 @@ fn board_init_gpios(p: &pac::Peripherals) {
 
     // Set GPIO1_7 (Reset) as ouptut
     info!("Configuring GPIO1_7 as output");
-    p.gpio.dirset(1).write(|w| unsafe { w.bits(1 << 7) });
+    p.gpio.dirset(1).write(|w| unsafe { w.dirsetp().bits(1 << 7) });
 
     // Set GPIO1_7 (Reset) as low
     info!("Configuring GPIO1_7 as low");
-    p.gpio.set(1).write(|w| unsafe { w.bits(1 << 5) });
+    p.gpio.set(1).write(|w| unsafe { w.setp().bits(1 << 5) });
 
     // Set GPIO1_5 (Interrupt) as input
     info!("Configuring GPIO1_5 as input");
-    p.gpio.dirclr(1).write(|w| unsafe { w.bits(1 << 5) });
+    p.gpio.dirclr(1).write(|w| unsafe { w.dirclrp().bits(1 << 5) });
 }

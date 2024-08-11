@@ -227,16 +227,18 @@ impl SealedInstance for crate::peripherals::FLEXCOMM2 {
         // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc2_clk
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
 
-        let fc2fclksel = clkctl1.flexcomm(2).fcfclksel();
-        fc2fclksel.write(|w| w.sel().sfro_clk());
+        clkctl1.pscctl0_set().write(|w| w.fc2_clk_set().set_bit());
+        clkctl1.flexcomm(2).fcfclksel().write(|w| w.sel().sfro_clk());
+        clkctl1.flexcomm(2).frgclksel().write(|w| w.sel().sfro_clk());
+        clkctl1.flexcomm(2).frgctl().write(|w| unsafe { w.mult().bits(0) });
 
-        let pscctl0_set = clkctl1.pscctl0_set();
-        pscctl0_set.write(|w| w.fc2_clk_set().set_bit());
+        let rstctl1 = unsafe { &*crate::pac::Rstctl1::ptr() };
+        rstctl1.prstctl0_clr().write(|w| w.flexcomm2_rst_clr().set_bit());
 
         let pselid = Self::flexcomm_regs().pselid();
 
         // Check I2C Support
-        if Self::flexcomm_regs().pselid().read().i2cpresent().bit_is_clear() {
+        if pselid.read().i2cpresent().bit_is_clear() {
             panic!("I2C not present in Flexcomm2");
         }
 

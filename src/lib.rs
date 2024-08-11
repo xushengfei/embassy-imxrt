@@ -9,7 +9,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-//pub mod adc;
+pub mod adc;
 pub mod clocks;
 pub mod i2c;
 #[cfg(feature = "time-driver")]
@@ -17,7 +17,7 @@ mod time_driver;
 pub mod wwdt;
 
 // Reexports
-//pub use adc::AdcChannel;
+pub use adc::AdcChannel;
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 pub use mimxrt685s_pac as pac;
 
@@ -196,18 +196,18 @@ embassy_hal_internal::peripherals!(
     P3_24,
 );
 
-// impl_adc_input!(P0_05, Adch0, A, pio0_5);
-// impl_adc_input!(P0_06, Adch0, B, pio0_6);
-// impl_adc_input!(P0_12, Adch1, A, pio0_12);
-// impl_adc_input!(P0_13, Adch1, B, pio0_13);
-// impl_adc_input!(P0_19, Adch2, A, pio0_19);
-// impl_adc_input!(P0_20, Adch2, B, pio0_20);
-// impl_adc_input!(P0_26, Adch3, A, pio0_26);
-// impl_adc_input!(P0_27, Adch3, B, pio0_27);
-// impl_adc_input!(P1_08, Adch4, A, pio1_8);
-// impl_adc_input!(P1_09, Adch4, B, pio1_9);
-// impl_adc_input!(P3_23, Adch5, A, pio3_23);
-// impl_adc_input!(P3_24, Adch5, B, pio3_24);
+impl_adc_input!(P0_05, Adch0, A, pio0_5);
+impl_adc_input!(P0_06, Adch0, B, pio0_6);
+impl_adc_input!(P0_12, Adch1, A, pio0_12);
+impl_adc_input!(P0_13, Adch1, B, pio0_13);
+impl_adc_input!(P0_19, Adch2, A, pio0_19);
+impl_adc_input!(P0_20, Adch2, B, pio0_20);
+impl_adc_input!(P0_26, Adch3, A, pio0_26);
+impl_adc_input!(P0_27, Adch3, B, pio0_27);
+impl_adc_input!(P1_08, Adch4, A, pio1_8);
+impl_adc_input!(P1_09, Adch4, B, pio1_9);
+impl_adc_input!(P3_23, Adch5, A, pio3_23);
+impl_adc_input!(P3_24, Adch5, B, pio3_24);
 
 /// HAL configuration for iMX RT600.
 pub mod config {
