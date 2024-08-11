@@ -1,4 +1,5 @@
 //! I2C (Inter-Integrated Circuit) bus Flexcomm Peripheral Setup
+
 use super::instance::{Instance, SealedInstance};
 
 // Cortex-M33 Flexcomm2
