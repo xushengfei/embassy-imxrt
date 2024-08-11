@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
 
     let result = i2c.write_read(0x1E, &[0x0D], &mut reg);
     if result.is_ok() {
-        info!("i2c example - Read WHO_AM_I register: {:?}", reg[0]);
+        info!("i2c example - Read WHO_AM_I register: {:02X}", reg[0]);
     } else {
         error!("i2c example - Error reading WHO_AM_I register {}", result.unwrap_err());
     }
@@ -52,7 +52,10 @@ async fn main(_spawner: Spawner) {
     }
 }
 
-fn board_init_pins(p: &pac::Peripherals) -> () {
+fn board_init_pins(p: &pac::Peripherals) {
+    // Ensure SFRO Clock is set to run (power down is cleared)
+    p.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
+
     // Configure IO Pad Control 1_7 for ACC Reset Pin
     //
     // Pin is configured as PIO1_7
@@ -137,15 +140,15 @@ fn board_init_pins(p: &pac::Peripherals) -> () {
             .pupdsel()
             .pull_down()
             .ibena()
-            .disabled()
+            .enabled()
             .slewrate()
-            .normal()
+            .set_bit()
             .fulldrive()
             .normal_drive()
             .amena()
             .disabled()
             .odena()
-            .disabled()
+            .enabled()
             .iiena()
             .disabled()
     });
@@ -169,21 +172,21 @@ fn board_init_pins(p: &pac::Peripherals) -> () {
             .pupdsel()
             .pull_down()
             .ibena()
-            .disabled()
+            .enabled()
             .slewrate()
-            .normal()
+            .set_bit()
             .fulldrive()
             .normal_drive()
             .amena()
             .disabled()
             .odena()
-            .disabled()
+            .enabled()
             .iiena()
             .disabled()
     });
 }
 
-fn board_init_gpios(p: &pac::Peripherals) -> () {
+fn board_init_gpios(p: &pac::Peripherals) {
     info!("Enabling GPIO1 clock");
     p.clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
 

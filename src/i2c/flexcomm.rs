@@ -19,8 +19,8 @@ impl SealedInstance for crate::peripherals::FLEXCOMM2 {
         let fc2fclksel = clkctl1.flexcomm(2).fcfclksel();
         fc2fclksel.write(|w| w.sel().sfro_clk());
 
-        let pscctl0 = clkctl1.pscctl0();
-        pscctl0.write(|w| w.fc2_clk().set_bit());
+        let pscctl0_set = clkctl1.pscctl0_set();
+        pscctl0_set.write(|w| w.fc2_clk_set().set_bit());
 
         let flexcomm = Self::flexcomm_regs();
         let pselid = flexcomm.pselid();
@@ -32,12 +32,6 @@ impl SealedInstance for crate::peripherals::FLEXCOMM2 {
 
         // Set I2C mode
         pselid.write(|w| w.persel().i2c());
-
-        let i2cregs = Self::i2c_regs();
-        let clkdiv = i2cregs.clkdiv();
-
-        // Set I2C clock to 100kHz, 16MHz SFRO / 160 = 100kHz
-        clkdiv.write(|w| unsafe { w.divval().bits(160) });
     }
 }
 impl Instance for crate::peripherals::FLEXCOMM2 {}
