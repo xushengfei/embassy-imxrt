@@ -7,14 +7,17 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 // This mod MUST go first, so that the others see its macros.
-// pub(crate) mod fmt;
+pub(crate) mod fmt;
 
-pub mod adc;
+//pub mod adc;
 pub mod clocks;
 pub mod i2c;
+#[cfg(feature = "time-driver")]
+mod time_driver;
 pub mod wwdt;
 
 // Reexports
+//pub use adc::AdcChannel;
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 pub use mimxrt685s_pac as pac;
 
@@ -84,7 +87,7 @@ embassy_hal_internal::interrupt_mod!(
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// and implements the right \[`Binding`\]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
 ///
 /// Example of how to bind one interrupt:
@@ -178,7 +181,33 @@ embassy_hal_internal::peripherals!(
     CASPER,
     PMC_PMIC,
     HASHCRYPT,
+    // Temporary pin placeholder for now until GPIO HAL is ready
+    P0_05,
+    P0_06,
+    P0_12,
+    P0_13,
+    P0_19,
+    P0_20,
+    P0_26,
+    P0_27,
+    P1_08,
+    P1_09,
+    P3_23,
+    P3_24,
 );
+
+// impl_adc_input!(P0_05, Adch0, A, pio0_5);
+// impl_adc_input!(P0_06, Adch0, B, pio0_6);
+// impl_adc_input!(P0_12, Adch1, A, pio0_12);
+// impl_adc_input!(P0_13, Adch1, B, pio0_13);
+// impl_adc_input!(P0_19, Adch2, A, pio0_19);
+// impl_adc_input!(P0_20, Adch2, B, pio0_20);
+// impl_adc_input!(P0_26, Adch3, A, pio0_26);
+// impl_adc_input!(P0_27, Adch3, B, pio0_27);
+// impl_adc_input!(P1_08, Adch4, A, pio1_8);
+// impl_adc_input!(P1_09, Adch4, B, pio1_9);
+// impl_adc_input!(P3_23, Adch5, A, pio3_23);
+// impl_adc_input!(P3_24, Adch5, B, pio3_24);
 
 /// HAL configuration for iMX RT600.
 pub mod config {
@@ -189,12 +218,17 @@ pub mod config {
     pub struct Config {
         /// Clock configuration.
         pub clocks: ClockConfig,
+        /// Time driver interrupt priority. Should be lower priority than softdevice if used.
+        #[cfg(feature = "time-driver")]
+        pub time_interrupt_priority: crate::interrupt::Priority,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
                 clocks: ClockConfig::crystal(24_000_000),
+                #[cfg(feature = "time-driver")]
+                time_interrupt_priority: crate::interrupt::Priority::P0,
             }
         }
     }
@@ -202,7 +236,11 @@ pub mod config {
     impl Config {
         /// Create a new configuration with the provided clock config.
         pub fn new(clocks: ClockConfig) -> Self {
-            Self { clocks }
+            Self {
+                clocks,
+                #[cfg(feature = "time-driver")]
+                time_interrupt_priority: crate::interrupt::Priority::P0,
+            }
         }
     }
 }
@@ -219,8 +257,8 @@ pub fn init(config: config::Config) -> Peripherals {
 
     unsafe {
         clocks::init(config.clocks);
-        // #[cfg(feature = "time-driver")]
-        // time_driver::init();
+        #[cfg(feature = "time-driver")]
+        time_driver::init(config.time_interrupt_priority);
         // dma::init();
         // gpio::init();
     }
