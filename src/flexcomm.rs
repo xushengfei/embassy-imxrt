@@ -4,11 +4,16 @@
 
 use core::ptr;
 
-use crate::pac::flexcomm0;
 use crate::peripherals;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{impl_peripheral, interrupt, into_ref, Peripheral, PeripheralRef};
+
+use crate::pac::flexcomm0;
 use mimxrt685s_pac as pac;
+
+// Re-export SVD variants to allow user to directly set values.
+pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
+pub use pac::flexcomm0::pselid::Persel as Function;
 
 /// Flexcomm
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,18 +34,11 @@ pub enum Flexcomm {
     Flexcomm14,
     Flexcomm15,
 }
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-pub enum Function {
-    USART,
-    SPI,
-    I2C,
-    I2S, // TODO: Add I2S trans and receive separately
-}
 
 pub struct Config {
     flexcomm: Flexcomm,
     function: Function,
-    islocked: bool,
+    lock: FlexcommLock,
 }
 
 pub enum ConfigError {
@@ -51,18 +49,18 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             flexcomm: Flexcomm::Flexcomm0,
-            function: Function::USART,
-            islocked: false,
+            function: Function::Usart,
+            lock: FlexcommLock::Unlocked,
         }
     }
 }
 
 impl Config {
-    pub fn new(_flexcomm: Flexcomm, _function: Function, _locked: bool) -> Self {
+    pub fn new(_flexcomm: Flexcomm, _function: Function, _lock: FlexcommLock) -> Self {
         Config {
             flexcomm: _flexcomm,
             function: _function,
-            islocked: _locked,
+            lock: _lock,
         }
     }
 }
@@ -144,24 +142,32 @@ impl FlexcommConnector {
         // TODO: Check if peripheral is locked and mapped to a diff peripheral
 
         match self.config.function {
-            Function::USART => {
+            Function::NoPeriphSelected => {
+                // Set the peripheral function to No peripheral selected
+                self.regs().pselid().write(|w| w.persel().no_periph_selected());
+            }
+            Function::Usart => {
                 // Set the peripheral function to USART
                 self.regs().pselid().write(|w| w.persel().usart());
             }
-            Function::SPI => {
+            Function::Spi => {
                 // Set the peripheral function to SPI
                 self.regs().pselid().write(|w| w.persel().spi());
             }
-            Function::I2C => {
+            Function::I2c => {
                 // Set the peripheral function to I2C
                 self.regs().pselid().write(|w| w.persel().i2c());
             }
-            Function::I2S => {
+            Function::I2sReceive => {
                 // Set the peripheral function to I2S
                 self.regs().pselid().write(|w| w.persel().i2s_receive());
             }
+            Function::I2sTransmit => {
+                // Set the peripheral function to I2S
+                self.regs().pselid().write(|w| w.persel().i2s_transmit());
+            }
         }
-        if self.config.islocked {
+        if self.config.lock == FlexcommLock::Locked {
             self.regs().pselid().write(|w| w.lock().locked());
         } else {
             self.regs().pselid().write(|w| w.lock().unlocked());
