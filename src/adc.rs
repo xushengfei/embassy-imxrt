@@ -404,9 +404,9 @@ impl SealedInput for AnyInput {
 impl Input for AnyInput {}
 
 /// Macro to implement required types for dual purpose pins
-macro_rules! impl_adc_input {
+macro_rules! impl_pin {
     ($pin:ident, $ch:ident, $side:ident, $io_pin:ident) => {
-        impl_adc_input!(@local, crate::peripherals::$pin, $ch, $side, $io_pin);
+        impl_pin!(@local, crate::peripherals::$pin, $ch, $side, $io_pin);
     };
     (@local, $pin:ty, $ch:ident, $side:ident, $io_pin:ident) => {
         impl crate::adc::SealedInput for $pin {
@@ -454,3 +454,16 @@ macro_rules! impl_adc_input {
         }
     };
 }
+
+impl_pin!(PIO0_5, Adch0, A, pio0_5);
+impl_pin!(PIO0_6, Adch0, B, pio0_6);
+impl_pin!(PIO0_12, Adch1, A, pio0_12);
+impl_pin!(PIO0_13, Adch1, B, pio0_13);
+impl_pin!(PIO0_19, Adch2, A, pio0_19);
+impl_pin!(PIO0_20, Adch2, B, pio0_20);
+impl_pin!(PIO0_26, Adch3, A, pio0_26);
+impl_pin!(PIO0_27, Adch3, B, pio0_27);
+impl_pin!(PIO1_8, Adch4, A, pio1_8);
+impl_pin!(PIO1_9, Adch4, B, pio1_9);
+impl_pin!(PIO3_23, Adch5, A, pio3_23);
+impl_pin!(PIO3_24, Adch5, B, pio3_24);
