@@ -18,12 +18,11 @@ pub mod wwdt;
 // Reexports
 pub use adc::AdcChannel;
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use interrupts::*;
 pub use mimxrt685s_pac as pac;
 
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
-
-pub use interrupts::*;
 
 /// Wrapper module to suppress clippy warning caused by macro.
 #[allow(clippy::missing_safety_doc)]
