@@ -35,13 +35,21 @@ impl<'d, T: Instance> I2c<'d, T> {
 
         match &self.config.frequency {
             super::config::Frequency::F100_kHz => {
-                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(160) });
+                //  7 => 403.3 kHz
+                //  9 => 322.6 kHz
+                // 12 => 247.8 kHz
+                // 16 => 198.2 kHz
+                // 18 => 166.6 Khz
+                // 22 => 142.6 kHz
+                // 30 => 100.0 kHz
+                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(30) });
                 i2cregs
                     .msttime()
                     .write(|w| unsafe { w.mstsclhigh().bits(0).mstscllow().bits(1) });
             }
             super::config::Frequency::F400_kHz => {
-                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(40) });
+                // 12 =>
+                i2cregs.clkdiv().write(|w| unsafe { w.divval().bits(7) });
                 i2cregs
                     .msttime()
                     .write(|w| unsafe { w.mstsclhigh().bits(0).mstscllow().bits(1) });
@@ -127,6 +135,14 @@ impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T> {
 
         for index in 0..read.len() {
             while i2cregs.stat().read().mstpending().bit_is_clear() {}
+            if !i2cregs.stat().read().mststate().is_receive_ready() {
+                return Err(super::error::Error::ReadFail);
+            }
+            if i2cregs.stat().read().mststate().is_nack_data() {
+                i2cregs.mstctl().write(|w| w.mststop().set_bit());
+                while i2cregs.stat().read().mstpending().bit_is_clear() {}
+                return Err(super::error::Error::ReadFail);
+            }
             read[index] = i2cregs.mstdat().read().data().bits();
         }
 

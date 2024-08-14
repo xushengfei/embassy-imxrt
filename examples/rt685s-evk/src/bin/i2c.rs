@@ -51,13 +51,13 @@ async fn main(_spawner: Spawner) {
         error!("i2c example - Error reading WHO_AM_I register {}", result.unwrap_err());
     }
 
-    reg[0] = 0xAA;
-    let result = i2c.write_read(0x1E, &[0x00], &mut reg);
-    if result.is_ok() {
-        info!("i2c example - Read STATUS register: {:02X}", reg[0]);
-    } else {
-        error!("i2c example - Error reading STATUS register {}", result.unwrap_err());
-    }
+    // reg[0] = 0xAA;
+    // let result = i2c.write_read(0x1E, &[0x00], &mut reg);
+    // if result.is_ok() {
+    //     info!("i2c example - Read STATUS register: {:02X}", reg[0]);
+    // } else {
+    //     error!("i2c example - Error reading STATUS register {}", result.unwrap_err());
+    // }
 
     info!("i2c example - Done!  Busy Loop...");
     loop {

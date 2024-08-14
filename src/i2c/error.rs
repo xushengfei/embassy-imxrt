@@ -10,12 +10,15 @@ use super::instance::Instance;
 pub enum Error {
     /// Timeout error.
     Timeout,
+    /// Reading from i2c failed
+    ReadFail,
 }
 
 impl embedded_hal_1::i2c::Error for Error {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
         match *self {
             Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::ReadFail => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }
