@@ -116,10 +116,13 @@ impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T> {
 
         let i2cregs = T::i2c_regs();
 
-        i2cregs.mstdat().write(|w| unsafe { w.data().bits(address << 1 | 0) });
+        i2cregs.mstdat().write(|w| unsafe { w.data().bits((address << 1) | 0) });
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
-
         while i2cregs.stat().read().mstpending().bit_is_clear() {}
+
+        if i2cregs.stat().read().mststate().is_nack_address() {
+            return Err(super::error::Error::AddressNack);
+        }
 
         for byte in write.iter() {
             i2cregs.mstdat().write(|w| unsafe { w.data().bits(*byte) });
@@ -127,20 +130,17 @@ impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T> {
             while i2cregs.stat().read().mstpending().bit_is_clear() {}
         }
 
-        i2cregs
-            .mstdat()
-            .write(|w| unsafe { w.data().bits(address << 1 | 0x01) });
+        i2cregs.mstdat().write(|w| unsafe { w.data().bits((address << 1) | 1) });
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
         while i2cregs.stat().read().mstpending().bit_is_clear() {}
 
+        if i2cregs.stat().read().mststate().is_nack_address() {
+            return Err(super::error::Error::AddressNack);
+        }
+
         for index in 0..read.len() {
             while i2cregs.stat().read().mstpending().bit_is_clear() {}
-            if !i2cregs.stat().read().mststate().is_receive_ready() {
-                return Err(super::error::Error::ReadFail);
-            }
             if i2cregs.stat().read().mststate().is_nack_data() {
-                i2cregs.mstctl().write(|w| w.mststop().set_bit());
-                while i2cregs.stat().read().mstpending().bit_is_clear() {}
                 return Err(super::error::Error::ReadFail);
             }
             read[index] = i2cregs.mstdat().read().data().bits();

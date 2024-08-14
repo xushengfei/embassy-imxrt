@@ -12,13 +12,20 @@ pub enum Error {
     Timeout,
     /// Reading from i2c failed
     ReadFail,
+    /// I2C Address not acked
+    AddressNack,
 }
 
 impl embedded_hal_1::i2c::Error for Error {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
         match *self {
             Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
-            Self::ReadFail => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::ReadFail => {
+                embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Data)
+            }
+            Self::AddressNack => {
+                embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
+            }
         }
     }
 }
