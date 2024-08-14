@@ -11,6 +11,7 @@ pub(crate) mod fmt;
 
 pub mod adc;
 pub mod clocks;
+pub mod gpio;
 pub mod pwm;
 #[cfg(feature = "time-driver")]
 mod time_driver;
@@ -384,7 +385,7 @@ pub fn init(config: config::Config) -> Peripherals {
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
         // dma::init();
-        // gpio::init();
+        gpio::init();
     }
 
     peripherals
