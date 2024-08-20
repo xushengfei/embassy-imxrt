@@ -201,6 +201,12 @@ embassy_hal_internal::peripherals!(
     P1_09,
     P3_23,
     P3_24,
+    UART_RX,
+    UART_TX,
+    UART_CTS,
+    UART_RTS,
+    UART_CLK, //dummy
+    UART,     //dummy
 );
 
 impl_adc_input!(P0_05, Adch0, A, pio0_5);
@@ -215,6 +221,13 @@ impl_adc_input!(P1_08, Adch4, A, pio1_8);
 impl_adc_input!(P1_09, Adch4, B, pio1_9);
 impl_adc_input!(P3_23, Adch5, A, pio3_23);
 impl_adc_input!(P3_24, Adch5, B, pio3_24);
+
+impl_uart_input!(UART_TX, pio3_1);
+impl_uart_input!(UART_RX, pio3_2);
+impl_uart_input!(UART_CTS, pio3_3);
+impl_uart_input!(UART_RTS, pio3_4);
+impl_uart_input!(UART_CLK, pio3_5); // dummy
+impl_uart_input!(UART, pio3_5); // dummy
 
 /// HAL configuration for iMX RT600.
 pub mod config {

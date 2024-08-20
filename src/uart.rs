@@ -24,8 +24,8 @@ pub use u32 as Baudrate;
 use crate::interrupt;
 
 //TODO: Gpio crate should implement "GpioPin, AnyPin". Temporary definition of "GpioPin" is taken as u8
-use u8 as GpioPin;
-use u8 as AnyPin;
+//use u8 as GpioPin;
+//use u8 as AnyPin;
 
 /// Uart Config
 pub struct Config {
@@ -247,4 +247,35 @@ impl<'d> UartRx<'d> {
         // Your code here
         Ok(())
     }
+}
+
+/// Type-erased GPIO pin
+pub struct AnyPin {
+    pin_port: u8,
+}
+
+/// Macro to implement required types for dual purpose pins
+macro_rules! impl_uart_input {
+    ($pin:ident, $io_pin:ident) => {
+        //impl_uart_input!(@local, crate::peripherals::$pin,$io_pin);
+        impl_uart_input!(@local, $pin, $io_pin);
+    };
+    (@local, $pin:ty, $io_pin:ident) => {
+        {
+                // IO configuration placeholder until GPIO HAL is ready to go
+                    let iopctl = unsafe { crate::pac::Iopctl::steal() };
+
+                   /* iopctl.$io_pin().write(|w| {
+                        w.fsel().function_0()
+                            .pupdena().disabled()
+                            .pupdsel().pull_down()
+                            .ibena().disabled()
+                            .slewrate().normal()
+                            .fulldrive().normal_drive()
+                            .amena().disabled()
+                            .odena().disabled()
+                            .iiena().disabled()
+                    });*/
+        }
+    };
 }
