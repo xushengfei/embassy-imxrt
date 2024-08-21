@@ -159,13 +159,16 @@ impl<'p, const N: usize> Adc<'p, N> {
         // Set up a cmd chain, one cmd per channel
         //   one points to the next, last one points to 0
         for ch in channel_config {
+            // Mapping cmd [1-15] into reg array index [0-14]
+            // Reg array index is one less than cmd
+            let cmd_index = cmd - 1;
             let p = ch.p_channel.channel();
             let diff = match ch.n_channel {
                 None => adc0::cmdl::Diff::Diff0,
                 Some(_) => adc0::cmdl::Diff::Diff1,
             };
 
-            reg.cmdl(cmd).write(|w| {
+            reg.cmdl(cmd_index).write(|w| {
                 w.adch()
                     .variant(p.ch) /* Analog channel number */
                     .absel()
@@ -176,7 +179,7 @@ impl<'p, const N: usize> Adc<'p, N> {
                     .cscale_1() /* Full scale */
             });
 
-            reg.cmdh(cmd).write(|w| unsafe {
+            reg.cmdh(cmd_index).write(|w| unsafe {
                 w.cmpen()
                     .cmpen_0() /* Disable analog comparator */
                     .lwi()
