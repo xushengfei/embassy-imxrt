@@ -36,9 +36,9 @@ pub enum Flexcomm {
 }
 
 pub struct Config {
-    flexcomm: Flexcomm,
-    function: Function,
-    lock: FlexcommLock,
+    flexcomm: Flexcomm, // specify which FCn to use
+    function: Function, // serial comm peripheral type
+    lock: FlexcommLock, // lock the FC, or not
 }
 
 pub enum ConfigError {
@@ -66,8 +66,6 @@ impl Config {
 }
 
 pub struct FlexcommConnector {
-    clock_id: u32,
-    clock_name: u32,
     flexcomm_sys_reset_reg: u32, // TODO: replace with actual registers
     clock_freq: u32,
     config: Config,
@@ -79,9 +77,8 @@ impl FlexcommConnector {
 
     pub fn new(_config: Config) -> Self {
         match _config.flexcomm {
+            // TODO: return error if flexcomm is locked
             Flexcomm::Flexcomm0 => FlexcommConnector {
-                clock_id: 0,
-                clock_name: 0,
                 flexcomm_sys_reset_reg: 0,
                 clock_freq: 0,
                 config: _config,
@@ -89,8 +86,6 @@ impl FlexcommConnector {
 
             // TODO: Add for other flexcomm connectors. Check with the clock implementation
             _ => FlexcommConnector {
-                clock_id: 0,
-                clock_name: 0,
                 flexcomm_sys_reset_reg: 0,
                 clock_freq: 0,
                 config: _config,
@@ -114,7 +109,10 @@ impl FlexcommConnector {
     }
 
     fn attach_clock(&self) {
-        // Set the clock
+        match self.config.flexcomm {
+            Flexcomm::Flexcomm0 => {}
+            _ => {}
+        }
     }
 
     fn enable_clock(&self) {
