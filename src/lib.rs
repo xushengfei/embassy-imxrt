@@ -14,6 +14,7 @@ pub mod clocks;
 pub mod pwm;
 #[cfg(feature = "time-driver")]
 mod time_driver;
+pub mod uart;
 pub mod wwdt;
 
 // Reexports
