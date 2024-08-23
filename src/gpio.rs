@@ -1,9 +1,8 @@
 //! GPIO driver.
 #![macro_use]
 use core::convert::Infallible;
-use core::hint::unreachable_unchecked;
 
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, PeripheralRef};
 
 use crate::{pac, peripherals, Peripheral};
 
@@ -42,7 +41,7 @@ pub enum Pull {
 
 /// GPIO input driver.
 pub struct Input<'d> {
-    pub(crate) pin: Flex<'d>,
+    pin: Flex<'d>,
 }
 
 impl<'d> Input<'d> {
@@ -71,6 +70,12 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
+    }
+
+    /// Put the input pin into disconnected mode.
+    #[inline]
+    pub fn set_as_disconnected(&mut self) {
+        self.pin.set_as_disconnected();
     }
 }
 
@@ -116,11 +121,10 @@ pub enum OutputDrive {
 
 /// GPIO output drivber.
 pub struct Output<'d> {
-    pub(crate) pin: Flex<'d>,
+    pin: Flex<'d>,
 }
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] configuration.
-    #[inline]
     pub fn new(pin: impl Pin + 'd, initial_output: Level, drive: OutputDrive) -> Self {
         pin.set_as_output(drive); // setting drive
 
@@ -176,6 +180,12 @@ impl<'d> Output<'d> {
     pub fn get_output_level(&self) -> Level {
         self.pin.get_output_level()
     }
+
+    /// Put the output pin into disconnected mode.
+    #[inline]
+    pub fn set_as_disconnected(&mut self) {
+        self.pin.set_as_disconnected();
+    }
 }
 
 /// GPIO flexible pin.
@@ -183,8 +193,8 @@ impl<'d> Output<'d> {
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
-pub struct Flex<'d> {
-    pub(crate) pin: PeripheralRef<'d, AnyPin>,
+struct Flex<'d> {
+    pin: PeripheralRef<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -192,17 +202,16 @@ impl<'d> Flex<'d> {
     ///
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
-    #[inline]
     pub fn new(pin: impl Pin + 'd) -> Self {
-        into_ref!(pin);
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into_ref().map_into() }
     }
 
     /// Put the pin into input mode.
     pub fn set_as_input(&mut self) {
         let port = (self.pin.pin_port() as usize) / 32;
         let pin = self.pin.pin() as usize;
+        // SAFETY: No other driver should modify or write to the port register simultaneously
         self.pin
             .block()
             .dir(port)
@@ -238,6 +247,7 @@ impl<'d> Flex<'d> {
     pub fn set_as_output(&mut self) {
         let port = (self.pin.pin_port() as usize) / 32;
         let pin = self.pin.pin() as usize;
+        // SAFETY: No other driver should modify or write to the port register simultaneously
         self.pin
             .block()
             .dir(port)
@@ -259,10 +269,9 @@ impl<'d> Flex<'d> {
     /// Toggle the output level.
     #[inline]
     pub fn toggle(&mut self) {
-        // use toggle register -- why?
         let port = (self.pin.pin_port() as usize) / 32;
         let pin = self.pin.pin() as usize;
-        self.pin.block().not(port).write(|w| unsafe { w.bits(1 << pin) });
+        self.pin.block().not(port).write(|w| unsafe { w.notp().bits(1 << pin) });
     }
 
     /// Set the output level.
@@ -295,31 +304,12 @@ impl<'d> Flex<'d> {
         self.is_set_high().into()
     }
 
-    /// Put the pin into input + output mode.
-    ///
-    /// This is commonly used for "open drain" mode. If you set `drive = Standard0Disconnect1`,
-    /// the hardware will drive the line low if you set it to low, and will leave it floating if you set
-    /// it to high, in which case you can read the input to figure out whether another device
-    /// is driving the line low.
-    ///
-    /// The pin level will be whatever was set before (or low by default). If you want it to begin
-    /// at a specific level, call `set_high`/`set_low` on the pin first.
-    #[inline]
-    pub fn set_as_input_output(&mut self, _pull: Pull, _drive: OutputDrive) {
-        todo!()
-    }
-
-    /// Put the pin into disconnected mode.
-    #[inline]
-    pub fn set_as_disconnected(&mut self) {
-        todo!()
-    }
 }
 
 impl<'d> Drop for Flex<'d> {
     fn drop(&mut self) {
         // bring pin back to reset state
-        todo!()
+        self.set_as_disconnected();
     }
 }
 
@@ -341,7 +331,7 @@ trait SealedPin {
     fn set_high(&self) {
         let port = (self.pin_port() as usize) / 32;
         let pin = self._pin() as usize;
-        self.block().set(port).write(|w| unsafe { w.bits(1 << pin) });
+        self.block().set(port).modify(|r,w| unsafe{  w.setp().bits(r.setp().bits() | (1 << pin)) });
     }
 
     /// Set the output as low.
@@ -349,7 +339,7 @@ trait SealedPin {
     fn set_low(&self) {
         let port = (self.pin_port() as usize) / 32;
         let pin = self._pin() as usize;
-        self.block().clr(port).write(|w| unsafe { w.bits(1 << pin) });
+        self.block().clr(port).write(|w| unsafe { w.clrp().bits(1 << pin) });
     }
 }
 
@@ -372,7 +362,7 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
             3 => Port::Port3,
             4 => Port::Port4,
             7 => Port::Port7,
-            _ => unsafe { unreachable_unchecked() },
+            _ => panic!("Undefined Port")
         }
     }
 
@@ -407,11 +397,14 @@ impl AnyPin {
     }
 }
 
+// Implementing the peripheral trait for Anypin
 impl_peripheral!(AnyPin);
+
 impl Pin for AnyPin {
     fn set_as_output(&self, _drive: OutputDrive) {
         let port = (self.pin_port() as usize) / 32;
         let pin = self.pin() as usize;
+        // SAFETY: No other driver should modify or write to the port register simultaneously
         self.block()
             .dir(port)
             .modify(|r, w| unsafe { w.dirp().bits(r.dirp().bits() | (1 << pin)) });
@@ -419,6 +412,7 @@ impl Pin for AnyPin {
     fn set_as_input(&self, _pull: Pull) {
         let port = (self.pin_port() as usize) / 32;
         let pin = self.pin() as usize;
+        // SAFETY: No other driver should modify or write to the port register simultaneously
         self.block()
             .dir(port)
             .modify(|r, w| unsafe { w.dirp().bits(r.dirp().bits() & !(1 << pin)) });
@@ -434,96 +428,96 @@ impl SealedPin for AnyPin {
 
 // ====================
 
-mod eh02 {
-    use super::*;
+impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
+    type Error = Infallible;
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
-        type Error = Infallible;
-
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
-        type Error = Infallible;
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
 
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
+impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
+    type Error = Infallible;
 
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.set_high();
+        Ok(())
     }
 
-    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.set_low();
+        Ok(())
+    }
+}
 
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
-        type Error = Infallible;
-        #[inline]
-        fn toggle(&mut self) -> Result<(), Self::Error> {
-            self.toggle();
-            Ok(())
-        }
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
+    }
+}
+
+impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
+    type Error = Infallible;
+    #[inline]
+    fn toggle(&mut self) -> Result<(), Self::Error> {
+        self.toggle();
+        Ok(())
+    }
+}
+
+/// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
+///
+/// If the pin is not in input mode the result is unspecified.
+impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    /// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
-    ///
-    /// If the pin is not in input mode the result is unspecified.
-    impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
-        type Error = Infallible;
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
 
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
+impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
+    type Error = Infallible;
 
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.set_high();
+        Ok(())
     }
 
-    impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
-        type Error = Infallible;
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.set_low();
+        Ok(())
+    }
+}
 
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
-
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
+impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
-
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
     }
+}
 
-    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
-        type Error = Infallible;
-        #[inline]
-        fn toggle(&mut self) -> Result<(), Self::Error> {
-            self.toggle();
-            Ok(())
-        }
+impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
+    type Error = Infallible;
+    #[inline]
+    fn toggle(&mut self) -> Result<(), Self::Error> {
+        self.toggle();
+        Ok(())
     }
 }
 
@@ -547,11 +541,13 @@ impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -584,11 +580,13 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -602,30 +600,44 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
     }
 }
 
-/// Enables each GPIO port 0..7
-pub fn init() {
-    // Enable GPIO clocks
-    let r = unsafe { &*(pac::Clkctl1::ptr()) };
-    r.pscctl1_set().write(|w| w.hsgpio0_clk_set().set_clock());
-    r.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
-    r.pscctl1_set().write(|w| w.hsgpio2_clk_set().set_clock());
-    r.pscctl1_set().write(|w| w.hsgpio3_clk_set().set_clock());
-    r.pscctl1_set().write(|w| w.hsgpio4_clk_set().set_clock());
-    r.pscctl1_set().write(|w| w.hsgpio7_clk_set().set_clock());
-    // Take GPIO out of reset
-    let r = unsafe { &*(pac::Rstctl1::ptr()) };
-    r.prstctl1_clr().write(|w| w.hsgpio0_rst_clr().clr_reset());
-    r.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
-    r.prstctl1_clr().write(|w| w.hsgpio2_rst_clr().clr_reset());
-    r.prstctl1_clr().write(|w| w.hsgpio3_rst_clr().clr_reset());
-    r.prstctl1_clr().write(|w| w.hsgpio4_rst_clr().clr_reset());
-    r.prstctl1_clr().write(|w| w.hsgpio7_rst_clr().clr_reset());
+impl Port{
+    /// Enables GPIO port 0..7 given as argument [Port]
+    pub fn init(_port : Port) {
+        // Enable GPIO clocks and take them out of reset
+        let r = unsafe { &*(pac::Clkctl1::ptr()) };
+        let t = unsafe { &*(pac::Rstctl1::ptr()) };
+        match _port {
+            Port::Port0 => {
+                r.pscctl1_set().write(|w| w.hsgpio0_clk_set().set_clock());
+                t.prstctl1_clr().write(|w| w.hsgpio0_rst_clr().clr_reset());
+            },
+            Port::Port1 => {
+                r.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
+                t.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
+            },
+            Port::Port2 => {
+                r.pscctl1_set().write(|w| w.hsgpio2_clk_set().set_clock());
+                t.prstctl1_clr().write(|w| w.hsgpio2_rst_clr().clr_reset());
+            },
+            Port::Port3 => {
+                r.pscctl1_set().write(|w| w.hsgpio3_clk_set().set_clock());
+                t.prstctl1_clr().write(|w| w.hsgpio3_rst_clr().clr_reset());
+            },
+            Port::Port4 => {
+                r.pscctl1_set().write(|w| w.hsgpio4_clk_set().set_clock());
+                t.prstctl1_clr().write(|w| w.hsgpio4_rst_clr().clr_reset());
+            },
+            Port::Port7 => {
+                r.pscctl1_set().write(|w| w.hsgpio7_clk_set().set_clock());
+                t.prstctl1_clr().write(|w| w.hsgpio7_rst_clr().clr_reset());
+            },
+        }
+    }
 }
 
 macro_rules! impl_pin {
     ($peripheral:ident, $method:ident, $port_num:expr, $pin_num:expr) => {
         impl crate::gpio::Pin for peripherals::$peripheral {
-            #[inline]
             fn set_as_output(&self, drive: OutputDrive) {
                 let iopctl_ptr = unsafe { &*crate::pac::Iopctl::ptr() };
                 iopctl_ptr.$method().write(|w| {
@@ -652,7 +664,6 @@ macro_rules! impl_pin {
                 }
             }
 
-            #[inline]
             fn set_as_input(&self, pull: Pull) {
                 let iopctl_ptr = unsafe { &*crate::pac::Iopctl::ptr() };
                 iopctl_ptr.$method().write(|w| {
@@ -691,6 +702,182 @@ macro_rules! impl_pin {
             }
         }
     };
+}
+
+
+impl<'d> Flex<'d>{
+
+    /// Put the pin into disconnected mode.
+    pub fn set_as_disconnected(&mut self){
+        let port = (self.pin.pin_port() as usize) / 32;
+        let pin = self.pin.pin() as usize;
+        self.pin.block().dir(port).modify(|r,w| unsafe{  w.dirp().bits(r.dirp().bits() & !(1 << pin)) });
+        self.pin.block().set(port).modify(|r,w| unsafe{  w.setp().bits(r.setp().bits() & !(1 << pin)) });
+
+        let iopctl_ptr = unsafe { &*crate::pac::Iopctl::ptr() };
+        match (self.pin.port(),self.pin._pin()){
+            //port 0
+            (Port::Port0,0) => iopctl_ptr.pio0_0().reset(),
+            (Port::Port0,1) => iopctl_ptr.pio0_1().reset(),
+            (Port::Port0,2) => iopctl_ptr.pio0_2().reset(),
+            (Port::Port0,3) => iopctl_ptr.pio0_3().reset(),
+            (Port::Port0,4) => iopctl_ptr.pio0_4().reset(),
+            (Port::Port0,5) => iopctl_ptr.pio0_5().reset(),
+            (Port::Port0,6) => iopctl_ptr.pio0_6().reset(),
+            (Port::Port0,7) => iopctl_ptr.pio0_7().reset(),
+            (Port::Port0,8) => iopctl_ptr.pio0_8().reset(),
+            (Port::Port0,9) => iopctl_ptr.pio0_9().reset(),
+            (Port::Port0,10) => iopctl_ptr.pio0_10().reset(),
+            (Port::Port0,11) => iopctl_ptr.pio0_11().reset(),
+            (Port::Port0,12) => iopctl_ptr.pio0_12().reset(),
+            (Port::Port0,13) => iopctl_ptr.pio0_13().reset(),
+            (Port::Port0,14) => iopctl_ptr.pio0_14().reset(),
+            (Port::Port0,15) => iopctl_ptr.pio0_15().reset(),
+            (Port::Port0,16) => iopctl_ptr.pio0_16().reset(),
+            (Port::Port0,17) => iopctl_ptr.pio0_17().reset(),
+            (Port::Port0,18) => iopctl_ptr.pio0_18().reset(),
+            (Port::Port0,19) => iopctl_ptr.pio0_19().reset(),
+            (Port::Port0,20) => iopctl_ptr.pio0_20().reset(),
+            (Port::Port0,21) => iopctl_ptr.pio0_21().reset(),
+            (Port::Port0,22) => iopctl_ptr.pio0_22().reset(),
+            (Port::Port0,23) => iopctl_ptr.pio0_23().reset(),
+            (Port::Port0,24) => iopctl_ptr.pio0_24().reset(),
+            (Port::Port0,25) => iopctl_ptr.pio0_25().reset(),
+            (Port::Port0,26) => iopctl_ptr.pio0_26().reset(),
+            (Port::Port0,27) => iopctl_ptr.pio0_27().reset(),
+            (Port::Port0,28) => iopctl_ptr.pio0_28().reset(),
+            (Port::Port0,29) => iopctl_ptr.pio0_29().reset(),
+            (Port::Port0,30) => iopctl_ptr.pio0_30().reset(),
+            (Port::Port0,31) => iopctl_ptr.pio0_31().reset(),
+
+            // port 1
+            (Port::Port1,0) => iopctl_ptr.pio1_0().reset(),
+            (Port::Port1,1) => iopctl_ptr.pio1_1().reset(),
+            (Port::Port1,2) => iopctl_ptr.pio1_2().reset(),
+            (Port::Port1,3) => iopctl_ptr.pio1_3().reset(),
+            (Port::Port1,4) => iopctl_ptr.pio1_4().reset(),
+            (Port::Port1,5) => iopctl_ptr.pio1_5().reset(),
+            (Port::Port1,6) => iopctl_ptr.pio1_6().reset(),
+            (Port::Port1,7) => iopctl_ptr.pio1_7().reset(),
+            (Port::Port1,8) => iopctl_ptr.pio1_8().reset(),
+            (Port::Port1,9) => iopctl_ptr.pio1_9().reset(),
+            (Port::Port1,10) => iopctl_ptr.pio1_10().reset(),
+            (Port::Port1,11) => iopctl_ptr.pio1_11().reset(),
+            (Port::Port1,12) => iopctl_ptr.pio1_12().reset(),
+            (Port::Port1,13) => iopctl_ptr.pio1_13().reset(),
+            (Port::Port1,14) => iopctl_ptr.pio1_14().reset(),
+            (Port::Port1,15) => iopctl_ptr.pio1_15().reset(),
+            (Port::Port1,16) => iopctl_ptr.pio1_16().reset(),
+            (Port::Port1,17) => iopctl_ptr.pio1_17().reset(),
+            (Port::Port1,18) => iopctl_ptr.pio1_18().reset(),
+            (Port::Port1,19) => iopctl_ptr.pio1_19().reset(),
+            (Port::Port1,20) => iopctl_ptr.pio1_20().reset(),
+            (Port::Port1,21) => iopctl_ptr.pio1_21().reset(),
+            (Port::Port1,22) => iopctl_ptr.pio1_22().reset(),
+            (Port::Port1,23) => iopctl_ptr.pio1_23().reset(),
+            (Port::Port1,24) => iopctl_ptr.pio1_24().reset(),
+            (Port::Port1,25) => iopctl_ptr.pio1_25().reset(),
+            (Port::Port1,26) => iopctl_ptr.pio1_26().reset(),
+            (Port::Port1,27) => iopctl_ptr.pio1_27().reset(),
+            (Port::Port1,28) => iopctl_ptr.pio1_28().reset(),
+            (Port::Port1,29) => iopctl_ptr.pio1_29().reset(),
+            (Port::Port1,30) => iopctl_ptr.pio1_30().reset(),
+            (Port::Port1,31) => iopctl_ptr.pio1_31().reset(),
+
+            // port 2 
+            (Port::Port2,0) => iopctl_ptr.pio2_0().reset(),
+            (Port::Port2,1) => iopctl_ptr.pio2_1().reset(),
+            (Port::Port2,2) => iopctl_ptr.pio2_2().reset(),
+            (Port::Port2,3) => iopctl_ptr.pio2_3().reset(),
+            (Port::Port2,4) => iopctl_ptr.pio2_4().reset(),
+            (Port::Port2,5) => iopctl_ptr.pio2_5().reset(),
+            (Port::Port2,6) => iopctl_ptr.pio2_6().reset(),
+            (Port::Port2,7) => iopctl_ptr.pio2_7().reset(),
+            (Port::Port2,8) => iopctl_ptr.pio2_8().reset(),
+            (Port::Port2,9) => iopctl_ptr.pio2_9().reset(),
+            (Port::Port2,10) => iopctl_ptr.pio2_10().reset(),
+            (Port::Port2,11) => iopctl_ptr.pio2_11().reset(),
+            (Port::Port2,12) => iopctl_ptr.pio2_12().reset(),
+            (Port::Port2,13) => iopctl_ptr.pio2_13().reset(),
+            (Port::Port2,14) => iopctl_ptr.pio2_14().reset(),
+            (Port::Port2,15) => iopctl_ptr.pio2_15().reset(),
+            (Port::Port2,16) => iopctl_ptr.pio2_16().reset(),
+            (Port::Port2,17) => iopctl_ptr.pio2_17().reset(),
+            (Port::Port2,18) => iopctl_ptr.pio2_18().reset(),
+            (Port::Port2,19) => iopctl_ptr.pio2_19().reset(),
+            (Port::Port2,20) => iopctl_ptr.pio2_20().reset(),
+            (Port::Port2,21) => iopctl_ptr.pio2_21().reset(),
+            (Port::Port2,22) => iopctl_ptr.pio2_22().reset(),
+            (Port::Port2,23) => iopctl_ptr.pio2_23().reset(),
+            (Port::Port2,24) => iopctl_ptr.pio2_24().reset(),
+            (Port::Port2,25) => iopctl_ptr.pio2_25().reset(),
+            (Port::Port2,26) => iopctl_ptr.pio2_26().reset(),
+            (Port::Port2,27) => iopctl_ptr.pio2_27().reset(),
+            (Port::Port2,28) => iopctl_ptr.pio2_28().reset(),
+            (Port::Port2,29) => iopctl_ptr.pio2_29().reset(),
+            (Port::Port2,30) => iopctl_ptr.pio2_30().reset(),
+            (Port::Port2,31) => iopctl_ptr.pio2_31().reset(),
+
+            // port 3
+            (Port::Port3,0) => iopctl_ptr.pio3_0().reset(),
+            (Port::Port3,1) => iopctl_ptr.pio3_1().reset(),
+            (Port::Port3,2) => iopctl_ptr.pio3_2().reset(),
+            (Port::Port3,3) => iopctl_ptr.pio3_3().reset(),
+            (Port::Port3,4) => iopctl_ptr.pio3_4().reset(),
+            (Port::Port3,5) => iopctl_ptr.pio3_5().reset(),
+            (Port::Port3,6) => iopctl_ptr.pio3_6().reset(),
+            (Port::Port3,7) => iopctl_ptr.pio3_7().reset(),
+            (Port::Port3,8) => iopctl_ptr.pio3_8().reset(),
+            (Port::Port3,9) => iopctl_ptr.pio3_9().reset(),
+            (Port::Port3,10) => iopctl_ptr.pio3_10().reset(),
+            (Port::Port3,11) => iopctl_ptr.pio3_11().reset(),
+            (Port::Port3,12) => iopctl_ptr.pio3_12().reset(),
+            (Port::Port3,13) => iopctl_ptr.pio3_13().reset(),
+            (Port::Port3,14) => iopctl_ptr.pio3_14().reset(),
+            (Port::Port3,15) => iopctl_ptr.pio3_15().reset(),
+            (Port::Port3,16) => iopctl_ptr.pio3_16().reset(),
+            (Port::Port3,17) => iopctl_ptr.pio3_17().reset(),
+            (Port::Port3,18) => iopctl_ptr.pio3_18().reset(),
+            (Port::Port3,19) => iopctl_ptr.pio3_19().reset(),
+            (Port::Port3,20) => iopctl_ptr.pio3_20().reset(),
+            (Port::Port3,21) => iopctl_ptr.pio3_21().reset(),
+            (Port::Port3,22) => iopctl_ptr.pio3_22().reset(),
+            (Port::Port3,23) => iopctl_ptr.pio3_23().reset(),
+            (Port::Port3,24) => iopctl_ptr.pio3_24().reset(),
+            (Port::Port3,25) => iopctl_ptr.pio3_25().reset(),
+            (Port::Port3,26) => iopctl_ptr.pio3_26().reset(),
+            (Port::Port3,27) => iopctl_ptr.pio3_27().reset(),
+            (Port::Port3,28) => iopctl_ptr.pio3_28().reset(),
+            (Port::Port3,29) => iopctl_ptr.pio3_29().reset(),
+            (Port::Port3,30) => iopctl_ptr.pio3_30().reset(),
+            (Port::Port3,31) => iopctl_ptr.pio3_31().reset(),
+
+            // port 4
+            (Port::Port4,0) => iopctl_ptr.pio4_0().reset(),
+            (Port::Port4,1) => iopctl_ptr.pio4_1().reset(),
+            (Port::Port4,2) => iopctl_ptr.pio4_2().reset(),
+            (Port::Port4,3) => iopctl_ptr.pio4_3().reset(),
+            (Port::Port4,4) => iopctl_ptr.pio4_4().reset(),
+            (Port::Port4,5) => iopctl_ptr.pio4_5().reset(),
+            (Port::Port4,6) => iopctl_ptr.pio4_6().reset(),
+            (Port::Port4,7) => iopctl_ptr.pio4_7().reset(),
+            (Port::Port4,8) => iopctl_ptr.pio4_8().reset(),
+            (Port::Port4,9) => iopctl_ptr.pio4_9().reset(),
+            (Port::Port4,10) => iopctl_ptr.pio4_10().reset(),
+
+            // port 7
+            (Port::Port7,24) => iopctl_ptr.pio7_24().reset(),
+            (Port::Port7,25) => iopctl_ptr.pio7_25().reset(),
+            (Port::Port7,26) => iopctl_ptr.pio7_26().reset(),
+            (Port::Port7,27) => iopctl_ptr.pio7_27().reset(),
+            (Port::Port7,28) => iopctl_ptr.pio7_28().reset(),
+            (Port::Port7,29) => iopctl_ptr.pio7_29().reset(),
+            (Port::Port7,30) => iopctl_ptr.pio7_30().reset(),
+            (Port::Port7,31) => iopctl_ptr.pio7_31().reset(),
+
+            _ => panic!("Not a GPIO pin")
+        }
+    }
 }
 
 // GPIO port 0
