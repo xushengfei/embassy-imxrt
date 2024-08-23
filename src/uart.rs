@@ -39,6 +39,7 @@ pub struct UartRx {
 /// Todo: In the vendor file fsl_common.h, there is an enum defined enum _status_groups{},
 /// that can be used to define the status of all the peripherals in a standard way.
 /// Since that is missing in the pac, I am defining a temp status
+#[derive(PartialEq)]
 pub enum GenericStatus {
     // Generic status
     Success,
@@ -109,7 +110,7 @@ impl UartRx {
                 }
 
                 // Save the receive status flag to check later.
-                let rx_status = self.reg().stat().read();
+                let rx_status = self.reg().stat().read().bits();
                 let mut generic_status = GenericStatus::Success;
 
                 // clear all status flags
@@ -117,17 +118,17 @@ impl UartRx {
                 //TODO: Note that bits 13,14 and 15 (FrameErrInt, ParityErrInt, ExNoiseErrInt) of uart::Stat reg is R/W1C, but in the  imxrt632s-pac, the read for these bits is not implemented..
                 // Need to add the implementation for these bits in the pac file
 
-                if rx_status.bits().bit(14) {
+                if rx_status & (1 << 14) != 0 {
                     //writing to it will clear the status since it is W1C
                     self.reg().stat().write(|w| w.parityerrint().set_bit());
                     generic_status = GenericStatus::USART_ParityError;
                 }
-                if rx_status.bits().bit(13) {
+                if rx_status & (1 << 13) != 0 {
                     //writing to it will clear the status since it is W1C
                     self.reg().stat().write(|w| w.framerrint().set_bit());
                     generic_status = GenericStatus::USART_FramingError;
                 }
-                if rx_status.bits().bit(15) {
+                if rx_status & (1 << 15) != 0 {
                     //writing to it will clear the status since it is W1C
                     self.reg().stat().write(|w| w.rxnoiseint().set_bit());
                     generic_status = GenericStatus::USART_NoiseError;
@@ -135,7 +136,8 @@ impl UartRx {
 
                 if generic_status == GenericStatus::Success {
                     // read the data from the rxFifo
-                    buf[i as usize] = self.reg().rxdata().read().rxdata().bits();
+                    //todo: check if this conversion is correct
+                    buf[i as usize] = self.reg().fiford().read().rxdata().bits() as u8;
                 } else {
                     return generic_status;
                 }
