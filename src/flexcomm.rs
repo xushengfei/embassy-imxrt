@@ -31,6 +31,8 @@ pub enum Flexcomm {
     Flexcomm3,
     Flexcomm4,
     Flexcomm5,
+    Flexcomm6,
+    Flexcomm7,
     Flexcomm14,
     Flexcomm15,
 }
@@ -84,7 +86,13 @@ impl FlexcommConnector {
                 config: _config,
             },
 
-            // TODO: Add for other flexcomm connectors. Check with the clock implementation
+            Flexcomm::Flexcomm1 => FlexcommConnector {
+                flexcomm_sys_reset_reg: 0,
+                clock_freq: 0,
+                config: _config,
+            },
+
+            // TODO: Add for other flexcomm n connectors. Pending new clock traits
             _ => FlexcommConnector {
                 flexcomm_sys_reset_reg: 0,
                 clock_freq: 0,
@@ -109,18 +117,39 @@ impl FlexcommConnector {
     }
 
     fn attach_clock(&self) {
+        // attach clock source
         match self.config.flexcomm {
-            Flexcomm::Flexcomm0 => {}
+            Flexcomm::Flexcomm0 => {
+                todo!(); // pending new clock traits
+            }
+
+            Flexcomm::Flexcomm1 => {
+                todo!(); // pending new clock traits
+            }
+
+            // TODO: Add for other flexcomm n connectors
             _ => {}
         }
     }
 
     fn enable_clock(&self) {
         // Enable the clock
+        match self.config.flexcomm {
+            Flexcomm::Flexcomm0 => {
+                todo!(); // pending new clock traits
+            }
+
+            Flexcomm::Flexcomm1 => {
+                todo!(); // pending new clock traits
+            }
+
+            // TODO: Add for other flexcomm n connectors
+            _ => {}
+        }
     }
 
     fn disable_clock(&self) {
-        // Enable the clock
+        // disable the clock
     }
 
     fn calculate_clock_frequency(&mut self) {
@@ -165,6 +194,7 @@ impl FlexcommConnector {
                 self.regs().pselid().write(|w| w.persel().i2s_transmit());
             }
         }
+        // TODO: Do we need to support the lock feature?
         if self.config.lock == FlexcommLock::Locked {
             self.regs().pselid().write(|w| w.lock().locked());
         } else {
@@ -180,6 +210,8 @@ impl FlexcommConnector {
             Flexcomm::Flexcomm3 => unsafe { &*(pac::Flexcomm3::ptr() as *const pac::flexcomm0::RegisterBlock) },
             Flexcomm::Flexcomm4 => unsafe { &*(pac::Flexcomm4::ptr() as *const pac::flexcomm0::RegisterBlock) },
             Flexcomm::Flexcomm5 => unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm0::RegisterBlock) },
+            Flexcomm::Flexcomm6 => unsafe { &*(pac::Flexcomm6::ptr() as *const pac::flexcomm0::RegisterBlock) },
+            Flexcomm::Flexcomm7 => unsafe { &*(pac::Flexcomm7::ptr() as *const pac::flexcomm0::RegisterBlock) },
             Flexcomm::Flexcomm14 => unsafe { &*(pac::Flexcomm14::ptr() as *const pac::flexcomm0::RegisterBlock) },
             Flexcomm::Flexcomm15 => unsafe { &*(pac::Flexcomm15::ptr() as *const pac::flexcomm0::RegisterBlock) },
         }
