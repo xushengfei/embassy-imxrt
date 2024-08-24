@@ -5,8 +5,7 @@
 use core::ptr;
 
 use crate::peripherals;
-use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::{impl_peripheral, interrupt, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 
 use crate::pac::flexcomm0;
 use mimxrt685s_pac as pac;
@@ -15,14 +14,14 @@ use mimxrt685s_pac as pac;
 pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
 pub use pac::flexcomm0::pselid::Persel as Function;
 
-/// Flexcomm
-#[derive(Clone, Copy, Debug, PartialEq)]
-
-/// TODO: Temporary definition of AnyPin. Should be removed after gpio integration
-pub struct AnyPin {
-    pin_port: u8,
+/// Flexcomm error types
+#[non_exhaustive]
+pub enum ConfigError {
+    /// general purpose error
+    InvalidConfig,
 }
 
+/// Flexcomm
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Flexcomm {
     Flexcomm0,
@@ -37,70 +36,64 @@ pub enum Flexcomm {
     Flexcomm15,
 }
 
+/// Flexcomm Config structure, containing:
+/// flexcomm: enumeration n
+/// function: SPI, UART, I2C from svd
+/// lock: whether or not to lock the pselid
+#[non_exhaustive]
 pub struct Config {
     flexcomm: Flexcomm, // specify which FCn to use
     function: Function, // serial comm peripheral type
     lock: FlexcommLock, // lock the FC, or not
-}
-
-pub enum ConfigError {
-    InvalidConfig,
+                        // TBD: Specify preferred source clock? ex: low speed / high speed / pll / external
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
             flexcomm: Flexcomm::Flexcomm0,
-            function: Function::Usart,
+            function: Function::NoPeriphSelected,
             lock: FlexcommLock::Unlocked,
         }
     }
 }
 
-impl Config {
-    pub fn new(_flexcomm: Flexcomm, _function: Function, _lock: FlexcommLock) -> Self {
-        Config {
-            flexcomm: _flexcomm,
-            function: _function,
-            lock: _lock,
-        }
-    }
-}
-
+/// FlexcommConnector includes config and other flexcomm state information
 pub struct FlexcommConnector {
-    flexcomm_sys_reset_reg: u32, // TODO: replace with actual registers
-    clock_freq: u32,
     config: Config,
+    clock_freq: u32,
 }
 
 impl FlexcommConnector {
-    // TODO: Need access to clock control reg, clock IDs, clock name for Flexcomm
-    // Check with clock implementation
+    // TODO: Use new wip clock traits for all methods
 
+    /// new FlexcommConnector
     pub fn new(_config: Config) -> Self {
         match _config.flexcomm {
-            // TODO: return error if flexcomm is locked
+            // TBD: return error if flexcomm is locked?
             Flexcomm::Flexcomm0 => FlexcommConnector {
-                flexcomm_sys_reset_reg: 0,
-                clock_freq: 0,
                 config: _config,
+                clock_freq: 0,
             },
 
             Flexcomm::Flexcomm1 => FlexcommConnector {
-                flexcomm_sys_reset_reg: 0,
-                clock_freq: 0,
                 config: _config,
+                clock_freq: 0,
             },
 
-            // TODO: Add for other flexcomm n connectors. Pending new clock traits
+            // TODO: Add for other flexcomm n connectors.
             _ => FlexcommConnector {
-                flexcomm_sys_reset_reg: 0,
-                clock_freq: 0,
                 config: _config,
+                clock_freq: 0,
             },
         }
     }
 
+    // TBD: Does flexcomm own the associated external config and control bits in SYSCON and RST_CTL ?
+    //      If flexcomm does own the external config and control bits, then peripheral drivers
+    //      must tell flexcomm which source clock to select (add it to Config struct).
+
+    /// enable channel and connect source clock
     pub fn enable(&mut self) {
         // Enable the Flexcomm connector
         self.attach_clock();
@@ -110,12 +103,14 @@ impl FlexcommConnector {
         self.set_reg();
     }
 
+    /// disable channel and disconnect associated source clock
     pub fn disable(&self) {
         // Disable the Flexcomm connector
         self.disable_clock();
-        self.attach_clock();
+        self.detach_clock();
     }
 
+    /// attach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
     fn attach_clock(&self) {
         // attach clock source
         match self.config.flexcomm {
@@ -132,8 +127,9 @@ impl FlexcommConnector {
         }
     }
 
-    fn enable_clock(&self) {
-        // Enable the clock
+    /// detach associated source clock
+    fn detach_clock(&self) {
+        // attach clock source
         match self.config.flexcomm {
             Flexcomm::Flexcomm0 => {
                 todo!(); // pending new clock traits
@@ -148,25 +144,55 @@ impl FlexcommConnector {
         }
     }
 
-    fn disable_clock(&self) {
-        // disable the clock
+    /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
+    fn enable_clock(&self) {
+        match self.config.flexcomm {
+            Flexcomm::Flexcomm0 => {
+                todo!(); // pending new clock traits
+            }
+
+            Flexcomm::Flexcomm1 => {
+                todo!(); // pending new clock traits
+            }
+
+            // TODO: Add for other flexcomm n connectors
+            _ => {}
+        }
     }
 
+    /// Disable the source clock
+    fn disable_clock(&self) {
+        // disable the clock matching the config flexcomm
+        match self.config.flexcomm {
+            Flexcomm::Flexcomm0 => {
+                todo!(); // pending new clock traits
+            }
+
+            Flexcomm::Flexcomm1 => {
+                todo!(); // pending new clock traits
+            }
+
+            // TODO: Add for other flexcomm n connectors
+            _ => {}
+        }
+    }
+
+    /// Set clock_freq to actual source clock frequency
     fn calculate_clock_frequency(&mut self) {
-        // TODO: Calculate the flex comm freq and update
         let freq = 0;
+        // TODO: Calculate the actual flexcomm freq based on the clock enabled for this channel
         self.clock_freq = freq;
     }
 
+    /// Reset the flexcomm channel RST_CTLn_PSCCTLn
     fn reset_peripheral(&self) {
-        // Reset the peripheral
+        todo!();
     }
 
+    /// Set the peripheral function
     fn set_reg(&self) {
-        // Set the peripheral function
-
-        // TODO: Check if peripheral is present
-        // TODO: Check if peripheral is locked and mapped to a diff peripheral
+        // TODO: Check if peripheral is present.
+        // TBD: Check if peripheral is locked or mapped to a diff peripheral?
 
         match self.config.function {
             Function::NoPeriphSelected => {
@@ -194,7 +220,7 @@ impl FlexcommConnector {
                 self.regs().pselid().write(|w| w.persel().i2s_transmit());
             }
         }
-        // TODO: Do we need to support the lock feature?
+        // TBD: Do we need to support the lock feature?
         if self.config.lock == FlexcommLock::Locked {
             self.regs().pselid().write(|w| w.lock().locked());
         } else {
