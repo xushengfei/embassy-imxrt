@@ -68,22 +68,22 @@ impl FlexcommConnector {
     // TODO: Use new wip clock traits for all methods
 
     /// new FlexcommConnector
-    pub fn new(_config: Config) -> Self {
-        match _config.flexcomm {
+    pub fn new(configuration: Config) -> Self {
+        match configuration.flexcomm {
             // TBD: return error if flexcomm is locked?
             Flexcomm::Flexcomm0 => FlexcommConnector {
-                config: _config,
+                config: configuration,
                 clock_freq: 0,
             },
 
             Flexcomm::Flexcomm1 => FlexcommConnector {
-                config: _config,
+                config: configuration,
                 clock_freq: 0,
             },
 
             // TODO: Add for other flexcomm n connectors.
             _ => FlexcommConnector {
-                config: _config,
+                config: configuration,
                 clock_freq: 0,
             },
         }
