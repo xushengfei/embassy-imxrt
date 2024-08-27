@@ -21,28 +21,12 @@ pub enum ConfigError {
     InvalidConfig,
 }
 
-/// Flexcomm
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-pub enum Flexcomm {
-    Flexcomm0,
-    Flexcomm1,
-    Flexcomm2,
-    Flexcomm3,
-    Flexcomm4,
-    Flexcomm5,
-    Flexcomm6,
-    Flexcomm7,
-    Flexcomm14,
-    Flexcomm15,
-}
-
 /// Flexcomm Config structure, containing:
-/// flexcomm: enumeration n
 /// function: SPI, UART, I2C from svd
 /// lock: whether or not to lock the pselid
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[non_exhaustive]
 pub struct Config {
-    flexcomm: Flexcomm, // specify which FCn to use
     function: Function, // serial comm peripheral type
     lock: FlexcommLock, // lock the FC, or not
                         // TBD: Specify preferred source clock? ex: low speed / high speed / pll / external
@@ -51,143 +35,55 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            flexcomm: Flexcomm::Flexcomm0,
             function: Function::NoPeriphSelected,
             lock: FlexcommLock::Unlocked,
         }
     }
 }
 
-/// FlexcommConnector includes config and other flexcomm state information
-pub struct FlexcommConnector {
-    config: Config,
-    clock_freq: u32,
-}
-
-impl FlexcommConnector {
+/// Flexcomm trait and default implementation
+trait Flexcomm {
     // TODO: Use new wip clock traits for all methods
-
-    /// new FlexcommConnector
-    pub fn new(configuration: Config) -> Self {
-        match configuration.flexcomm {
-            // TBD: return error if flexcomm is locked?
-            Flexcomm::Flexcomm0 => FlexcommConnector {
-                config: configuration,
-                clock_freq: 0,
-            },
-
-            Flexcomm::Flexcomm1 => FlexcommConnector {
-                config: configuration,
-                clock_freq: 0,
-            },
-
-            // TODO: Add for other flexcomm n connectors.
-            _ => FlexcommConnector {
-                config: configuration,
-                clock_freq: 0,
-            },
-        }
-    }
-
     // TBD: Does flexcomm own the associated external config and control bits in SYSCON and RST_CTL ?
     //      If flexcomm does own the external config and control bits, then peripheral drivers
     //      must tell flexcomm which source clock to select (add it to Config struct).
 
+    fn new(config: Config) -> Self;
+
     /// enable channel and connect source clock
-    pub fn enable(&mut self) {
+    fn enable(&mut self) {
         // Enable the Flexcomm connector
-        self.attach_clock();
-        self.enable_clock();
-        self.reset_peripheral();
-        self.calculate_clock_frequency();
-        self.set_reg();
+        //self.attach_clock();
+        //self.enable_clock();
+        //self.reset_peripheral();
+        //self.calculate_clock_frequency();
+        //self.set_reg();
     }
 
     /// disable channel and disconnect associated source clock
-    pub fn disable(&self) {
+    fn disable(&self) {
         // Disable the Flexcomm connector
-        self.disable_clock();
-        self.detach_clock();
+        //self.disable_clock();
+        //self.detach_clock();
     }
 
     /// attach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn attach_clock(&self) {
-        // attach clock source
-        match self.config.flexcomm {
-            Flexcomm::Flexcomm0 => {
-                todo!(); // pending new clock traits
-            }
+    fn attach_clock(&self) {}
 
-            Flexcomm::Flexcomm1 => {
-                todo!(); // pending new clock traits
-            }
-
-            // TODO: Add for other flexcomm n connectors
-            _ => {}
-        }
-    }
-
-    /// detach associated source clock
-    fn detach_clock(&self) {
-        // attach clock source
-        match self.config.flexcomm {
-            Flexcomm::Flexcomm0 => {
-                todo!(); // pending new clock traits
-            }
-
-            Flexcomm::Flexcomm1 => {
-                todo!(); // pending new clock traits
-            }
-
-            // TODO: Add for other flexcomm n connectors
-            _ => {}
-        }
-    }
+    /// detach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+    fn detach_clock(&self) {}
 
     /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
-    fn enable_clock(&self) {
-        match self.config.flexcomm {
-            Flexcomm::Flexcomm0 => {
-                todo!(); // pending new clock traits
-            }
+    fn enable_clock(&self) {}
 
-            Flexcomm::Flexcomm1 => {
-                todo!(); // pending new clock traits
-            }
+    /// Disable the source clock (SYSCON CLKCTL1_PSCCTL0)
+    fn disable_clock(&self) {}
 
-            // TODO: Add for other flexcomm n connectors
-            _ => {}
-        }
-    }
-
-    /// Disable the source clock
-    fn disable_clock(&self) {
-        // disable the clock matching the config flexcomm
-        match self.config.flexcomm {
-            Flexcomm::Flexcomm0 => {
-                todo!(); // pending new clock traits
-            }
-
-            Flexcomm::Flexcomm1 => {
-                todo!(); // pending new clock traits
-            }
-
-            // TODO: Add for other flexcomm n connectors
-            _ => {}
-        }
-    }
-
-    /// Set clock_freq to actual source clock frequency
-    fn calculate_clock_frequency(&mut self) {
-        let freq = 0;
-        // TODO: Calculate the actual flexcomm freq based on the clock enabled for this channel
-        self.clock_freq = freq;
-    }
+    /// Determine clock freq of actual source clock
+    fn calculate_clock_frequency(&mut self) {}
 
     /// Reset the flexcomm channel RST_CTLn_PSCCTLn
-    fn reset_peripheral(&self) {
-        todo!();
-    }
+    fn reset_peripheral(&self) {}
 
     /// Set the peripheral function
     fn set_reg(&self) {
@@ -229,17 +125,177 @@ impl FlexcommConnector {
     }
 
     fn regs(&self) -> &'static pac::flexcomm0::RegisterBlock {
-        match self.config.flexcomm {
-            Flexcomm::Flexcomm0 => unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm1 => unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm2 => unsafe { &*(pac::Flexcomm2::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm3 => unsafe { &*(pac::Flexcomm3::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm4 => unsafe { &*(pac::Flexcomm4::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm5 => unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm6 => unsafe { &*(pac::Flexcomm6::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm7 => unsafe { &*(pac::Flexcomm7::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm14 => unsafe { &*(pac::Flexcomm14::ptr() as *const pac::flexcomm0::RegisterBlock) },
-            Flexcomm::Flexcomm15 => unsafe { &*(pac::Flexcomm15::ptr() as *const pac::flexcomm0::RegisterBlock) },
-        }
+        unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) }
+        //        match self.config.flexcomm {
+        //          Flexcomm::Flexcomm0 => unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm1 => unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm2 => unsafe { &*(pac::Flexcomm2::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm3 => unsafe { &*(pac::Flexcomm3::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm4 => unsafe { &*(pac::Flexcomm4::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm5 => unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm6 => unsafe { &*(pac::Flexcomm6::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm7 => unsafe { &*(pac::Flexcomm7::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm14 => unsafe { &*(pac::Flexcomm14::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //          Flexcomm::Flexcomm15 => unsafe { &*(pac::Flexcomm15::ptr() as *const pac::flexcomm0::RegisterBlock) },
+        //      }
+    }
+}
+
+/// Flexcomm channels 0-7, 14,15
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+struct Flexcomm0 {
+    config: Config,
+}
+struct Flexcomm1 {
+    config: Config,
+}
+struct Flexcomm2 {
+    config: Config,
+}
+struct Flexcomm3 {
+    config: Config,
+}
+struct Flexcomm4 {
+    config: Config,
+}
+struct Flexcomm5 {
+    config: Config,
+}
+struct Flexcomm6 {
+    config: Config,
+}
+struct Flexcomm7 {
+    config: Config,
+}
+struct Flexcomm14 {
+    config: Config,
+}
+struct Flexcomm15 {
+    config: Config,
+}
+
+/// Flexcomm channel - specific implementations
+impl Flexcomm0 {}
+
+impl Flexcomm1 {}
+
+impl Flexcomm2 {}
+
+impl Flexcomm3 {}
+
+impl Flexcomm4 {}
+
+impl Flexcomm5 {}
+
+impl Flexcomm6 {}
+
+impl Flexcomm7 {}
+
+// 14 is SPI only
+impl Flexcomm14 {}
+
+// 15 is I2C only
+impl Flexcomm15 {}
+
+/// Flexcomm channel generic trait implementations
+impl Flexcomm for Flexcomm0 {
+    fn new(config: Config) -> Flexcomm0 {
+        Flexcomm0 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm0::RegisterBlock {
+        unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm1 {
+    fn new(config: Config) -> Flexcomm1 {
+        Flexcomm1 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm1::RegisterBlock {
+        unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm1::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm2 {
+    fn new(config: Config) -> Flexcomm2 {
+        Flexcomm2 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm2::RegisterBlock {
+        unsafe { &*(pac::Flexcomm2::ptr() as *const pac::flexcomm2::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm3 {
+    fn new(config: Config) -> Flexcomm3 {
+        Flexcomm3 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm3::RegisterBlock {
+        unsafe { &*(pac::Flexcomm3::ptr() as *const pac::flexcomm3::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm4 {
+    fn new(config: Config) -> Flexcomm4 {
+        Flexcomm4 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm4::RegisterBlock {
+        unsafe { &*(pac::Flexcomm4::ptr() as *const pac::flexcomm4::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm5 {
+    fn new(config: Config) -> Flexcomm5 {
+        Flexcomm5 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm5::RegisterBlock {
+        unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm5::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm6 {
+    fn new(config: Config) -> Flexcomm6 {
+        Flexcomm6 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm6::RegisterBlock {
+        unsafe { &*(pac::Flexcomm6::ptr() as *const pac::flexcomm6::RegisterBlock) }
+    }
+}
+
+impl Flexcomm for Flexcomm7 {
+    fn new(config: Config) -> Flexcomm7 {
+        Flexcomm7 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm7::RegisterBlock {
+        unsafe { &*(pac::Flexcomm7::ptr() as *const pac::flexcomm7::RegisterBlock) }
+    }
+}
+
+// 14 is SPI only
+impl Flexcomm for Flexcomm14 {
+    fn new(config: Config) -> Flexcomm14 {
+        Flexcomm14 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm14::RegisterBlock {
+        unsafe { &*(pac::Flexcomm14::ptr() as *const pac::flexcomm14::RegisterBlock) }
+    }
+}
+
+// 15 is I2C only
+impl Flexcomm for Flexcomm15 {
+    fn new(config: Config) -> Flexcomm15 {
+        Flexcomm15 { config }
+    }
+
+    fn regs(&self) -> &'static pac::flexcomm15::RegisterBlock {
+        unsafe { &*(pac::Flexcomm15::ptr() as *const pac::flexcomm15::RegisterBlock) }
     }
 }
