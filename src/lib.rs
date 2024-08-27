@@ -11,6 +11,7 @@ pub(crate) mod fmt;
 
 pub mod adc;
 pub mod clocks;
+pub mod iopctl;
 pub mod pwm;
 #[cfg(feature = "time-driver")]
 mod time_driver;
@@ -251,6 +252,8 @@ embassy_hal_internal::peripherals!(
     PIO2_22,
     PIO2_23,
     PIO2_24,
+    PIO2_25,
+    PIO2_26,
     PIO2_27,
     PIO2_28,
     PIO2_29,
