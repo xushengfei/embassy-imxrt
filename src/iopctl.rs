@@ -90,12 +90,9 @@ trait ToRawPin: SealedPin {
     }
 }
 
-/// A pin.
-///
-/// This functionality is shared by both
-/// "fail-safe" and "high-speed" pins.
+/// A pin that can be configured via iopctl.
 #[allow(private_bounds)]
-pub trait Pin: SealedPin {
+pub trait IopctlPin: SealedPin {
     /// Sets the function number of a pin.
     ///
     /// This number corresponds to a specific function that the pin supports.
@@ -123,11 +120,31 @@ pub trait Pin: SealedPin {
     /// Disables the input buffer of a pin.
     fn disable_input_buffer(&self) -> &Self;
 
+    /// Sets the slew rate of a pin.
+    ///
+    /// This controls the speed at which a pin can toggle,
+    /// which is voltage and load dependent.
+    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self;
+
     /// Sets the output drive strength of a pin.
     ///
     /// A drive strength of [DriveStrength::Full] has twice the
     /// high and low drive capability of the [DriveStrength::Normal] setting.
     fn set_drive_strength(&self, strength: DriveStrength) -> &Self;
+
+    /// Enables the analog multiplexer of a pin.
+    ///
+    /// This must be called to allow analog functionalities of a pin.
+    ///
+    /// To protect the analog input, [IopctlPin::set_function] should be
+    /// called with [Function::F0] to disable digital functions.
+    ///
+    /// Additionally, [IopctlPin::disable_input_buffer] and [IopctlPin::set_pull]
+    /// with [Pull::None] should be called.
+    fn enable_analog_multiplex(&self) -> &Self;
+
+    /// Disables the analog multiplexer of a pin.
+    fn disable_analog_multiplex(&self) -> &Self;
 
     /// Sets the ouput drive mode of a pin.
     ///
@@ -145,36 +162,6 @@ pub trait Pin: SealedPin {
 
     /// Returns a pin to its reset state.
     fn reset(&self) -> &Self;
-}
-
-/// A fail-safe pin (see Chapter 7 - Pinning Information of datasheet).
-///
-/// From a software perspective, the only difference is these pins additionally
-/// support changing slew rate and enabling analog multiplexing.
-///
-/// Most pins are "fail-safe" pins. See Table 296 in reference manual
-/// for list of pins that are "high-speed" pins and thus don't
-/// support this functionality.
-pub trait FailSafePin: Pin {
-    /// Sets the slew rate of a pin.
-    ///
-    /// This controls the speed at which a pin can toggle,
-    /// which is voltage and load dependent.
-    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self;
-
-    /// Enables the analog multiplexer of a pin.
-    ///
-    /// This must be called to allow analog functionalities of a pin.
-    ///
-    /// To protect the analog input, [Pin::set_function] should be
-    /// called with [Function::F0] to disable digital functions.
-    ///
-    /// Additionally, [Pin::disable_input_buffer] and [Pin::set_pull]
-    /// with [Pull::None] should be called.
-    fn enable_analog_multiplex(&self) -> &Self;
-
-    /// Disables the analog multiplexer of a pin.
-    fn disable_analog_multiplex(&self) -> &Self;
 }
 
 /// Represents a pin peripheral created at run-time from given port and pin numbers.
@@ -214,7 +201,7 @@ impl RawPin {
 }
 
 impl SealedPin for RawPin {}
-impl Pin for RawPin {
+impl IopctlPin for RawPin {
     fn set_function(&self, function: Function) -> &Self {
         match function {
             Function::F0 => self.reg.modify(|_, w| w.fsel().function_0()),
@@ -232,7 +219,7 @@ impl Pin for RawPin {
 
     fn set_pull(&self, pull: Pull) -> &Self {
         match pull {
-            Pull::None => self.reg.modify(|_, w| w.pupdena().disabled().pupdsel().pull_down()),
+            Pull::None => self.reg.modify(|_, w| w.pupdena().disabled()),
             Pull::Up => self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_up()),
             Pull::Down => self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_down()),
         }
@@ -249,11 +236,29 @@ impl Pin for RawPin {
         self
     }
 
+    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
+        match slew_rate {
+            SlewRate::Standard => self.reg.modify(|_, w| w.slewrate().normal()),
+            SlewRate::Slow => self.reg.modify(|_, w| w.slewrate().slow()),
+        }
+        self
+    }
+
     fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
         match strength {
             DriveStrength::Normal => self.reg.modify(|_, w| w.fulldrive().normal_drive()),
             DriveStrength::Full => self.reg.modify(|_, w| w.fulldrive().full_drive()),
         }
+        self
+    }
+
+    fn enable_analog_multiplex(&self) -> &Self {
+        self.reg.modify(|_, w| w.amena().enabled());
+        self
+    }
+
+    fn disable_analog_multiplex(&self) -> &Self {
+        self.reg.modify(|_, w| w.amena().disabled());
         self
     }
 
@@ -279,31 +284,11 @@ impl Pin for RawPin {
     }
 }
 
-impl FailSafePin for RawPin {
-    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
-        match slew_rate {
-            SlewRate::Standard => self.reg.modify(|_, w| w.slewrate().normal()),
-            SlewRate::Slow => self.reg.modify(|_, w| w.slewrate().slow()),
-        }
-        self
-    }
-
-    fn enable_analog_multiplex(&self) -> &Self {
-        self.reg.modify(|_, w| w.amena().enabled());
-        self
-    }
-
-    fn disable_analog_multiplex(&self) -> &Self {
-        self.reg.modify(|_, w| w.amena().disabled());
-        self
-    }
-}
-
 macro_rules! impl_pin {
     ($pin_periph:ident, $pin_port:expr, $pin_no:expr) => {
         impl SealedPin for crate::peripherals::$pin_periph {}
         impl ToRawPin for crate::peripherals::$pin_periph {}
-        impl Pin for crate::peripherals::$pin_periph {
+        impl IopctlPin for crate::peripherals::$pin_periph {
             #[inline]
             fn set_function(&self, function: Function) -> &Self {
                 Self::to_raw($pin_port, $pin_no).set_function(function);
@@ -329,8 +314,26 @@ macro_rules! impl_pin {
             }
 
             #[inline]
+            fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
+                Self::to_raw($pin_port, $pin_no).set_slew_rate(slew_rate);
+                self
+            }
+
+            #[inline]
             fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
                 Self::to_raw($pin_port, $pin_no).set_drive_strength(strength);
+                self
+            }
+
+            #[inline]
+            fn enable_analog_multiplex(&self) -> &Self {
+                Self::to_raw($pin_port, $pin_no).enable_analog_multiplex();
+                self
+            }
+
+            #[inline]
+            fn disable_analog_multiplex(&self) -> &Self {
+                Self::to_raw($pin_port, $pin_no).disable_analog_multiplex();
                 self
             }
 
@@ -355,35 +358,56 @@ macro_rules! impl_pin {
     };
 }
 
-macro_rules! impl_failsafe_pin {
-    ($pin_periph:ident, $pin_port:expr, $pin_no:expr) => {
-        impl_pin!($pin_periph, $pin_port, $pin_no);
-        impl FailSafePin for crate::peripherals::$pin_periph {
-            #[inline]
-            fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
-                Self::to_raw($pin_port, $pin_no).set_slew_rate(slew_rate);
-                self
-            }
-
-            #[inline]
-            fn enable_analog_multiplex(&self) -> &Self {
-                Self::to_raw($pin_port, $pin_no).enable_analog_multiplex();
-                self
-            }
-
-            #[inline]
-            fn disable_analog_multiplex(&self) -> &Self {
-                Self::to_raw($pin_port, $pin_no).disable_analog_multiplex();
-                self
-            }
-        }
-    };
-}
-
-// High-speed pins
+impl_pin!(PIO0_0, 0, 0);
+impl_pin!(PIO0_1, 0, 1);
+impl_pin!(PIO0_2, 0, 2);
+impl_pin!(PIO0_3, 0, 3);
+impl_pin!(PIO0_4, 0, 4);
+impl_pin!(PIO0_5, 0, 5);
+impl_pin!(PIO0_6, 0, 6);
+impl_pin!(PIO0_7, 0, 7);
+impl_pin!(PIO0_8, 0, 8);
+impl_pin!(PIO0_9, 0, 9);
+impl_pin!(PIO0_10, 0, 10);
+impl_pin!(PIO0_11, 0, 11);
+impl_pin!(PIO0_12, 0, 12);
+impl_pin!(PIO0_13, 0, 13);
+impl_pin!(PIO0_14, 0, 14);
+impl_pin!(PIO0_15, 0, 15);
+impl_pin!(PIO0_16, 0, 16);
+impl_pin!(PIO0_17, 0, 17);
+impl_pin!(PIO0_18, 0, 18);
+impl_pin!(PIO0_19, 0, 19);
+impl_pin!(PIO0_20, 0, 20);
 impl_pin!(PIO0_21, 0, 21);
 impl_pin!(PIO0_22, 0, 22);
 impl_pin!(PIO0_23, 0, 23);
+impl_pin!(PIO0_24, 0, 24);
+impl_pin!(PIO0_25, 0, 25);
+impl_pin!(PIO0_26, 0, 26);
+impl_pin!(PIO0_27, 0, 27);
+impl_pin!(PIO0_28, 0, 28);
+impl_pin!(PIO0_29, 0, 29);
+impl_pin!(PIO0_30, 0, 30);
+impl_pin!(PIO0_31, 0, 31);
+impl_pin!(PIO1_0, 1, 0);
+impl_pin!(PIO1_1, 1, 1);
+impl_pin!(PIO1_2, 1, 2);
+impl_pin!(PIO1_3, 1, 3);
+impl_pin!(PIO1_4, 1, 4);
+impl_pin!(PIO1_5, 1, 5);
+impl_pin!(PIO1_6, 1, 6);
+impl_pin!(PIO1_7, 1, 7);
+impl_pin!(PIO1_8, 1, 8);
+impl_pin!(PIO1_9, 1, 9);
+impl_pin!(PIO1_10, 1, 10);
+impl_pin!(PIO1_11, 1, 11);
+impl_pin!(PIO1_12, 1, 12);
+impl_pin!(PIO1_13, 1, 13);
+impl_pin!(PIO1_14, 1, 14);
+impl_pin!(PIO1_15, 1, 15);
+impl_pin!(PIO1_16, 1, 16);
+impl_pin!(PIO1_17, 1, 17);
 impl_pin!(PIO1_18, 1, 18);
 impl_pin!(PIO1_19, 1, 19);
 impl_pin!(PIO1_20, 1, 20);
@@ -407,129 +431,80 @@ impl_pin!(PIO2_5, 2, 5);
 impl_pin!(PIO2_6, 2, 6);
 impl_pin!(PIO2_7, 2, 7);
 impl_pin!(PIO2_8, 2, 8);
-
-// Fail-safe pins
-impl_failsafe_pin!(PIO0_0, 0, 0);
-impl_failsafe_pin!(PIO0_1, 0, 1);
-impl_failsafe_pin!(PIO0_2, 0, 2);
-impl_failsafe_pin!(PIO0_3, 0, 3);
-impl_failsafe_pin!(PIO0_4, 0, 4);
-impl_failsafe_pin!(PIO0_5, 0, 5);
-impl_failsafe_pin!(PIO0_6, 0, 6);
-impl_failsafe_pin!(PIO0_7, 0, 7);
-impl_failsafe_pin!(PIO0_8, 0, 8);
-impl_failsafe_pin!(PIO0_9, 0, 9);
-impl_failsafe_pin!(PIO0_10, 0, 10);
-impl_failsafe_pin!(PIO0_11, 0, 11);
-impl_failsafe_pin!(PIO0_12, 0, 12);
-impl_failsafe_pin!(PIO0_13, 0, 13);
-impl_failsafe_pin!(PIO0_14, 0, 14);
-impl_failsafe_pin!(PIO0_15, 0, 15);
-impl_failsafe_pin!(PIO0_16, 0, 16);
-impl_failsafe_pin!(PIO0_17, 0, 17);
-impl_failsafe_pin!(PIO0_18, 0, 18);
-impl_failsafe_pin!(PIO0_19, 0, 19);
-impl_failsafe_pin!(PIO0_20, 0, 20);
-impl_failsafe_pin!(PIO0_24, 0, 24);
-impl_failsafe_pin!(PIO0_25, 0, 25);
-impl_failsafe_pin!(PIO0_26, 0, 26);
-impl_failsafe_pin!(PIO0_27, 0, 27);
-impl_failsafe_pin!(PIO0_28, 0, 28);
-impl_failsafe_pin!(PIO0_29, 0, 29);
-impl_failsafe_pin!(PIO0_30, 0, 30);
-impl_failsafe_pin!(PIO0_31, 0, 31);
-impl_failsafe_pin!(PIO1_0, 1, 0);
-impl_failsafe_pin!(PIO1_1, 1, 1);
-impl_failsafe_pin!(PIO1_2, 1, 2);
-impl_failsafe_pin!(PIO1_3, 1, 3);
-impl_failsafe_pin!(PIO1_4, 1, 4);
-impl_failsafe_pin!(PIO1_5, 1, 5);
-impl_failsafe_pin!(PIO1_6, 1, 6);
-impl_failsafe_pin!(PIO1_7, 1, 7);
-impl_failsafe_pin!(PIO1_8, 1, 8);
-impl_failsafe_pin!(PIO1_9, 1, 9);
-impl_failsafe_pin!(PIO1_10, 1, 10);
-impl_failsafe_pin!(PIO1_11, 1, 11);
-impl_failsafe_pin!(PIO1_12, 1, 12);
-impl_failsafe_pin!(PIO1_13, 1, 13);
-impl_failsafe_pin!(PIO1_14, 1, 14);
-impl_failsafe_pin!(PIO1_15, 1, 15);
-impl_failsafe_pin!(PIO1_16, 1, 16);
-impl_failsafe_pin!(PIO1_17, 1, 17);
-impl_failsafe_pin!(PIO2_9, 2, 9);
-impl_failsafe_pin!(PIO2_10, 2, 10);
-impl_failsafe_pin!(PIO2_11, 2, 11);
-impl_failsafe_pin!(PIO2_12, 2, 12);
-impl_failsafe_pin!(PIO2_13, 2, 13);
-impl_failsafe_pin!(PIO2_14, 2, 14);
-impl_failsafe_pin!(PIO2_15, 2, 15);
-impl_failsafe_pin!(PIO2_16, 2, 16);
-impl_failsafe_pin!(PIO2_17, 2, 17);
-impl_failsafe_pin!(PIO2_18, 2, 18);
-impl_failsafe_pin!(PIO2_19, 2, 19);
-impl_failsafe_pin!(PIO2_20, 2, 20);
-impl_failsafe_pin!(PIO2_21, 2, 21);
-impl_failsafe_pin!(PIO2_22, 2, 22);
-impl_failsafe_pin!(PIO2_23, 2, 23);
-impl_failsafe_pin!(PIO2_24, 2, 24);
+impl_pin!(PIO2_9, 2, 9);
+impl_pin!(PIO2_10, 2, 10);
+impl_pin!(PIO2_11, 2, 11);
+impl_pin!(PIO2_12, 2, 12);
+impl_pin!(PIO2_13, 2, 13);
+impl_pin!(PIO2_14, 2, 14);
+impl_pin!(PIO2_15, 2, 15);
+impl_pin!(PIO2_16, 2, 16);
+impl_pin!(PIO2_17, 2, 17);
+impl_pin!(PIO2_18, 2, 18);
+impl_pin!(PIO2_19, 2, 19);
+impl_pin!(PIO2_20, 2, 20);
+impl_pin!(PIO2_21, 2, 21);
+impl_pin!(PIO2_22, 2, 22);
+impl_pin!(PIO2_23, 2, 23);
+impl_pin!(PIO2_24, 2, 24);
 
 // Note: These have have reset values of 0x41 to support SWD by default
-impl_failsafe_pin!(PIO2_25, 2, 25);
-impl_failsafe_pin!(PIO2_26, 2, 26);
+impl_pin!(PIO2_25, 2, 25);
+impl_pin!(PIO2_26, 2, 26);
 
-impl_failsafe_pin!(PIO2_27, 2, 27);
-impl_failsafe_pin!(PIO2_28, 2, 28);
-impl_failsafe_pin!(PIO2_29, 2, 29);
-impl_failsafe_pin!(PIO2_30, 2, 30);
-impl_failsafe_pin!(PIO2_31, 2, 31);
-impl_failsafe_pin!(PIO3_0, 3, 0);
-impl_failsafe_pin!(PIO3_1, 3, 1);
-impl_failsafe_pin!(PIO3_2, 3, 2);
-impl_failsafe_pin!(PIO3_3, 3, 3);
-impl_failsafe_pin!(PIO3_4, 3, 4);
-impl_failsafe_pin!(PIO3_5, 3, 5);
-impl_failsafe_pin!(PIO3_6, 3, 6);
-impl_failsafe_pin!(PIO3_7, 3, 7);
-impl_failsafe_pin!(PIO3_8, 3, 8);
-impl_failsafe_pin!(PIO3_9, 3, 9);
-impl_failsafe_pin!(PIO3_10, 3, 10);
-impl_failsafe_pin!(PIO3_11, 3, 11);
-impl_failsafe_pin!(PIO3_12, 3, 12);
-impl_failsafe_pin!(PIO3_13, 3, 13);
-impl_failsafe_pin!(PIO3_14, 3, 14);
-impl_failsafe_pin!(PIO3_15, 3, 15);
-impl_failsafe_pin!(PIO3_16, 3, 16);
-impl_failsafe_pin!(PIO3_17, 3, 17);
-impl_failsafe_pin!(PIO3_18, 3, 18);
-impl_failsafe_pin!(PIO3_19, 3, 19);
-impl_failsafe_pin!(PIO3_20, 3, 20);
-impl_failsafe_pin!(PIO3_21, 3, 21);
-impl_failsafe_pin!(PIO3_22, 3, 22);
-impl_failsafe_pin!(PIO3_23, 3, 25);
-impl_failsafe_pin!(PIO3_24, 3, 24);
-impl_failsafe_pin!(PIO3_25, 3, 25);
-impl_failsafe_pin!(PIO3_26, 3, 26);
-impl_failsafe_pin!(PIO3_27, 3, 27);
-impl_failsafe_pin!(PIO3_28, 3, 28);
-impl_failsafe_pin!(PIO3_29, 3, 29);
-impl_failsafe_pin!(PIO3_30, 3, 30);
-impl_failsafe_pin!(PIO3_31, 3, 31);
-impl_failsafe_pin!(PIO4_0, 4, 0);
-impl_failsafe_pin!(PIO4_1, 4, 1);
-impl_failsafe_pin!(PIO4_2, 4, 2);
-impl_failsafe_pin!(PIO4_3, 4, 3);
-impl_failsafe_pin!(PIO4_4, 4, 4);
-impl_failsafe_pin!(PIO4_5, 4, 5);
-impl_failsafe_pin!(PIO4_6, 4, 6);
-impl_failsafe_pin!(PIO4_7, 4, 7);
-impl_failsafe_pin!(PIO4_8, 4, 8);
-impl_failsafe_pin!(PIO4_9, 4, 9);
-impl_failsafe_pin!(PIO4_10, 4, 10);
-impl_failsafe_pin!(PIO7_24, 7, 24);
-impl_failsafe_pin!(PIO7_25, 7, 25);
-impl_failsafe_pin!(PIO7_26, 7, 26);
-impl_failsafe_pin!(PIO7_27, 7, 27);
-impl_failsafe_pin!(PIO7_28, 7, 28);
-impl_failsafe_pin!(PIO7_29, 7, 29);
-impl_failsafe_pin!(PIO7_30, 7, 30);
-impl_failsafe_pin!(PIO7_31, 7, 31);
+impl_pin!(PIO2_27, 2, 27);
+impl_pin!(PIO2_28, 2, 28);
+impl_pin!(PIO2_29, 2, 29);
+impl_pin!(PIO2_30, 2, 30);
+impl_pin!(PIO2_31, 2, 31);
+impl_pin!(PIO3_0, 3, 0);
+impl_pin!(PIO3_1, 3, 1);
+impl_pin!(PIO3_2, 3, 2);
+impl_pin!(PIO3_3, 3, 3);
+impl_pin!(PIO3_4, 3, 4);
+impl_pin!(PIO3_5, 3, 5);
+impl_pin!(PIO3_6, 3, 6);
+impl_pin!(PIO3_7, 3, 7);
+impl_pin!(PIO3_8, 3, 8);
+impl_pin!(PIO3_9, 3, 9);
+impl_pin!(PIO3_10, 3, 10);
+impl_pin!(PIO3_11, 3, 11);
+impl_pin!(PIO3_12, 3, 12);
+impl_pin!(PIO3_13, 3, 13);
+impl_pin!(PIO3_14, 3, 14);
+impl_pin!(PIO3_15, 3, 15);
+impl_pin!(PIO3_16, 3, 16);
+impl_pin!(PIO3_17, 3, 17);
+impl_pin!(PIO3_18, 3, 18);
+impl_pin!(PIO3_19, 3, 19);
+impl_pin!(PIO3_20, 3, 20);
+impl_pin!(PIO3_21, 3, 21);
+impl_pin!(PIO3_22, 3, 22);
+impl_pin!(PIO3_23, 3, 23);
+impl_pin!(PIO3_24, 3, 24);
+impl_pin!(PIO3_25, 3, 25);
+impl_pin!(PIO3_26, 3, 26);
+impl_pin!(PIO3_27, 3, 27);
+impl_pin!(PIO3_28, 3, 28);
+impl_pin!(PIO3_29, 3, 29);
+impl_pin!(PIO3_30, 3, 30);
+impl_pin!(PIO3_31, 3, 31);
+impl_pin!(PIO4_0, 4, 0);
+impl_pin!(PIO4_1, 4, 1);
+impl_pin!(PIO4_2, 4, 2);
+impl_pin!(PIO4_3, 4, 3);
+impl_pin!(PIO4_4, 4, 4);
+impl_pin!(PIO4_5, 4, 5);
+impl_pin!(PIO4_6, 4, 6);
+impl_pin!(PIO4_7, 4, 7);
+impl_pin!(PIO4_8, 4, 8);
+impl_pin!(PIO4_9, 4, 9);
+impl_pin!(PIO4_10, 4, 10);
+impl_pin!(PIO7_24, 7, 24);
+impl_pin!(PIO7_25, 7, 25);
+impl_pin!(PIO7_26, 7, 26);
+impl_pin!(PIO7_27, 7, 27);
+impl_pin!(PIO7_28, 7, 28);
+impl_pin!(PIO7_29, 7, 29);
+impl_pin!(PIO7_30, 7, 30);
+impl_pin!(PIO7_31, 7, 31);
