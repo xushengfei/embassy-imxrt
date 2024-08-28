@@ -15,6 +15,18 @@ pub use pac::usart0::cfg::Paritysel as Parity;
 pub use pac::usart0::cfg::Stoplen;
 pub use u32 as Baudrate;
 
+pub use pac::usart0::cfg::Clkpol;
+pub use pac::usart0::cfg::Loop;
+/// Syncen : Sync/ Async mode selection
+pub use pac::usart0::cfg::Syncen;
+/// Syncmst : Sync master/slave mode selection (only applicable in sync mode)
+pub use pac::usart0::cfg::Syncmst;
+pub use pac::usart0::ctl::Cc;
+
+/// Todo: Will be used when the uart is fully implemented - both tx and rx. Right now only Rx is implemented
+pub use pac::usart0::fifocfg::Enablerx;
+pub use pac::usart0::fifocfg::Enabletx;
+
 ///Assumptions
 /// - This is a basic test code to verify a very basic functionality of the UART.- reading/ writing a single buffer of data
 /// Flexcomm 0 will be hard coded for now. Plus clock.
@@ -33,6 +45,18 @@ pub struct UartRx {
     pub parity: Parity,
     pub stop_bits: Stoplen,
     pub flexcomm_freq: u32,
+}
+
+#[derive(Clone, Copy)]
+pub struct UartMcuSpecific {
+    pub clock_polarity: Clkpol,
+    /// Sync/ Async operation selection
+    pub operation: Syncen,
+    /// Sync master/slave mode selection (only applicable in sync mode)
+    pub sync_mode_master_select: Syncmst,
+    /// USART continuous Clock generation enable in synchronous master mode.
+    pub continuous_clock: Cc,
+    pub loopback_mode: Loop,
 }
 
 /// Generic status enum to return the status of the uart read/write operations
@@ -80,8 +104,19 @@ impl UartRx {
 
     /// Use this API to prog all the registers for the uart0 - assuming flexcomm0, clocks, ioctl are already set
     pub fn open(&self) {
-        self.set_uart_config();
+        let default_mcu_specific_uart_config: UartMcuSpecific = UartMcuSpecific {
+            clock_polarity: Clkpol::RisingEdge,
+            operation: Syncen::AsynchronousMode,
+            sync_mode_master_select: Syncmst::Slave,
+            continuous_clock: Cc::ClockOnCharacter,
+            loopback_mode: Loop::Normal,
+        };
         self.set_uart_rx_fifo();
+        self.set_uart_config(default_mcu_specific_uart_config);
+        self.set_uart_baudrate();
+
+        // Setting continuous Clock configuration. used for synchronous master mode.
+        self.enable_continuous_clock(default_mcu_specific_uart_config.continuous_clock);
     }
 
     pub fn close(&self) {}
@@ -147,7 +182,7 @@ impl UartRx {
         return GenericStatus::Success;
     }
 
-    fn set_uart_config(&self) {
+    fn set_uart_config(&self, uart_mcu_config: UartMcuSpecific) {
         // setting the uart data len
         if self.data_bits == Datalen::Bit8 {
             self.reg().cfg().write(|w| w.datalen().bit_8());
@@ -172,11 +207,121 @@ impl UartRx {
         } else if self.parity == Parity::OddParity {
             self.reg().cfg().write(|w| w.paritysel().odd_parity());
         }
+
+        // setting mcu specific uart config
+        if uart_mcu_config.loopback_mode == Loop::Normal {
+            self.reg().cfg().write(|w| w.loop_().normal());
+        } else if uart_mcu_config.loopback_mode == Loop::Loopback {
+            self.reg().cfg().write(|w| w.loop_().loopback());
+        }
+
+        if uart_mcu_config.operation == Syncen::AsynchronousMode {
+            self.reg().cfg().write(|w| w.syncen().asynchronous_mode());
+        } else if uart_mcu_config.operation == Syncen::SynchronousMode {
+            self.reg().cfg().write(|w| w.syncen().synchronous_mode());
+
+            if uart_mcu_config.sync_mode_master_select == Syncmst::Master {
+                self.reg().cfg().write(|w| w.syncmst().master());
+            } else if uart_mcu_config.sync_mode_master_select == Syncmst::Slave {
+                self.reg().cfg().write(|w| w.syncmst().slave());
+            }
+        }
+
+        if uart_mcu_config.clock_polarity == Clkpol::RisingEdge {
+            self.reg().cfg().write(|w| w.clkpol().rising_edge());
+        } else if uart_mcu_config.clock_polarity == Clkpol::FallingEdge {
+            self.reg().cfg().write(|w| w.clkpol().falling_edge());
+        }
+
+        // Now enable the uart
+        self.reg().cfg().write(|w| w.enable().enabled());
     }
 
     fn set_uart_rx_fifo(&self) {
+        // Todo : Add condition to check if (enableTx){}
+        // The setting below needs to be encapsulated in a condition if (enablerx)
         // setting the rx fifo
         self.reg().fifocfg().write(|w| w.emptyrx().set_bit());
         self.reg().fifocfg().write(|w| w.enablerx().enabled());
+
+        // Todo: Add code for setting Fifo trigger register. Refer to USART_Init() in fsl_uart.c
+        //  setup trigger level
+        //base->FIFOTRIG &= ~(USART_FIFOTRIG_RXLVL_MASK);
+        //base->FIFOTRIG |= USART_FIFOTRIG_RXLVL(config->rxWatermark);
+        /* enable trigger interrupt */
+        //base->FIFOTRIG |= USART_FIFOTRIG_RXLVLENA_MASK;
+    }
+
+    fn set_uart_baudrate(&self) -> GenericStatus {
+        let baudrate_bps = self.baudrate;
+        let source_clock_hz = self.flexcomm_freq;
+
+        let mut best_diff: u32 = 0xFFFFFFFF;
+        let mut best_osrval: u32 = 0xF;
+        let mut best_brgval: u32 = 0xFFFFFFFF;
+        let mut osrval: u32 = 0;
+        let mut brgval: u32 = 0;
+        let mut diff: u32 = 0;
+        let mut baudrate: u32 = 0;
+
+        if baudrate_bps == 0 || source_clock_hz == 0 {
+            return GenericStatus::InvalidArgument;
+        }
+
+        //If synchronous master mode is enabled, only configure the BRG value.
+        if self.reg().cfg().read().syncen().is_synchronous_mode() {
+            // Master
+            if self.reg().cfg().read().syncmst().is_master() {
+                // Calculate the BRG value
+                brgval = source_clock_hz / baudrate_bps;
+                brgval = brgval - 1u32;
+                unsafe { self.reg().brg().write(|w| w.brgval().bits(brgval as u16)) };
+            }
+        } else {
+            //Smaller values of OSR can make the sampling position within a data bit less accurate and may
+            //potentially cause more noise errors or incorrect data.
+            for osrval in (8..=best_osrval).rev() {
+                brgval = (((source_clock_hz * 10u32) / ((osrval + 1u32) * baudrate_bps)) - 5u32) / 10u32;
+                if brgval > 0xFFFFu32 {
+                    continue;
+                }
+                // Calculate the baud rate based on the BRG value
+                baudrate = source_clock_hz / ((osrval + 1u32) * (brgval + 1u32));
+
+                // Calculate the difference between the current baud rate and the desired baud rate
+                if baudrate > baudrate_bps {
+                    diff = baudrate - baudrate_bps;
+                } else {
+                    diff = baudrate_bps - baudrate;
+                }
+
+                // Check if the current calculated difference is the best so far
+                if diff < best_diff {
+                    best_diff = diff;
+                    best_osrval = osrval;
+                    best_brgval = brgval;
+                }
+            }
+
+            // Value over range
+            if best_brgval > 0xFFFFu32 {
+                return GenericStatus::USART_BaudrateNotSupport;
+            }
+
+            unsafe {
+                self.reg().osr().write(|w| w.osrval().bits(best_osrval as u8));
+                self.reg().brg().write(|w| w.brgval().bits(best_brgval as u16));
+            }
+        }
+
+        GenericStatus::Success
+    }
+
+    fn enable_continuous_clock(&self, continuous_clock: Cc) {
+        if continuous_clock == Cc::ClockOnCharacter {
+            self.reg().ctl().write(|w| w.cc().clock_on_character());
+        } else if continuous_clock == Cc::ContinousClock {
+            self.reg().ctl().write(|w| w.cc().continous_clock());
+        }
     }
 }
