@@ -6,6 +6,7 @@
 use core::marker::PhantomData;
 
 use crate::pac::usart0;
+use crate::uart_setting::Flexcomm;
 use mimxrt685s_pac as pac;
 use pac::usart0::RegisterBlock;
 
@@ -102,8 +103,9 @@ impl UartRx {
         unsafe { &*(pac::Usart0::ptr() as *const pac::usart0::RegisterBlock) }
     }
 
+    /// Initializes a USART instance with user configuration structure and peripheral clock.
     /// Use this API to prog all the registers for the uart0 - assuming flexcomm0, clocks, ioctl are already set
-    pub fn open(&self) {
+    pub fn init(&self) {
         let default_mcu_specific_uart_config: UartMcuSpecific = UartMcuSpecific {
             clock_polarity: Clkpol::RisingEdge,
             operation: Syncen::AsynchronousMode,
@@ -111,6 +113,8 @@ impl UartRx {
             continuous_clock: Cc::ClockOnCharacter,
             loopback_mode: Loop::Normal,
         };
+
+        Flexcomm::new().init();
         self.set_uart_rx_fifo();
         self.set_uart_config(default_mcu_specific_uart_config);
         self.set_uart_baudrate();
@@ -119,7 +123,27 @@ impl UartRx {
         self.enable_continuous_clock(default_mcu_specific_uart_config.continuous_clock);
     }
 
-    pub fn close(&self) {}
+    /// Deinitializes a USART instance.
+    pub fn deinit(&self) {
+        // This function waits for TX complete, disables TX and RX, and disables the USART clock
+
+        while self.reg().stat().read().txidle().bit_is_clear() {
+            // When 0, indicates that the transmitter is currently in the process of sending data.
+        }
+
+        // Disable interrupts
+        self.reg().fifointenclr().write(|w| w.txerr().set_bit());
+        self.reg().fifointenclr().write(|w| w.rxerr().set_bit());
+        self.reg().fifointenclr().write(|w| w.txlvl().set_bit());
+        self.reg().fifointenclr().write(|w| w.rxlvl().set_bit());
+
+        //  Disable dma requests
+        self.reg().fifocfg().write(|w| w.dmatx().clear_bit());
+        self.reg().fifocfg().write(|w| w.dmarx().clear_bit());
+
+        // Disable peripheral
+        self.reg().cfg().write(|w| w.enable().disabled());
+    }
 
     /// Blocking read API, that can receive a max of data of 8 bytes. The actual data expected to be received should be sent as "len"
     pub fn read_blocking(&self, buf: &mut [u8; 8], len: u32) -> GenericStatus {

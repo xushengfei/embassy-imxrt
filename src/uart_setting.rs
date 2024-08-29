@@ -35,6 +35,7 @@ impl Flexcomm {
     }
 
     pub fn init(&self) {
+        self.clock_attach();
         self.clock_enable();
         self.reset_peripheral();
         self.flexcomm_set_peripheral();
@@ -60,6 +61,20 @@ impl Flexcomm {
         // add code
         return 0;
     }*/
+
+    fn clock_attach(&self) {
+        // Be careful to connect the correct clock.
+        // In gen3, this func deals with this CLOCK_AttachClk()
+        // For the purpose of uart testing, the following case is hardcoded :
+        // CLOCK_AttachClk(mcuPortDef_FlexCommAudioClkSelect[eFLEXCOMM_DEBUG_UART])
+        // kAUDIO_PLL_to_FLEXCOMM0  = CLKCTL1_TUPLE_MUXA(FC0FCLKSEL_OFFSET, 2), => [( 0x80000000U | (0x508 | 0x2000))= 0x80002508 ]
+        // So pClkSet will be 0x4002 1508 => FC0FCLKSEL (full CLKCTL1_FC0FCLKSEL)
+
+        self.clk1_reg()
+            .flexcomm(0)
+            .fcfclksel()
+            .write(|w| w.sel().audio_pll_clk());
+    }
 
     fn clock_enable(&self) {
         // Enable the peripheral clock
