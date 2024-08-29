@@ -16,11 +16,14 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
-    let channel_config = [ChannelConfig::single_ended(p.P0_05)];
+    let channel_config = [
+        ChannelConfig::single_ended(p.PIO0_5),
+        ChannelConfig::single_ended(p.PIO0_6),
+    ];
     let mut adc = Adc::new(p.ADC0, Irqs, Config::default(), channel_config);
 
     loop {
-        let mut data: [i16; 1] = [0; 1];
+        let mut data: [i16; 2] = [0; 2];
         adc.sample(&mut data).await;
 
         info!("ADC sample = {:#x}", data);
