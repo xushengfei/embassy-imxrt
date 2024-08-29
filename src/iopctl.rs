@@ -2,6 +2,18 @@
 //!
 //! Also known as IO Pin Configuration (IOCON)
 
+use crate::pac::{iopctl, Iopctl};
+
+// A generic pin of any type.
+//
+// The actual pin type used here is arbitrary,
+// as all PioM_N types provide the same methods.
+//
+// Merely need some pin type to cast a raw pointer
+// to in order to access the provided methods.
+#[allow(non_camel_case_types)]
+type PioM_N = iopctl::Pio0_0;
+
 /// Pin function number.
 pub enum Function {
     /// Function 0
@@ -68,23 +80,19 @@ pub enum Polarity {
     ActiveLow,
 }
 
-trait SealedPin {
-    // This is private to prevent users from accessing the register block directly.
-    fn regs() -> crate::pac::Iopctl {
-        // SAFETY: Through the IOPCTL HAL interface, only a specific register belonging to a specific
-        // pin peripheral is accessed at a time. Typically, other peripheral HALs in this crate
-        // will consume the pin they are configuring, thus preventing the possibility of the register
-        // belonging to that pin being modified simultaneously elsewhere by another peripheral HAL.
-        unsafe { crate::pac::Iopctl::steal() }
+trait SealedPin {}
+trait ToRawPin: SealedPin {
+    #[inline]
+    fn to_raw(port: u8, pin: u8) -> RawPin {
+        // SAFETY: This is safe since this is only called from within the module,
+        // where the port and pin numbers have been verified to be correct.
+        unsafe { RawPin::new(port, pin) }
     }
 }
 
-/// A pin.
-///
-/// This functionality is shared by both
-/// "fail-safe" and "high-speed" pins.
+/// A pin that can be configured via iopctl.
 #[allow(private_bounds)]
-pub trait Pin: SealedPin {
+pub trait IopctlPin: SealedPin {
     /// Sets the function number of a pin.
     ///
     /// This number corresponds to a specific function that the pin supports.
@@ -112,11 +120,31 @@ pub trait Pin: SealedPin {
     /// Disables the input buffer of a pin.
     fn disable_input_buffer(&self) -> &Self;
 
+    /// Sets the slew rate of a pin.
+    ///
+    /// This controls the speed at which a pin can toggle,
+    /// which is voltage and load dependent.
+    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self;
+
     /// Sets the output drive strength of a pin.
     ///
     /// A drive strength of [DriveStrength::Full] has twice the
     /// high and low drive capability of the [DriveStrength::Normal] setting.
     fn set_drive_strength(&self, strength: DriveStrength) -> &Self;
+
+    /// Enables the analog multiplexer of a pin.
+    ///
+    /// This must be called to allow analog functionalities of a pin.
+    ///
+    /// To protect the analog input, [IopctlPin::set_function] should be
+    /// called with [Function::F0] to disable digital functions.
+    ///
+    /// Additionally, [IopctlPin::disable_input_buffer] and [IopctlPin::set_pull]
+    /// with [Pull::None] should be called.
+    fn enable_analog_multiplex(&self) -> &Self;
+
+    /// Disables the analog multiplexer of a pin.
+    fn disable_analog_multiplex(&self) -> &Self;
 
     /// Sets the ouput drive mode of a pin.
     ///
@@ -136,289 +164,347 @@ pub trait Pin: SealedPin {
     fn reset(&self) -> &Self;
 }
 
-/// A fail-safe pin (see Chapter 7 - Pinning Information of datasheet).
-///
-/// From a software perspective, the only difference is these pins additionally
-/// support changing slew rate and enabling analog multiplexing.
-///
-/// Most pins are "fail-safe" pins. See Table 296 in reference manual
-/// for list of pins that are "high-speed" pins and thus don't
-/// support this functionality.
-pub trait FailSafePin: Pin {
-    /// Sets the slew rate of a pin.
-    ///
-    /// This controls the speed at which a pin can toggle,
-    /// which is voltage and load dependent.
-    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self;
+/// Represents a pin peripheral created at run-time from given port and pin numbers.
+pub(crate) struct RawPin {
+    reg: &'static PioM_N,
+}
 
-    /// Enables the analog multiplexer of a pin.
+impl RawPin {
+    /// Creates a pin from raw port and pin numbers which can then be configured.
     ///
-    /// This must be called to allow analog functionalities of a pin.
+    /// This should ONLY be called when there is no other choice
+    /// (e.g. from a type-erased GPIO pin).
     ///
-    /// To protect the analog input, [Pin::set_function] should be
-    /// called with [Function::F0] to disable digital functions.
+    /// Otherwise, pin peripherals should be configured directly.
     ///
-    /// Additionally, [Pin::disable_input_buffer] and [Pin::set_pull]
-    /// with [Pull::None] should be called.
-    fn enable_analog_multiplex(&self) -> &Self;
+    /// # Safety
+    ///
+    /// The caller MUST ensure valid port and pin numbers are provided,
+    /// and that multiple instances of [RawPin] with the same port
+    /// and pin combination are not being used simultaneously.
+    ///
+    /// Failure to uphold these requirements will result in undefined behavior.
+    ///
+    /// See Table 297 in reference manual for a list of valid
+    /// pin and port number combinations.
+    pub(crate) unsafe fn new(port: u8, pin: u8) -> Self {
+        // Calculates the offset from the beginning of the IOPCTL register block
+        // address to the register address representing the pin.
+        //
+        // See Table 297 in reference manual for how this offset is calculated.
+        let offset = ((port as usize) << 7) + ((pin as usize) << 2);
 
-    /// Disables the analog multiplexer of a pin.
-    fn disable_analog_multiplex(&self) -> &Self;
+        // SAFETY: This is safe assuming the caller of this function satisfies the safety requirements above.
+        let reg = unsafe { &*(Iopctl::ptr().byte_offset(offset as isize) as *const _) };
+        Self { reg }
+    }
+}
+
+impl SealedPin for RawPin {}
+impl IopctlPin for RawPin {
+    fn set_function(&self, function: Function) -> &Self {
+        match function {
+            Function::F0 => self.reg.modify(|_, w| w.fsel().function_0()),
+            Function::F1 => self.reg.modify(|_, w| w.fsel().function_1()),
+            Function::F2 => self.reg.modify(|_, w| w.fsel().function_2()),
+            Function::F3 => self.reg.modify(|_, w| w.fsel().function_3()),
+            Function::F4 => self.reg.modify(|_, w| w.fsel().function_4()),
+            Function::F5 => self.reg.modify(|_, w| w.fsel().function_5()),
+            Function::F6 => self.reg.modify(|_, w| w.fsel().function_6()),
+            Function::F7 => self.reg.modify(|_, w| w.fsel().function_7()),
+            Function::F8 => self.reg.modify(|_, w| w.fsel().function_8()),
+        }
+        self
+    }
+
+    fn set_pull(&self, pull: Pull) -> &Self {
+        match pull {
+            Pull::None => self.reg.modify(|_, w| w.pupdena().disabled()),
+            Pull::Up => self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_up()),
+            Pull::Down => self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_down()),
+        }
+        self
+    }
+
+    fn enable_input_buffer(&self) -> &Self {
+        self.reg.modify(|_, w| w.ibena().enabled());
+        self
+    }
+
+    fn disable_input_buffer(&self) -> &Self {
+        self.reg.modify(|_, w| w.ibena().disabled());
+        self
+    }
+
+    fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
+        match slew_rate {
+            SlewRate::Standard => self.reg.modify(|_, w| w.slewrate().normal()),
+            SlewRate::Slow => self.reg.modify(|_, w| w.slewrate().slow()),
+        }
+        self
+    }
+
+    fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
+        match strength {
+            DriveStrength::Normal => self.reg.modify(|_, w| w.fulldrive().normal_drive()),
+            DriveStrength::Full => self.reg.modify(|_, w| w.fulldrive().full_drive()),
+        }
+        self
+    }
+
+    fn enable_analog_multiplex(&self) -> &Self {
+        self.reg.modify(|_, w| w.amena().enabled());
+        self
+    }
+
+    fn disable_analog_multiplex(&self) -> &Self {
+        self.reg.modify(|_, w| w.amena().disabled());
+        self
+    }
+
+    fn set_drive_mode(&self, mode: DriveMode) -> &Self {
+        match mode {
+            DriveMode::PushPull => self.reg.modify(|_, w| w.odena().disabled()),
+            DriveMode::OpenDrain => self.reg.modify(|_, w| w.odena().enabled()),
+        }
+        self
+    }
+
+    fn set_input_polarity(&self, polarity: Polarity) -> &Self {
+        match polarity {
+            Polarity::ActiveHigh => self.reg.modify(|_, w| w.iiena().disabled()),
+            Polarity::ActiveLow => self.reg.modify(|_, w| w.iiena().enabled()),
+        }
+        self
+    }
+
+    fn reset(&self) -> &Self {
+        self.reg.reset();
+        self
+    }
 }
 
 macro_rules! impl_pin {
-    ($pin_periph:ident, $pin_reg:ident) => {
+    ($pin_periph:ident, $pin_port:expr, $pin_no:expr) => {
         impl SealedPin for crate::peripherals::$pin_periph {}
-        impl Pin for crate::peripherals::$pin_periph {
+        impl ToRawPin for crate::peripherals::$pin_periph {}
+        impl IopctlPin for crate::peripherals::$pin_periph {
+            #[inline]
             fn set_function(&self, function: Function) -> &Self {
-                match function {
-                    Function::F0 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_0()),
-                    Function::F1 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_1()),
-                    Function::F2 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_2()),
-                    Function::F3 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_3()),
-                    Function::F4 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_4()),
-                    Function::F5 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_5()),
-                    Function::F6 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_6()),
-                    Function::F7 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_7()),
-                    Function::F8 => Self::regs().$pin_reg().modify(|_, w| w.fsel().function_8()),
-                }
+                Self::to_raw($pin_port, $pin_no).set_function(function);
                 self
             }
 
+            #[inline]
             fn set_pull(&self, pull: Pull) -> &Self {
-                match pull {
-                    Pull::None => Self::regs()
-                        .$pin_reg()
-                        .modify(|_, w| w.pupdena().disabled().pupdsel().pull_down()),
-                    Pull::Up => Self::regs()
-                        .$pin_reg()
-                        .modify(|_, w| w.pupdena().enabled().pupdsel().pull_up()),
-                    Pull::Down => Self::regs()
-                        .$pin_reg()
-                        .modify(|_, w| w.pupdena().enabled().pupdsel().pull_down()),
-                }
+                Self::to_raw($pin_port, $pin_no).set_pull(pull);
                 self
             }
 
+            #[inline]
             fn enable_input_buffer(&self) -> &Self {
-                Self::regs().$pin_reg().modify(|_, w| w.ibena().enabled());
+                Self::to_raw($pin_port, $pin_no).enable_input_buffer();
                 self
             }
 
+            #[inline]
             fn disable_input_buffer(&self) -> &Self {
-                Self::regs().$pin_reg().modify(|_, w| w.ibena().disabled());
+                Self::to_raw($pin_port, $pin_no).disable_input_buffer();
                 self
             }
 
-            fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
-                match strength {
-                    DriveStrength::Normal => Self::regs()
-                        .$pin_reg()
-                        .modify(|_, w| w.fulldrive().normal_drive()),
-                    DriveStrength::Full => Self::regs().$pin_reg().modify(|_, w| w.fulldrive().full_drive()),
-                }
-                self
-            }
-
-            fn set_drive_mode(&self, mode: DriveMode) -> &Self {
-                match mode {
-                    DriveMode::PushPull => Self::regs().$pin_reg().modify(|_, w| w.odena().disabled()),
-                    DriveMode::OpenDrain => Self::regs().$pin_reg().modify(|_, w| w.odena().enabled()),
-                }
-                self
-            }
-
-            fn set_input_polarity(&self, polarity: Polarity) -> &Self {
-                match polarity {
-                    Polarity::ActiveHigh => Self::regs().$pin_reg().modify(|_, w| w.iiena().disabled()),
-                    Polarity::ActiveLow => Self::regs().$pin_reg().modify(|_, w| w.iiena().enabled()),
-                }
-                self
-            }
-
-            fn reset(&self) -> &Self {
-                Self::regs().$pin_reg().reset();
-                self
-            }
-        }
-    };
-}
-
-macro_rules! impl_failsafe_pin {
-    ($pin_periph:ident, $pin_reg:ident) => {
-        impl_pin!($pin_periph, $pin_reg);
-        impl FailSafePin for crate::peripherals::$pin_periph {
+            #[inline]
             fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
-                match slew_rate {
-                    SlewRate::Standard => Self::regs().$pin_reg().modify(|_, w| w.slewrate().normal()),
-                    SlewRate::Slow => Self::regs().$pin_reg().modify(|_, w| w.slewrate().slow()),
-                }
+                Self::to_raw($pin_port, $pin_no).set_slew_rate(slew_rate);
                 self
             }
 
+            #[inline]
+            fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
+                Self::to_raw($pin_port, $pin_no).set_drive_strength(strength);
+                self
+            }
+
+            #[inline]
             fn enable_analog_multiplex(&self) -> &Self {
-                Self::regs().$pin_reg().modify(|_, w| w.amena().enabled());
+                Self::to_raw($pin_port, $pin_no).enable_analog_multiplex();
                 self
             }
 
+            #[inline]
             fn disable_analog_multiplex(&self) -> &Self {
-                Self::regs().$pin_reg().modify(|_, w| w.amena().disabled());
+                Self::to_raw($pin_port, $pin_no).disable_analog_multiplex();
+                self
+            }
+
+            #[inline]
+            fn set_drive_mode(&self, mode: DriveMode) -> &Self {
+                Self::to_raw($pin_port, $pin_no).set_drive_mode(mode);
+                self
+            }
+
+            #[inline]
+            fn set_input_polarity(&self, polarity: Polarity) -> &Self {
+                Self::to_raw($pin_port, $pin_no).set_input_polarity(polarity);
+                self
+            }
+
+            #[inline]
+            fn reset(&self) -> &Self {
+                Self::to_raw($pin_port, $pin_no).reset();
                 self
             }
         }
     };
 }
 
-// High-speed pins
-impl_pin!(PIO0_21, pio0_21);
-impl_pin!(PIO0_22, pio0_22);
-impl_pin!(PIO0_23, pio0_23);
-impl_pin!(PIO1_18, pio1_18);
-impl_pin!(PIO1_19, pio1_19);
-impl_pin!(PIO1_20, pio1_20);
-impl_pin!(PIO1_21, pio1_21);
-impl_pin!(PIO1_22, pio1_22);
-impl_pin!(PIO1_23, pio1_23);
-impl_pin!(PIO1_24, pio1_24);
-impl_pin!(PIO1_25, pio1_25);
-impl_pin!(PIO1_26, pio1_26);
-impl_pin!(PIO1_27, pio1_27);
-impl_pin!(PIO1_28, pio1_28);
-impl_pin!(PIO1_29, pio1_29);
-impl_pin!(PIO1_30, pio1_30);
-impl_pin!(PIO1_31, pio1_31);
-impl_pin!(PIO2_0, pio2_0);
-impl_pin!(PIO2_1, pio2_1);
-impl_pin!(PIO2_2, pio2_2);
-impl_pin!(PIO2_3, pio2_3);
-impl_pin!(PIO2_4, pio2_4);
-impl_pin!(PIO2_5, pio2_5);
-impl_pin!(PIO2_6, pio2_6);
-impl_pin!(PIO2_7, pio2_7);
-impl_pin!(PIO2_8, pio2_8);
-
-// Fail-safe pins
-impl_failsafe_pin!(PIO0_0, pio0_0);
-impl_failsafe_pin!(PIO0_1, pio0_1);
-impl_failsafe_pin!(PIO0_2, pio0_2);
-impl_failsafe_pin!(PIO0_3, pio0_3);
-impl_failsafe_pin!(PIO0_4, pio0_4);
-impl_failsafe_pin!(PIO0_5, pio0_5);
-impl_failsafe_pin!(PIO0_6, pio0_6);
-impl_failsafe_pin!(PIO0_7, pio0_7);
-impl_failsafe_pin!(PIO0_8, pio0_8);
-impl_failsafe_pin!(PIO0_9, pio0_9);
-impl_failsafe_pin!(PIO0_10, pio0_10);
-impl_failsafe_pin!(PIO0_11, pio0_11);
-impl_failsafe_pin!(PIO0_12, pio0_12);
-impl_failsafe_pin!(PIO0_13, pio0_13);
-impl_failsafe_pin!(PIO0_14, pio0_14);
-impl_failsafe_pin!(PIO0_15, pio0_15);
-impl_failsafe_pin!(PIO0_16, pio0_16);
-impl_failsafe_pin!(PIO0_17, pio0_17);
-impl_failsafe_pin!(PIO0_18, pio0_18);
-impl_failsafe_pin!(PIO0_19, pio0_19);
-impl_failsafe_pin!(PIO0_20, pio0_20);
-impl_failsafe_pin!(PIO0_24, pio0_24);
-impl_failsafe_pin!(PIO0_25, pio0_25);
-impl_failsafe_pin!(PIO0_26, pio0_26);
-impl_failsafe_pin!(PIO0_27, pio0_27);
-impl_failsafe_pin!(PIO0_28, pio0_28);
-impl_failsafe_pin!(PIO0_29, pio0_29);
-impl_failsafe_pin!(PIO0_30, pio0_30);
-impl_failsafe_pin!(PIO0_31, pio0_31);
-impl_failsafe_pin!(PIO1_0, pio1_0);
-impl_failsafe_pin!(PIO1_1, pio1_1);
-impl_failsafe_pin!(PIO1_2, pio1_2);
-impl_failsafe_pin!(PIO1_3, pio1_3);
-impl_failsafe_pin!(PIO1_4, pio1_4);
-impl_failsafe_pin!(PIO1_5, pio1_5);
-impl_failsafe_pin!(PIO1_6, pio1_6);
-impl_failsafe_pin!(PIO1_7, pio1_7);
-impl_failsafe_pin!(PIO1_8, pio1_8);
-impl_failsafe_pin!(PIO1_9, pio1_9);
-impl_failsafe_pin!(PIO1_10, pio1_10);
-impl_failsafe_pin!(PIO1_11, pio1_11);
-impl_failsafe_pin!(PIO1_12, pio1_12);
-impl_failsafe_pin!(PIO1_13, pio1_13);
-impl_failsafe_pin!(PIO1_14, pio1_14);
-impl_failsafe_pin!(PIO1_15, pio1_15);
-impl_failsafe_pin!(PIO1_16, pio1_16);
-impl_failsafe_pin!(PIO1_17, pio1_17);
-impl_failsafe_pin!(PIO2_9, pio2_9);
-impl_failsafe_pin!(PIO2_10, pio2_10);
-impl_failsafe_pin!(PIO2_11, pio2_11);
-impl_failsafe_pin!(PIO2_12, pio2_12);
-impl_failsafe_pin!(PIO2_13, pio2_13);
-impl_failsafe_pin!(PIO2_14, pio2_14);
-impl_failsafe_pin!(PIO2_15, pio2_15);
-impl_failsafe_pin!(PIO2_16, pio2_16);
-impl_failsafe_pin!(PIO2_17, pio2_17);
-impl_failsafe_pin!(PIO2_18, pio2_18);
-impl_failsafe_pin!(PIO2_19, pio2_19);
-impl_failsafe_pin!(PIO2_20, pio2_20);
-impl_failsafe_pin!(PIO2_21, pio2_21);
-impl_failsafe_pin!(PIO2_22, pio2_22);
-impl_failsafe_pin!(PIO2_23, pio2_23);
-impl_failsafe_pin!(PIO2_24, pio2_24);
+impl_pin!(PIO0_0, 0, 0);
+impl_pin!(PIO0_1, 0, 1);
+impl_pin!(PIO0_2, 0, 2);
+impl_pin!(PIO0_3, 0, 3);
+impl_pin!(PIO0_4, 0, 4);
+impl_pin!(PIO0_5, 0, 5);
+impl_pin!(PIO0_6, 0, 6);
+impl_pin!(PIO0_7, 0, 7);
+impl_pin!(PIO0_8, 0, 8);
+impl_pin!(PIO0_9, 0, 9);
+impl_pin!(PIO0_10, 0, 10);
+impl_pin!(PIO0_11, 0, 11);
+impl_pin!(PIO0_12, 0, 12);
+impl_pin!(PIO0_13, 0, 13);
+impl_pin!(PIO0_14, 0, 14);
+impl_pin!(PIO0_15, 0, 15);
+impl_pin!(PIO0_16, 0, 16);
+impl_pin!(PIO0_17, 0, 17);
+impl_pin!(PIO0_18, 0, 18);
+impl_pin!(PIO0_19, 0, 19);
+impl_pin!(PIO0_20, 0, 20);
+impl_pin!(PIO0_21, 0, 21);
+impl_pin!(PIO0_22, 0, 22);
+impl_pin!(PIO0_23, 0, 23);
+impl_pin!(PIO0_24, 0, 24);
+impl_pin!(PIO0_25, 0, 25);
+impl_pin!(PIO0_26, 0, 26);
+impl_pin!(PIO0_27, 0, 27);
+impl_pin!(PIO0_28, 0, 28);
+impl_pin!(PIO0_29, 0, 29);
+impl_pin!(PIO0_30, 0, 30);
+impl_pin!(PIO0_31, 0, 31);
+impl_pin!(PIO1_0, 1, 0);
+impl_pin!(PIO1_1, 1, 1);
+impl_pin!(PIO1_2, 1, 2);
+impl_pin!(PIO1_3, 1, 3);
+impl_pin!(PIO1_4, 1, 4);
+impl_pin!(PIO1_5, 1, 5);
+impl_pin!(PIO1_6, 1, 6);
+impl_pin!(PIO1_7, 1, 7);
+impl_pin!(PIO1_8, 1, 8);
+impl_pin!(PIO1_9, 1, 9);
+impl_pin!(PIO1_10, 1, 10);
+impl_pin!(PIO1_11, 1, 11);
+impl_pin!(PIO1_12, 1, 12);
+impl_pin!(PIO1_13, 1, 13);
+impl_pin!(PIO1_14, 1, 14);
+impl_pin!(PIO1_15, 1, 15);
+impl_pin!(PIO1_16, 1, 16);
+impl_pin!(PIO1_17, 1, 17);
+impl_pin!(PIO1_18, 1, 18);
+impl_pin!(PIO1_19, 1, 19);
+impl_pin!(PIO1_20, 1, 20);
+impl_pin!(PIO1_21, 1, 21);
+impl_pin!(PIO1_22, 1, 22);
+impl_pin!(PIO1_23, 1, 23);
+impl_pin!(PIO1_24, 1, 24);
+impl_pin!(PIO1_25, 1, 25);
+impl_pin!(PIO1_26, 1, 26);
+impl_pin!(PIO1_27, 1, 27);
+impl_pin!(PIO1_28, 1, 28);
+impl_pin!(PIO1_29, 1, 29);
+impl_pin!(PIO1_30, 1, 30);
+impl_pin!(PIO1_31, 1, 31);
+impl_pin!(PIO2_0, 2, 0);
+impl_pin!(PIO2_1, 2, 1);
+impl_pin!(PIO2_2, 2, 2);
+impl_pin!(PIO2_3, 2, 3);
+impl_pin!(PIO2_4, 2, 4);
+impl_pin!(PIO2_5, 2, 5);
+impl_pin!(PIO2_6, 2, 6);
+impl_pin!(PIO2_7, 2, 7);
+impl_pin!(PIO2_8, 2, 8);
+impl_pin!(PIO2_9, 2, 9);
+impl_pin!(PIO2_10, 2, 10);
+impl_pin!(PIO2_11, 2, 11);
+impl_pin!(PIO2_12, 2, 12);
+impl_pin!(PIO2_13, 2, 13);
+impl_pin!(PIO2_14, 2, 14);
+impl_pin!(PIO2_15, 2, 15);
+impl_pin!(PIO2_16, 2, 16);
+impl_pin!(PIO2_17, 2, 17);
+impl_pin!(PIO2_18, 2, 18);
+impl_pin!(PIO2_19, 2, 19);
+impl_pin!(PIO2_20, 2, 20);
+impl_pin!(PIO2_21, 2, 21);
+impl_pin!(PIO2_22, 2, 22);
+impl_pin!(PIO2_23, 2, 23);
+impl_pin!(PIO2_24, 2, 24);
 
 // Note: These have have reset values of 0x41 to support SWD by default
-impl_failsafe_pin!(PIO2_25, pio2_25);
-impl_failsafe_pin!(PIO2_26, pio2_26);
+impl_pin!(PIO2_25, 2, 25);
+impl_pin!(PIO2_26, 2, 26);
 
-impl_failsafe_pin!(PIO2_27, pio2_27);
-impl_failsafe_pin!(PIO2_28, pio2_28);
-impl_failsafe_pin!(PIO2_29, pio2_29);
-impl_failsafe_pin!(PIO2_30, pio2_30);
-impl_failsafe_pin!(PIO2_31, pio2_31);
-impl_failsafe_pin!(PIO3_0, pio3_0);
-impl_failsafe_pin!(PIO3_1, pio3_1);
-impl_failsafe_pin!(PIO3_2, pio3_2);
-impl_failsafe_pin!(PIO3_3, pio3_3);
-impl_failsafe_pin!(PIO3_4, pio3_4);
-impl_failsafe_pin!(PIO3_5, pio3_5);
-impl_failsafe_pin!(PIO3_6, pio3_6);
-impl_failsafe_pin!(PIO3_7, pio3_7);
-impl_failsafe_pin!(PIO3_8, pio3_8);
-impl_failsafe_pin!(PIO3_9, pio3_9);
-impl_failsafe_pin!(PIO3_10, pio3_10);
-impl_failsafe_pin!(PIO3_11, pio3_11);
-impl_failsafe_pin!(PIO3_12, pio3_12);
-impl_failsafe_pin!(PIO3_13, pio3_13);
-impl_failsafe_pin!(PIO3_14, pio3_14);
-impl_failsafe_pin!(PIO3_15, pio3_15);
-impl_failsafe_pin!(PIO3_16, pio3_16);
-impl_failsafe_pin!(PIO3_17, pio3_17);
-impl_failsafe_pin!(PIO3_18, pio3_18);
-impl_failsafe_pin!(PIO3_19, pio3_19);
-impl_failsafe_pin!(PIO3_20, pio3_20);
-impl_failsafe_pin!(PIO3_21, pio3_21);
-impl_failsafe_pin!(PIO3_22, pio3_22);
-impl_failsafe_pin!(PIO3_23, pio3_23);
-impl_failsafe_pin!(PIO3_24, pio3_24);
-impl_failsafe_pin!(PIO3_25, pio3_25);
-impl_failsafe_pin!(PIO3_26, pio3_26);
-impl_failsafe_pin!(PIO3_27, pio3_27);
-impl_failsafe_pin!(PIO3_28, pio3_28);
-impl_failsafe_pin!(PIO3_29, pio3_29);
-impl_failsafe_pin!(PIO3_30, pio3_30);
-impl_failsafe_pin!(PIO3_31, pio3_31);
-impl_failsafe_pin!(PIO4_0, pio4_0);
-impl_failsafe_pin!(PIO4_1, pio4_1);
-impl_failsafe_pin!(PIO4_2, pio4_2);
-impl_failsafe_pin!(PIO4_3, pio4_3);
-impl_failsafe_pin!(PIO4_4, pio4_4);
-impl_failsafe_pin!(PIO4_5, pio4_5);
-impl_failsafe_pin!(PIO4_6, pio4_6);
-impl_failsafe_pin!(PIO4_7, pio4_7);
-impl_failsafe_pin!(PIO4_8, pio4_8);
-impl_failsafe_pin!(PIO4_9, pio4_9);
-impl_failsafe_pin!(PIO4_10, pio4_10);
-impl_failsafe_pin!(PIO7_24, pio7_24);
-impl_failsafe_pin!(PIO7_25, pio7_25);
-impl_failsafe_pin!(PIO7_26, pio7_26);
-impl_failsafe_pin!(PIO7_27, pio7_27);
-impl_failsafe_pin!(PIO7_28, pio7_28);
-impl_failsafe_pin!(PIO7_29, pio7_29);
-impl_failsafe_pin!(PIO7_30, pio7_30);
-impl_failsafe_pin!(PIO7_31, pio7_31);
+impl_pin!(PIO2_27, 2, 27);
+impl_pin!(PIO2_28, 2, 28);
+impl_pin!(PIO2_29, 2, 29);
+impl_pin!(PIO2_30, 2, 30);
+impl_pin!(PIO2_31, 2, 31);
+impl_pin!(PIO3_0, 3, 0);
+impl_pin!(PIO3_1, 3, 1);
+impl_pin!(PIO3_2, 3, 2);
+impl_pin!(PIO3_3, 3, 3);
+impl_pin!(PIO3_4, 3, 4);
+impl_pin!(PIO3_5, 3, 5);
+impl_pin!(PIO3_6, 3, 6);
+impl_pin!(PIO3_7, 3, 7);
+impl_pin!(PIO3_8, 3, 8);
+impl_pin!(PIO3_9, 3, 9);
+impl_pin!(PIO3_10, 3, 10);
+impl_pin!(PIO3_11, 3, 11);
+impl_pin!(PIO3_12, 3, 12);
+impl_pin!(PIO3_13, 3, 13);
+impl_pin!(PIO3_14, 3, 14);
+impl_pin!(PIO3_15, 3, 15);
+impl_pin!(PIO3_16, 3, 16);
+impl_pin!(PIO3_17, 3, 17);
+impl_pin!(PIO3_18, 3, 18);
+impl_pin!(PIO3_19, 3, 19);
+impl_pin!(PIO3_20, 3, 20);
+impl_pin!(PIO3_21, 3, 21);
+impl_pin!(PIO3_22, 3, 22);
+impl_pin!(PIO3_23, 3, 23);
+impl_pin!(PIO3_24, 3, 24);
+impl_pin!(PIO3_25, 3, 25);
+impl_pin!(PIO3_26, 3, 26);
+impl_pin!(PIO3_27, 3, 27);
+impl_pin!(PIO3_28, 3, 28);
+impl_pin!(PIO3_29, 3, 29);
+impl_pin!(PIO3_30, 3, 30);
+impl_pin!(PIO3_31, 3, 31);
+impl_pin!(PIO4_0, 4, 0);
+impl_pin!(PIO4_1, 4, 1);
+impl_pin!(PIO4_2, 4, 2);
+impl_pin!(PIO4_3, 4, 3);
+impl_pin!(PIO4_4, 4, 4);
+impl_pin!(PIO4_5, 4, 5);
+impl_pin!(PIO4_6, 4, 6);
+impl_pin!(PIO4_7, 4, 7);
+impl_pin!(PIO4_8, 4, 8);
+impl_pin!(PIO4_9, 4, 9);
+impl_pin!(PIO4_10, 4, 10);
+impl_pin!(PIO7_24, 7, 24);
+impl_pin!(PIO7_25, 7, 25);
+impl_pin!(PIO7_26, 7, 26);
+impl_pin!(PIO7_27, 7, 27);
+impl_pin!(PIO7_28, 7, 28);
+impl_pin!(PIO7_29, 7, 29);
+impl_pin!(PIO7_30, 7, 30);
+impl_pin!(PIO7_31, 7, 31);
