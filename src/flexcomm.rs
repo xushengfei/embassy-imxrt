@@ -3,7 +3,6 @@
 #![macro_use]
 
 use core::ptr;
-use defmt::info;
 
 use crate::peripherals;
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};

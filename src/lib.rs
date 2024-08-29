@@ -330,55 +330,6 @@ embassy_hal_internal::peripherals!(
     SGPIO_INTB,
     USB,
     USBPHY_DCD,
-<<<<<<< HEAD
-    DMA1,
-    PUF,
-    POWERQUAD,
-    CASPER,
-    PMC_PMIC,
-    HASHCRYPT,
-    // Temporary pin placeholder for now until GPIO HAL is ready
-    P0_05,
-    P0_06,
-    P0_12,
-    P0_13,
-    P0_19,
-    P0_20,
-    P0_26,
-    P0_27,
-    P1_08,
-    P1_09,
-    P3_23,
-    P3_24,
-    UART_RX,
-    UART_TX,
-    UART_CTS,
-    UART_RTS,
-    UART_CLK, //dummy
-    UART,     //dummy
-);
-
-impl_adc_input!(P0_05, Adch0, A, pio0_5);
-impl_adc_input!(P0_06, Adch0, B, pio0_6);
-impl_adc_input!(P0_12, Adch1, A, pio0_12);
-impl_adc_input!(P0_13, Adch1, B, pio0_13);
-impl_adc_input!(P0_19, Adch2, A, pio0_19);
-impl_adc_input!(P0_20, Adch2, B, pio0_20);
-impl_adc_input!(P0_26, Adch3, A, pio0_26);
-impl_adc_input!(P0_27, Adch3, B, pio0_27);
-impl_adc_input!(P1_08, Adch4, A, pio1_8);
-impl_adc_input!(P1_09, Adch4, B, pio1_9);
-impl_adc_input!(P3_23, Adch5, A, pio3_23);
-impl_adc_input!(P3_24, Adch5, B, pio3_24);
-
-impl_uart_input!(UART_TX, pio3_1);
-impl_uart_input!(UART_RX, pio3_2);
-impl_uart_input!(UART_CTS, pio3_3);
-impl_uart_input!(UART_RTS, pio3_4);
-impl_uart_input!(UART_CLK, pio3_5); // dummy
-impl_uart_input!(UART, pio3_5); // dummy
-
-=======
     USB_WAKEUP,
     USDHC0,
     USDHC1,
@@ -387,7 +338,6 @@ impl_uart_input!(UART, pio3_5); // dummy
     WDT1,
 );
 
->>>>>>> ad5ac0eb5e89b1eb6722af0764a4d7787f0ef95d
 /// HAL configuration for iMX RT600.
 pub mod config {
     use crate::clocks::ClockConfig;
