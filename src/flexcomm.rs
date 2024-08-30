@@ -5,7 +5,8 @@
 use core::ptr;
 
 use crate::peripherals;
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use crate::peripherals::FLEXCOMM0;
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 use crate::pac::flexcomm0;
 use mimxrt685s_pac as pac;
@@ -43,185 +44,30 @@ impl Default for Config {
     }
 }
 
-/// Flexcomm traits
-pub trait Flexcomm {
-    /// enable channel and connect source clock
-    /// Need config information: Function, Lock, and source clock to use
-    fn enable(&mut self) {
-        // Enable the Flexcomm connector
-        //self.attach_clock();
-        //self.enable_clock();
-        //self.reset_peripheral();
-        //self.calculate_clock_frequency();
-        //self.set_function_and_lock();
-    }
-
-    /// disable channel and disconnect associated source clock
-    fn disable(&self) {
-        // Disable the Flexcomm connector
-        //self.disable_clock();
-        //self.detach_clock();
-    }
-
-    /// attach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn attach_clock(&self) {}
-
-    /// detach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn detach_clock(&self) {}
-
-    /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
-    fn enable_clock(&self) {}
-
-    /// Disable the source clock (SYSCON CLKCTL1_PSCCTL0)
-    fn disable_clock(&self) {}
-
-    /// Determine clock freq of actual source clock
-    fn calculate_clock_frequency(&mut self) {}
-
-    /// Reset the flexcomm channel RST_CTLn_PSCCTLn
-    fn reset_peripheral(&self) {}
-
-    /// Set the peripheral function and optionally lock
-    fn set_function_and_lock(&self) {}
-}
-
-/// Flexcomm channels 0-7, 14,15
-struct Flexcomm0 {
-    config: Config,
-}
-struct Flexcomm1 {
-    config: Config,
-}
-struct Flexcomm2 {
-    config: Config,
-}
-struct Flexcomm3 {
-    config: Config,
-}
-struct Flexcomm4 {
-    config: Config,
-}
-struct Flexcomm5 {
-    config: Config,
-}
-struct Flexcomm6 {
-    config: Config,
-}
-struct Flexcomm7 {
-    config: Config,
-}
-struct Flexcomm14 {
-    config: Config,
-}
-struct Flexcomm15 {
+/// Generic flexcomm struct
+/// Flexcomm n channels (0-7, 14,15)
+pub struct Flexcomm<'d, T: FlexcommInstance> {
+    _fc: PeripheralRef<'d, T>,
     config: Config,
 }
 
 /// Flexcomm channel-specific implementations
-impl Flexcomm0 {
-    fn new(configuration: &Config) -> Flexcomm0 {
-        Flexcomm0 { config: *configuration }
+impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
+    // This is constrained to only accepting a type that implements
+    // the peripheral trait, which is further constrained by only
+    // implementing our FlexcommInstance trait.
+    pub fn new(instance: impl Peripheral<P = T> + 'd, config: Config) -> Self {
+        // Converts the passed in peripheral to a peripheral reference
+        into_ref!(instance);
+
+        // Create our struct
+        let fc = Self { _fc: instance, config };
+
+        // TODO: check if fc channel is already configured and/or locked?
+
+        fc
     }
 
-    fn regs(&self) -> &'static pac::flexcomm0::RegisterBlock {
-        unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) }
-    }
-}
-
-impl Flexcomm1 {
-    fn new(config: Config) -> Flexcomm1 {
-        Flexcomm1 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm1::RegisterBlock {
-        unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm1::RegisterBlock) }
-    }
-}
-
-impl Flexcomm2 {
-    fn new(config: Config) -> Flexcomm2 {
-        Flexcomm2 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm2::RegisterBlock {
-        unsafe { &*(pac::Flexcomm2::ptr() as *const pac::flexcomm2::RegisterBlock) }
-    }
-}
-
-impl Flexcomm3 {
-    fn new(config: Config) -> Flexcomm3 {
-        Flexcomm3 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm3::RegisterBlock {
-        unsafe { &*(pac::Flexcomm3::ptr() as *const pac::flexcomm3::RegisterBlock) }
-    }
-}
-
-impl Flexcomm4 {
-    fn new(config: Config) -> Flexcomm4 {
-        Flexcomm4 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm4::RegisterBlock {
-        unsafe { &*(pac::Flexcomm4::ptr() as *const pac::flexcomm4::RegisterBlock) }
-    }
-}
-
-impl Flexcomm5 {
-    fn new(config: Config) -> Flexcomm5 {
-        Flexcomm5 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm5::RegisterBlock {
-        unsafe { &*(pac::Flexcomm5::ptr() as *const pac::flexcomm5::RegisterBlock) }
-    }
-}
-
-impl Flexcomm6 {
-    fn new(config: Config) -> Flexcomm6 {
-        Flexcomm6 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm6::RegisterBlock {
-        unsafe { &*(pac::Flexcomm6::ptr() as *const pac::flexcomm6::RegisterBlock) }
-    }
-}
-
-impl Flexcomm7 {
-    fn new(config: Config) -> Flexcomm7 {
-        Flexcomm7 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm7::RegisterBlock {
-        unsafe { &*(pac::Flexcomm7::ptr() as *const pac::flexcomm7::RegisterBlock) }
-    }
-}
-
-// 14 is SPI only
-impl Flexcomm14 {
-    fn new(config: Config) -> Flexcomm14 {
-        Flexcomm14 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm14::RegisterBlock {
-        unsafe { &*(pac::Flexcomm14::ptr() as *const pac::flexcomm14::RegisterBlock) }
-    }
-}
-
-// 15 is I2C only
-impl Flexcomm15 {
-    fn new(config: Config) -> Flexcomm15 {
-        Flexcomm15 { config }
-    }
-
-    fn regs(&self) -> &'static pac::flexcomm15::RegisterBlock {
-        unsafe { &*(pac::Flexcomm15::ptr() as *const pac::flexcomm15::RegisterBlock) }
-    }
-}
-
-/// Flexcomm channel generic trait implementations
-impl Flexcomm for Flexcomm0 {
     // TODO: Use new wip clock traits for all methods
     // TBD: Does flexcomm own the associated external config and control bits in SYSCON and RST_CTL ?
     //      If flexcomm does own the external config and control bits, then peripheral drivers
@@ -229,22 +75,19 @@ impl Flexcomm for Flexcomm0 {
 
     /// enable channel and connect source clock
     /// Need config information: Function, Lock, and source clock to use
-    fn enable(&mut self) {
-        // Enable the Flexcomm connector
-        //self.attach_clock();
-        //self.enable_clock();
-        //self.reset_peripheral();
-        //self.calculate_clock_frequency();
-        //self.set_reg();
-        todo!();
+    fn enable(&self) {
+        // Enable the Flexcomm channel
+        self.attach_clock();
+        self.enable_clock();
+        self.reset_peripheral();
+        self.set_function_and_lock();
     }
 
     /// disable channel and disconnect associated source clock
     fn disable(&self) {
-        // Disable the Flexcomm connector
-        //self.disable_clock();
-        //self.detach_clock();
-        todo!();
+        // Disable the Flexcomm channel
+        self.disable_clock();
+        self.detach_clock();
     }
 
     /// attach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
@@ -268,89 +111,116 @@ impl Flexcomm for Flexcomm0 {
     }
 
     /// Determine clock freq of actual source clock
-    fn calculate_clock_frequency(&mut self) {
-        todo!();
+    fn calculate_clock_frequency(&self) -> u32 {
+        let mut freqHz: u32 = 0;
+        // TODO: determine source clock frequency configured for this fc
+        freqHz
     }
 
     /// Reset the flexcomm channel RST_CTLn_PSCCTLn
     fn reset_peripheral(&self) {
-        todo!();
+        // TODO: Reset the correct fc channel
+        /* if self == Flexcomm0 */
+        {
+            // SAFETY: safe so long as executed from single executor context or during initialization only
+            let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
+
+            // set reset
+            rstctl1.prstctl0_set().write(|w| w.flexcomm0_rst_set().set_reset());
+            while rstctl1.prstctl0().read().flexcomm0_rst().bit_is_clear() {}
+
+            // clear reset
+            rstctl1.prstctl0_clr().write(|w| w.flexcomm0_rst_clr().clr_reset());
+            while rstctl1.prstctl0().read().flexcomm0_rst().bit_is_set() {}
+            todo!();
+        }
     }
 
     /// Set the peripheral function and optionally lock
     fn set_function_and_lock(&self) {
-        // TODO: Check if peripheral is present.
-        // TBD: Check if peripheral is locked or mapped to a diff peripheral?
+        // TODO: Check if peripheral is present, return error if not?
+        // TODO: Check if peripheral is locked or mapped to a diff peripheral?
 
         match self.config.function {
             Function::NoPeriphSelected => {
                 // Set the peripheral function to No peripheral selected
-                self.regs().pselid().write(|w| w.persel().no_periph_selected());
+                T::fc_reg().pselid().write(|w| w.persel().no_periph_selected());
             }
             Function::Usart => {
                 // Set the peripheral function to USART
-                self.regs().pselid().write(|w| w.persel().usart());
+                if T::fc_reg().pselid().read().usartpresent().is_present() {
+                    T::fc_reg().pselid().write(|w| w.persel().usart());
+                }
             }
             Function::Spi => {
                 // Set the peripheral function to SPI
-                self.regs().pselid().write(|w| w.persel().spi());
+                if T::fc_reg().pselid().read().spipresent().is_present() {
+                    T::fc_reg().pselid().write(|w| w.persel().spi());
+                }
             }
             Function::I2c => {
                 // Set the peripheral function to I2C
-                self.regs().pselid().write(|w| w.persel().i2c());
+                if T::fc_reg().pselid().read().i2cpresent().is_present() {
+                    T::fc_reg().pselid().write(|w| w.persel().i2c());
+                }
             }
             Function::I2sReceive => {
                 // Set the peripheral function to I2S
-                self.regs().pselid().write(|w| w.persel().i2s_receive());
+                if T::fc_reg().pselid().read().i2spresent().is_present() {
+                    T::fc_reg().pselid().write(|w| w.persel().i2s_receive());
+                }
             }
             Function::I2sTransmit => {
                 // Set the peripheral function to I2S
-                self.regs().pselid().write(|w| w.persel().i2s_transmit());
+                if T::fc_reg().pselid().read().i2spresent().is_present() {
+                    T::fc_reg().pselid().write(|w| w.persel().i2s_transmit());
+                }
             }
         }
         // TBD: Do we need to support the lock feature?
         if self.config.lock == FlexcommLock::Locked {
-            self.regs().pselid().write(|w| w.lock().locked());
+            T::fc_reg().pselid().modify(|_, w| w.lock().locked());
         } else {
-            self.regs().pselid().write(|w| w.lock().unlocked());
+            T::fc_reg().pselid().modify(|_, w| w.lock().unlocked());
         }
     }
 }
 
-impl Flexcomm for Flexcomm1 {
-    // todo
+// Sealed to prevent it from being implemented
+// on any arbitrary type outside this module.
+trait SealedFlexcommInstance {
+    // All flexcomm registerblocks are derived from flexcomm0.
+    // They all have the same properties, except fc14 is SPI only and fc15 is I2C only
+    fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock;
 }
 
-impl Flexcomm for Flexcomm2 {
-    // todo
+#[allow(private_bounds)]
+pub trait FlexcommInstance: SealedFlexcommInstance {}
+
+// macro to replicate for multiple FlexcommInstance traits
+macro_rules! impl_instance {
+    ($fc_periph:ident, $fc_reg_block:ident) => {
+        // Implement the actual private trait
+        impl SealedFlexcommInstance for crate::peripherals::$fc_periph {
+            fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
+                // This grabs the pointer to the specific flexcomm peripheral
+                // SAFETY: safe so long as executed from single executor context or during initialization only
+                unsafe { &*crate::pac::$fc_reg_block::ptr() }
+            }
+        }
+
+        impl FlexcommInstance for crate::peripherals::$fc_periph {}
+    };
 }
 
-impl Flexcomm for Flexcomm3 {
-    // todo
-}
-
-impl Flexcomm for Flexcomm4 {
-    // todo
-}
-
-impl Flexcomm for Flexcomm5 {
-    // todo
-}
-
-impl Flexcomm for Flexcomm6 {
-    // todo
-}
-
-impl Flexcomm for Flexcomm7 {
-    // todo
-}
-
-// 14 is SPI only
-impl Flexcomm for Flexcomm14 {
-    // todo
-}
-
-// 15 is I2C only
-impl Flexcomm for Flexcomm15 {
-    // todo
-}
+// Implement the FlexcommInstance traits for every flexcomm peripheral
+impl_instance!(FLEXCOMM0, Flexcomm0);
+impl_instance!(FLEXCOMM1, Flexcomm1);
+impl_instance!(FLEXCOMM2, Flexcomm2);
+impl_instance!(FLEXCOMM3, Flexcomm3);
+impl_instance!(FLEXCOMM4, Flexcomm4);
+impl_instance!(FLEXCOMM5, Flexcomm5);
+impl_instance!(FLEXCOMM6, Flexcomm6);
+impl_instance!(FLEXCOMM7, Flexcomm7);
+impl_instance!(FLEXCOMM14, Flexcomm14); // 14 is SPI only
+impl_instance!(FLEXCOMM15, Flexcomm15); // 15 is I2C only
