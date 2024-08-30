@@ -26,10 +26,11 @@ pub enum ConfigError {
 /// lock: whether or not to lock the pselid
 /// non-exhaustive because future upgrades may add config item
 #[non_exhaustive]
+#[derive(Copy, Clone)]
 pub struct Config {
-    function: Function, // serial comm peripheral type
-    lock: FlexcommLock, // lock the FC, or not
-                        // TBD: Specify preferred source clock? ex: low speed / high speed / pll / external
+    pub function: Function, // serial comm peripheral type
+    pub lock: FlexcommLock, // lock the FC, or not
+                            // TBD: Specify preferred source clock? ex: low speed / high speed / pll / external
 }
 
 // a safe default for peripheral drivers to pre-init their configs
@@ -43,7 +44,7 @@ impl Default for Config {
 }
 
 /// Flexcomm traits
-trait Flexcomm {
+pub trait Flexcomm {
     /// enable channel and connect source clock
     /// Need config information: Function, Lock, and source clock to use
     fn enable(&mut self) {
@@ -118,8 +119,8 @@ struct Flexcomm15 {
 
 /// Flexcomm channel-specific implementations
 impl Flexcomm0 {
-    fn new(config: Config) -> Flexcomm0 {
-        Flexcomm0 { config }
+    fn new(configuration: &Config) -> Flexcomm0 {
+        Flexcomm0 { config: *configuration }
     }
 
     fn regs(&self) -> &'static pac::flexcomm0::RegisterBlock {
