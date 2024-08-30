@@ -13,6 +13,7 @@ pub mod adc;
 pub mod clocks;
 pub mod iopctl;
 pub mod pwm;
+pub mod gpio;
 #[cfg(feature = "time-driver")]
 mod time_driver;
 pub mod wwdt;
@@ -387,7 +388,6 @@ pub fn init(config: config::Config) -> Peripherals {
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
         // dma::init();
-        // gpio::init();
     }
 
     peripherals
