@@ -79,7 +79,7 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
         // Enable the Flexcomm channel
         self.attach_clock();
         self.enable_clock();
-        self.reset_peripheral();
+        T::reset_peripheral();
         self.set_function_and_lock();
     }
 
@@ -115,25 +115,6 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
         let mut freqHz: u32 = 0;
         // TODO: determine source clock frequency configured for this fc
         freqHz
-    }
-
-    /// Reset the flexcomm channel RST_CTLn_PSCCTLn
-    fn reset_peripheral(&self) {
-        // TODO: Reset the correct fc channel
-        /* if self == Flexcomm0 */
-        {
-            // SAFETY: safe so long as executed from single executor context or during initialization only
-            let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
-
-            // set reset
-            rstctl1.prstctl0_set().write(|w| w.flexcomm0_rst_set().set_reset());
-            while rstctl1.prstctl0().read().flexcomm0_rst().bit_is_clear() {}
-
-            // clear reset
-            rstctl1.prstctl0_clr().write(|w| w.flexcomm0_rst_clr().clr_reset());
-            while rstctl1.prstctl0().read().flexcomm0_rst().bit_is_set() {}
-            todo!();
-        }
     }
 
     /// Set the peripheral function and optionally lock
@@ -192,20 +173,44 @@ trait SealedFlexcommInstance {
     // All flexcomm registerblocks are derived from flexcomm0.
     // They all have the same properties, except fc14 is SPI only and fc15 is I2C only
     fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock;
+
+    // reset_peripheral is here so its implementation can be extended via macro
+    fn reset_peripheral();
 }
 
 #[allow(private_bounds)]
 pub trait FlexcommInstance: SealedFlexcommInstance {}
 
 // macro to replicate for multiple FlexcommInstance traits
+
+// TBD: add flexcommn_rst_set, flexcommn_rst_clr, and flexcommn_rst args?
+
 macro_rules! impl_instance {
-    ($fc_periph:ident, $fc_reg_block:ident) => {
+    ($fc_periph:ident, $fc_reg_block:ident, $flexcommn_rst_set:ident, $flexcommn_rst_clr:ident, $flexcommn_rst:ident) => {
         // Implement the actual private trait
         impl SealedFlexcommInstance for crate::peripherals::$fc_periph {
             fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
                 // This grabs the pointer to the specific flexcomm peripheral
-                // SAFETY: safe so long as executed from single executor context or during initialization only
+                // SAFETY: safe if executed from single executor context or during initialization only
                 unsafe { &*crate::pac::$fc_reg_block::ptr() }
+            }
+
+            // macrod so the fcn channel-specific ret control bits can be targeted
+            fn reset_peripheral() {
+                // SAFETY: safe if executed from single executor context or during initialization only
+                let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
+
+                // set reset
+                rstctl1
+                    .prstctl0_set()
+                    .write(|w| w.$flexcommn_rst_set().set_reset());
+                while rstctl1.prstctl0().read().$flexcommn_rst().bit_is_clear() {}
+
+                // clear reset
+                rstctl1
+                    .prstctl0_clr()
+                    .write(|w| w.flexcommn_rst_clr().clr_reset());
+                while rstctl1.prstctl0().read().$flexcommn_rst().bit_is_set() {}
             }
         }
 
@@ -214,13 +219,84 @@ macro_rules! impl_instance {
 }
 
 // Implement the FlexcommInstance traits for every flexcomm peripheral
-impl_instance!(FLEXCOMM0, Flexcomm0);
-impl_instance!(FLEXCOMM1, Flexcomm1);
-impl_instance!(FLEXCOMM2, Flexcomm2);
-impl_instance!(FLEXCOMM3, Flexcomm3);
-impl_instance!(FLEXCOMM4, Flexcomm4);
-impl_instance!(FLEXCOMM5, Flexcomm5);
-impl_instance!(FLEXCOMM6, Flexcomm6);
-impl_instance!(FLEXCOMM7, Flexcomm7);
-impl_instance!(FLEXCOMM14, Flexcomm14); // 14 is SPI only
-impl_instance!(FLEXCOMM15, Flexcomm15); // 15 is I2C only
+impl_instance!(
+    FLEXCOMM0,
+    Flexcomm0,
+    flexcomm0_rst_set,
+    flexcomm0_rst_clr,
+    flexcomm0_rst
+);
+
+impl_instance!(
+    FLEXCOMM1,
+    Flexcomm1,
+    flexcomm1_rst_set,
+    flexcomm1_rst_clr,
+    flexcomm1_rst
+);
+
+impl_instance!(
+    FLEXCOMM2,
+    Flexcomm2,
+    flexcomm2_rst_set,
+    flexcomm2_rst_clr,
+    flexcomm2_rst
+);
+
+impl_instance!(
+    FLEXCOMM3,
+    Flexcomm3,
+    flexcomm3_rst_set,
+    flexcomm3_rst_clr,
+    flexcomm3_rst
+);
+
+impl_instance!(
+    FLEXCOMM4,
+    Flexcomm4,
+    flexcomm4_rst_set,
+    flexcomm4_rst_clr,
+    flexcomm4_rst
+);
+
+impl_instance!(
+    FLEXCOMM5,
+    Flexcomm5,
+    flexcomm5_rst_set,
+    flexcomm5_rst_clr,
+    flexcomm5_rst
+);
+
+impl_instance!(
+    FLEXCOMM6,
+    Flexcomm6,
+    flexcomm6_rst_set,
+    flexcomm6_rst_clr,
+    flexcomm6_rst
+);
+
+impl_instance!(
+    FLEXCOMM7,
+    Flexcomm7,
+    flexcomm7_rst_set,
+    flexcomm7_rst_clr,
+    flexcomm7_rst
+);
+
+// 14 is SPI only
+impl_instance!(
+    FLEXCOMM14,
+    Flexcomm14,
+    flexcomm14_spi_rst_set,
+    flexcomm14_spi_rst_clr,
+    flexcomm14_spi_rst
+);
+
+// 15 is I2C only
+impl_instance!(
+    FLEXCOMM15,
+    Flexcomm15,
+    flexcomm15_i2c_rst_set,
+    flexcomm15_i2c_rst_clr,
+    flexcomm15_i2c_rst
+);
