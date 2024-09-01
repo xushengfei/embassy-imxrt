@@ -5,8 +5,11 @@
 
 use core::marker::PhantomData;
 
+use crate::iopctl::*;
 use crate::pac::usart0;
+use crate::peripherals;
 use crate::uart_setting::Flexcomm;
+use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use mimxrt685s_pac as pac;
 use pac::usart0::RegisterBlock;
 
@@ -39,8 +42,8 @@ pub use pac::usart0::fifocfg::Enabletx;
 /// Also features like DMA, async data transfer, etc will be added later.
 ///
 
-/// UartRx struct to hold the uart configuration
-pub struct UartRx {
+/// UartRxTx struct to hold the uart configuration
+pub struct UartRxTx {
     pub baudrate: Baudrate,
     pub data_bits: Datalen,
     pub parity: Parity,
@@ -88,9 +91,9 @@ pub enum GenericStatus {
     USART_BaudrateNotSupport,
 }
 
-impl UartRx {
+impl UartRxTx {
     pub fn new() -> Self {
-        UartRx {
+        UartRxTx {
             baudrate: 115200,
             data_bits: Datalen::Bit8,
             parity: Parity::NoParity,
@@ -115,6 +118,8 @@ impl UartRx {
         };
 
         Flexcomm::new().init();
+        // TODO: Add if enableTx, Rx before calling self.set_uart_rx_fifo(), self.set_uart_tx_fifo();
+        self.set_uart_tx_fifo();
         self.set_uart_rx_fifo();
         self.set_uart_config(default_mcu_specific_uart_config);
         self.set_uart_baudrate();
@@ -145,7 +150,11 @@ impl UartRx {
         self.reg().cfg().write(|w| w.enable().disabled());
     }
 
-    /// Blocking read API, that can receive a max of data of 8 bytes. The actual data expected to be received should be sent as "len"
+    /// Read RX data register using a blocking method.
+    /// This function polls the RX register, waits for the RX register to be full or for RX FIFO to
+    /// have data and read data from the TX register.
+    /// Note for testing purpose : Blocking read API, that can receive a max of data of 8 bytes.
+    /// The actual data expected to be received should be sent as "len"
     pub fn read_blocking(&self, buf: &mut [u8; 8], len: u32) -> GenericStatus {
         if len > 8 {
             return GenericStatus::InvalidArgument;
@@ -206,6 +215,29 @@ impl UartRx {
         return GenericStatus::Success;
     }
 
+    /// Writes to the TX register using a blocking method.
+    /// This function polls the TX register, waits for the TX register to be empty or for the TX FIFO
+    /// to have room and writes data to the TX buffer.
+    /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
+    /// The actual data expected to be sent should be sent as "len"
+    pub fn write_blocking(&self, buf: &mut [u8; 8], len: u32) -> GenericStatus {
+        // Check whether txFIFO is enabled
+        if self.reg().fifocfg().read().enabletx().bit_is_clear() {
+            return GenericStatus::Fail;
+        } else {
+            for i in 0..len {
+                // Loop until txFIFO get some space for new data
+                while self.reg().fifostat().read().txnotfull().bit_is_clear() {}
+                let mut x = buf[i as usize];
+                self.reg().fifowr().write(|w| unsafe { w.txdata().bits(x as u16) });
+
+                // Wait to finish transfer
+                while self.reg().stat().read().txidle().bit_is_clear() {}
+            }
+        }
+        return GenericStatus::Success;
+    }
+
     fn set_uart_config(&self, uart_mcu_config: UartMcuSpecific) {
         // setting the uart data len
         if self.data_bits == Datalen::Bit8 {
@@ -262,8 +294,8 @@ impl UartRx {
     }
 
     fn set_uart_rx_fifo(&self) {
-        // Todo : Add condition to check if (enableTx){}
-        // The setting below needs to be encapsulated in a condition if (enablerx)
+        // Todo : Add condition to check if (enableRx){}
+        // The setting below needs to be encapsulated in a condition if (enableRx)
         // setting the rx fifo
         self.reg().fifocfg().write(|w| w.emptyrx().set_bit());
         self.reg().fifocfg().write(|w| w.enablerx().enabled());
@@ -274,6 +306,25 @@ impl UartRx {
         //base->FIFOTRIG |= USART_FIFOTRIG_RXLVL(config->rxWatermark);
         /* enable trigger interrupt */
         //base->FIFOTRIG |= USART_FIFOTRIG_RXLVLENA_MASK;
+    }
+
+    fn set_uart_tx_fifo(&self) {
+        // Todo : Add condition to check if (enableTx){}
+        // The setting below needs to be encapsulated in a condition if (enableTx)
+        // setting the Tx fifo
+
+        // empty and enable txFIFO
+        self.reg().fifocfg().write(|w| w.emptytx().set_bit());
+        self.reg().fifocfg().write(|w| w.enabletx().enabled());
+
+        //TODO for later
+        /*
+        //setup trigger level
+        base->FIFOTRIG &= ~(USART_FIFOTRIG_TXLVL_MASK);
+        base->FIFOTRIG |= USART_FIFOTRIG_TXLVL(config->txWatermark);
+        // enable trigger interrupt
+        base->FIFOTRIG |= USART_FIFOTRIG_TXLVLENA_MASK;
+         */
     }
 
     fn set_uart_baudrate(&self) -> GenericStatus {
@@ -347,5 +398,25 @@ impl UartRx {
         } else if continuous_clock == Cc::ContinousClock {
             self.reg().ctl().write(|w| w.cc().continous_clock());
         }
+    }
+
+    /// This function configures the uart pins for testing purpose.
+    /// Note: this is not the correct way of calling the ioctl. This is just for testing purpose.
+    fn configure_pins(&self) {
+        let pin = unsafe { crate::peripherals::PIO3_1::steal() }; // Host uart tx
+        pin.set_function(Function::F5);
+        pin.set_slew_rate(SlewRate::Slow);
+
+        let pin = unsafe { crate::peripherals::PIO3_2::steal() }; // Host uart rx
+        pin.set_function(Function::F5);
+        pin.set_slew_rate(SlewRate::Slow);
+
+        /*
+        let pin = unsafe { crate::peripherals::PIO3_3::steal() }; // Host uart cts
+        pin.set_function(Function::F5);
+
+        let pin = unsafe { crate::peripherals::PIO3_4::steal() }; // Host uart rts
+        pin.set_function(Function::F5);
+        */
     }
 }
