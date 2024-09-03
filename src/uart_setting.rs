@@ -41,6 +41,19 @@ impl Flexcomm {
         self.flexcomm_set_peripheral();
     }
 
+    pub fn flexcomm_getClkFreq(&self) -> u32 {
+        // Get the clock frequency of the flexcomm
+        // For now, hardcoding the value for flexcomm0
+        let freq = self.clock_get_audio_pll_clk_freq();
+        return freq;
+    }
+
+    fn clock_get_audio_pll_clk_freq(&self) -> u32 {
+        // return CLOCK_GetAudioPfdFreq(kCLOCK_Pfd0) / ((CLKCTL1->AUDIOPLLCLKDIV & CLKCTL1_AUDIOPLLCLKDIV_DIV_MASK) + 1U);
+        // TODO: check and hardcode.
+        return 0x2dc6c00;
+    }
+
     /// Exposing a method to access reg internally with the assumption that only the flexcomm0 is being used
     fn reg(&self) -> &'static pac::flexcomm0::RegisterBlock {
         unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) }

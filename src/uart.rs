@@ -98,7 +98,7 @@ impl UartRxTx {
             data_bits: Datalen::Bit8,
             parity: Parity::NoParity,
             stop_bits: Stoplen::Bit1,
-            flexcomm_freq: 100_000_000,
+            flexcomm_freq: 0x2dc6c00,
         }
     }
     /// Exposing a method to access reg internally with the assumption that only the uart0 is being used
@@ -155,7 +155,7 @@ impl UartRxTx {
     /// have data and read data from the TX register.
     /// Note for testing purpose : Blocking read API, that can receive a max of data of 8 bytes.
     /// The actual data expected to be received should be sent as "len"
-    pub fn read_blocking(&self, buf: &mut [u8; 8], len: u32) -> GenericStatus {
+    pub fn read_blocking(&self, buf: &mut [u8], len: u32) -> GenericStatus {
         if len > 8 {
             return GenericStatus::InvalidArgument;
         }
@@ -220,7 +220,7 @@ impl UartRxTx {
     /// to have room and writes data to the TX buffer.
     /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
     /// The actual data expected to be sent should be sent as "len"
-    pub fn write_blocking(&self, buf: &mut [u8; 8], len: u32) -> GenericStatus {
+    pub fn write_blocking(&self, buf: &mut [u8], len: u32) -> GenericStatus {
         // Check whether txFIFO is enabled
         if self.reg().fifocfg().read().enabletx().bit_is_clear() {
             return GenericStatus::Fail;
@@ -329,7 +329,7 @@ impl UartRxTx {
 
     fn set_uart_baudrate(&self) -> GenericStatus {
         let baudrate_bps = self.baudrate;
-        let source_clock_hz = self.flexcomm_freq;
+        let source_clock_hz = self.flexcomm_freq; // TODO: replace this with the call to flexcomm_getClkFreq()
 
         let mut best_diff: u32 = 0xFFFFFFFF;
         let mut best_osrval: u32 = 0xF;
