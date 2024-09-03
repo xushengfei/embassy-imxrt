@@ -4,37 +4,85 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
-[dependencies]
-cortex-m = { version = "0.7.7", features = [
-    "inline-asm",
-    "critical-section-single-core",
-] }
-cortex-m-rt = "0.7.3"
-defmt = "0.3.6"
-defmt-rtt = "0.4.0"
-panic-probe = { version = "0.3.1", features = ["print-defmt"] }
-embassy-imxrt = { version = "0.1.0", path = "../../", features = [
-    "defmt",
-    "time-driver",
-    "time",
-] }
+[dependencies.cortex-m]
+version = "0.7.7"
+default-features = false
+features = ["inline-asm", "critical-section-single-core"]
 
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = [
-    "defmt",
-] }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
+[dependencies.cortex-m-rt]
+version = "0.7.3"
+default-features = false
+
+[dependencies.defmt]
+version = "0.3.8"
+default-features = false
+
+[dependencies.defmt-rtt]
+version = "0.4.1"
+default-features = false
+
+[dependencies.panic-probe]
+version = "0.3.2"
+default-features = false
+features = ["print-defmt"]
+
+[dependencies.embassy-executor]
+default-features = false
+features = [
     "arch-cortex-m",
     "executor-thread",
     "executor-interrupt",
     "defmt",
     "integrated-timers",
-] }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", features = [
-    "defmt",
-    "defmt-timestamp-uptime",
-] }
-futures = { version = "0.3.30", default-features = false, features = [
-    "async-await",
-] }
-mimxrt685s-pac = { version = "*", features = ["rt", "critical-section"] }
+]
+git = "https://github.com/embassy-rs/embassy"
+
+[dependencies.embassy-sync]
+default-features = false
+git = "https://github.com/embassy-rs/embassy"
+
+[dependencies.embassy-futures]
+default-features = false
+git = "https://github.com/embassy-rs/embassy"
+
+[dependencies.embassy-time]
+default-features = false
+features = ["defmt", "defmt-timestamp-uptime"]
+git = "https://github.com/embassy-rs/embassy"
+
+[dependencies.futures]
+version = "0.3.30"
+default-features = false
+features = ["async-await"]
+
+[dependencies.mimxrt685s-pac]
+version = "0.1.4"
+default-features = false
+features = ["critical-section", "rt"]
+
+[dependencies.embedded-hal-1]
+package = "embedded-hal"
+version = "1.0.0"
+default-features = false
+
+[dependencies.embassy-imxrt]
+version = "0.1.0"
+path = "../.."
+default-features = false
+features = ["defmt", "time-driver", "time", "rt"]
+
+[profile.dev]
+opt-level = 0      # Enable basic optimizations to prevent super large binaries
+codegen-units = 16
+debug = true
+lto = false
+
+# Set the default for dependencies to optimized even for debug build to prevent super large binaries
+[profile.dev.package."*"]
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"   # optimize for size
+codegen-units = 1 # better optimizations
+debug = true      # symbols are nice and they don't increase the size on Flash
+lto = true        # better optimizations
