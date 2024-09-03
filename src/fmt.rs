@@ -1,9 +1,7 @@
 #![macro_use]
 #![allow(unused)]
 
-use core::fmt::Debug;
-use core::fmt::Display;
-use core::fmt::LowerHex;
+use core::fmt::{Debug, Display, LowerHex};
 
 #[collapse_debuginfo(yes)]
 macro_rules! assert {
