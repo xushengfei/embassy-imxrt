@@ -13,9 +13,11 @@ async fn main(_spawner: Spawner) {
         //let config = Config::default();
         //let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap(); //toto change
 
+        info!("UART test start");
         let mut usart = UartRxTx::new();
         usart.init();
 
+        info!("UART test init() done");
         // We can't send too many bytes, they have to fit in the FIFO.
         // This is because we aren't sending+receiving at the same time.
 
@@ -23,12 +25,18 @@ async fn main(_spawner: Spawner) {
         //usart.blocking_write(&data).unwrap();
         let mut data = [0xC0, 0xDE];
         usart.write_blocking(&mut data, 2);
+        info!("UART test write_blocking() done");
 
         let mut buf = [0; 2];
         //usart.blocking_read(&mut buf).unwrap();
         usart.read_blocking(&mut buf, 2);
-        assert_eq!(buf, data);
+        info!("UART test read_blocking() done");
 
+        assert_eq!(buf, data);
         usart.deinit();
+        info!("UART test deinit() done");
+        info!("UART test done");
+
+        embassy_imxrt_examples::delay(50000);
     }
 }
