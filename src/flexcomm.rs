@@ -77,8 +77,8 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
     /// Need config information: Function, Lock, and source clock to use
     fn enable(&self) {
         // Enable the Flexcomm channel
-        self.attach_clock();
-        self.enable_clock();
+        self.select_clock();
+        T::enable_clock();
         T::reset_peripheral();
         self.set_function_and_lock();
     }
@@ -86,27 +86,17 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
     /// disable channel and disconnect associated source clock
     fn disable(&self) {
         // Disable the Flexcomm channel
-        self.disable_clock();
-        self.detach_clock();
+        T::disable_clock();
+        self.deselect_clock();
     }
 
-    /// attach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn attach_clock(&self) {
+    /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+    fn select_clock(&self) {
         todo!();
     }
 
-    /// detach associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn detach_clock(&self) {
-        todo!();
-    }
-
-    /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
-    fn enable_clock(&self) {
-        todo!();
-    }
-
-    /// Disable the source clock (SYSCON CLKCTL1_PSCCTL0)
-    fn disable_clock(&self) {
+    /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+    fn deselect_clock(&self) {
         todo!();
     }
 
@@ -174,19 +164,23 @@ trait SealedFlexcommInstance {
     // They all have the same properties, except fc14 is SPI only and fc15 is I2C only
     fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock;
 
-    // reset_peripheral is here so its implementation can be extended via macro
+    // reset the fc channel
     fn reset_peripheral();
+
+    /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
+    fn enable_clock();
+
+    /// Disable the source clock (SYSCON CLKCTL1_PSCCTL0)
+    fn disable_clock();
 }
 
 #[allow(private_bounds)]
 pub trait FlexcommInstance: SealedFlexcommInstance {}
 
-// macro to replicate for multiple FlexcommInstance traits
-
-// TBD: add flexcommn_rst_set, flexcommn_rst_clr, and flexcommn_rst args?
+// macro to replicate FlexcommInstance traits for all fc channel register sets
 
 macro_rules! impl_instance {
-    ($fc_periph:ident, $fc_reg_block:ident, $flexcommn_rst_set:ident, $flexcommn_rst_clr:ident, $flexcommn_rst:ident) => {
+    ($fc_periph:ident, $fc_reg_block:ident, $fcn_clk_set:ident, $fcn_clk_clr:ident, $flexcommn_rst_set:ident, $flexcommn_rst_clr:ident, $flexcommn_rst:ident) => {
         // Implement the actual private trait
         impl SealedFlexcommInstance for crate::peripherals::$fc_periph {
             fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
@@ -195,9 +189,20 @@ macro_rules! impl_instance {
                 unsafe { &*crate::pac::$fc_reg_block::ptr() }
             }
 
-            // macrod so the fcn channel-specific ret control bits can be targeted
+            fn enable_clock() {
+                // SAFETY: safe if executed from single executor context or during initialization only. Write to "Set" register affects only the specific bit being touched
+                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+                clkctl1.pscctl0_set().write(|w| w.$fcn_clk_set().set_bit());
+            }
+
+            fn disable_clock() {
+                // SAFETY: safe if executed from single executor context or during initialization only. Write to "Clr" register affects only the specific bit being touched
+                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+                clkctl1.pscctl0_clr().write(|w| w.$fcn_clk_clr().set_bit());
+            }
+
             fn reset_peripheral() {
-                // SAFETY: safe if executed from single executor context or during initialization only
+                // SAFETY: safe if executed from single executor context or during initialization only. Write to "Set" and "Clr" registers affects only the specific bit being touched
                 let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
 
                 // set reset
@@ -222,6 +227,8 @@ macro_rules! impl_instance {
 impl_instance!(
     FLEXCOMM0,
     Flexcomm0,
+    fc0_clk_set,
+    fc0_clk_clr,
     flexcomm0_rst_set,
     flexcomm0_rst_clr,
     flexcomm0_rst
@@ -230,6 +237,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM1,
     Flexcomm1,
+    fc1_clk_set,
+    fc1_clk_clr,
     flexcomm1_rst_set,
     flexcomm1_rst_clr,
     flexcomm1_rst
@@ -238,6 +247,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM2,
     Flexcomm2,
+    fc2_clk_set,
+    fc2_clk_clr,
     flexcomm2_rst_set,
     flexcomm2_rst_clr,
     flexcomm2_rst
@@ -246,6 +257,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM3,
     Flexcomm3,
+    fc3_clk_set,
+    fc3_clk_clr,
     flexcomm3_rst_set,
     flexcomm3_rst_clr,
     flexcomm3_rst
@@ -254,6 +267,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM4,
     Flexcomm4,
+    fc4_clk_set,
+    fc4_clk_clr,
     flexcomm4_rst_set,
     flexcomm4_rst_clr,
     flexcomm4_rst
@@ -262,6 +277,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM5,
     Flexcomm5,
+    fc5_clk_set,
+    fc5_clk_clr,
     flexcomm5_rst_set,
     flexcomm5_rst_clr,
     flexcomm5_rst
@@ -270,6 +287,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM6,
     Flexcomm6,
+    fc6_clk_set,
+    fc6_clk_clr,
     flexcomm6_rst_set,
     flexcomm6_rst_clr,
     flexcomm6_rst
@@ -278,6 +297,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM7,
     Flexcomm7,
+    fc7_clk_set,
+    fc7_clk_clr,
     flexcomm7_rst_set,
     flexcomm7_rst_clr,
     flexcomm7_rst
@@ -287,6 +308,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM14,
     Flexcomm14,
+    fc14_spi_clk_set,
+    fc14_spi_clk_clr,
     flexcomm14_spi_rst_set,
     flexcomm14_spi_rst_clr,
     flexcomm14_spi_rst
@@ -296,6 +319,8 @@ impl_instance!(
 impl_instance!(
     FLEXCOMM15,
     Flexcomm15,
+    fc15_i2c_clk_set,
+    fc15_i2c_clk_clr,
     flexcomm15_i2c_rst_set,
     flexcomm15_i2c_rst_clr,
     flexcomm15_i2c_rst
