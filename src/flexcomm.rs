@@ -214,7 +214,7 @@ macro_rules! impl_instance {
                 // clear reset
                 rstctl1
                     .prstctl0_clr()
-                    .write(|w| w.flexcommn_rst_clr().clr_reset());
+                    .write(|w| w.$flexcommn_rst_clr().clr_reset());
                 while rstctl1.prstctl0().read().$flexcommn_rst().bit_is_set() {}
             }
         }
