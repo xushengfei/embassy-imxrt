@@ -3,25 +3,25 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::gpio::{self, *};
+use embassy_imxrt::gpio;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    info!("started running");
     let p = embassy_imxrt::init(Default::default());
 
-    info!("initializing GPIO");
-    Port::init(Port::Port0); // to enable GPIO port 0
+    info!("Initializing GPIO");
+    gpio::init();
 
-    // default pin configuration
-    let mut pin_config: gpio::Config = Config::new();
-    // setting the initial output level as Normal
-    pin_config.drive_strength = DriveStrength::Normal;
-
-    let mut led = gpio::Output::new(p.PIO0_26, pin_config);
+    let mut led = gpio::Output::new(
+        p.PIO0_26,
+        gpio::Level::Low,
+        gpio::DriveMode::PushPull,
+        gpio::DriveStrength::Normal,
+        gpio::SlewRate::Standard,
+    );
 
     loop {
-        info!("Toggling GPIO");
+        info!("Toggling LED");
         led.toggle();
         embassy_imxrt_examples::delay(50_000);
     }
