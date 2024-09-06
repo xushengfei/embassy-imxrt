@@ -75,7 +75,7 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
     /// Need config information: Function, Lock, and source clock to use
     pub fn enable(&self) {
         // Enable the Flexcomm channel
-        self.select_clock();
+        T::select_clock();
         T::enable_clock();
         T::reset_peripheral();
         self.set_function_and_lock();
@@ -86,16 +86,6 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
         // Disable the Flexcomm channel
         T::disable_clock();
         self.deselect_clock();
-    }
-
-    /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn select_clock(&self) {
-        todo!();
-    }
-
-    /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn deselect_clock(&self) {
-        todo!();
     }
 
     /// Determine clock freq of actual source clock
@@ -165,6 +155,12 @@ trait SealedFlexcommInstance {
     // reset the fc channel
     fn reset_peripheral();
 
+    /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+    fn select_clock(&self) {}
+
+    /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+    fn deselect_clock(&self) {}
+
     /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
     fn enable_clock();
 
@@ -185,6 +181,16 @@ macro_rules! impl_instance {
                 // This grabs the pointer to the specific flexcomm peripheral
                 // SAFETY: safe if executed from single executor context or during initialization only
                 unsafe { &*crate::pac::$fc_reg_block::ptr() }
+            }
+
+            /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+            fn select_clock(&self) {
+                todo!();
+            }
+
+            /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
+            fn deselect_clock(&self) {
+                todo!();
             }
 
             fn enable_clock() {
