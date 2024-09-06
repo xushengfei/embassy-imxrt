@@ -161,11 +161,17 @@ impl UartRxTx {
         }
 
         // Check if rxFifo is not enabled
-        if self.reg().fifocfg().read().enablerx().bit_is_clear() {
+        if self.reg().fifocfg().read().enablerx().is_disabled() {
             return GenericStatus::Fail;
         } else {
             // rxfifo is enabled
             for i in 0..len {
+                // Add to check to see of txfifo is empty (it should not be)
+                if self.reg().fifostat().read().txempty().bit_is_set() {
+                    info!("Error: TX FIFO is empty");
+                } else {
+                    info!("Info: TX FIFO is not empty");
+                }
                 // loop until rxFifo has some data to read
                 while self.reg().fifostat().read().rxnotempty().bit_is_clear() {}
 
@@ -222,7 +228,7 @@ impl UartRxTx {
     /// The actual data expected to be sent should be sent as "len"
     pub fn write_blocking(&self, buf: &mut [u8], len: u32) -> GenericStatus {
         // Check whether txFIFO is enabled
-        if self.reg().fifocfg().read().enabletx().bit_is_clear() {
+        if self.reg().fifocfg().read().enabletx().is_disabled() {
             return GenericStatus::Fail;
         } else {
             for i in 0..len {
@@ -297,9 +303,14 @@ impl UartRxTx {
         // Todo : Add condition to check if (enableRx){}
         // The setting below needs to be encapsulated in a condition if (enableRx)
         // setting the rx fifo
-        self.reg().fifocfg().write(|w| w.emptyrx().set_bit());
         self.reg().fifocfg().write(|w| w.enablerx().enabled());
+        self.reg().fifocfg().write(|w| w.emptyrx().set_bit());
 
+        if self.reg().fifocfg().read().enablerx().bit_is_clear() {
+            info!("Error: RX FIFO is not enabled");
+        } else {
+            info!("Info: RX FIFO is enabled");
+        }
         // Todo: Add code for setting Fifo trigger register. Refer to USART_Init() in fsl_uart.c
         //  setup trigger level
         //base->FIFOTRIG &= ~(USART_FIFOTRIG_RXLVL_MASK);
@@ -314,8 +325,17 @@ impl UartRxTx {
         // setting the Tx fifo
 
         // empty and enable txFIFO
-        self.reg().fifocfg().write(|w| w.emptytx().set_bit());
         self.reg().fifocfg().write(|w| w.enabletx().enabled());
+        self.reg().fifocfg().write(|w| w.emptytx().set_bit());
+        /*self.reg()
+                    .fifocfg()
+                    .modify(|_, w| w.emptytx().set_bit().emptytx().set_bit());
+        */
+        if self.reg().fifocfg().read().enabletx().bit_is_clear() {
+            info!("Error: TX FIFO is not enabled");
+        } else {
+            info!("Info: TX FIFO is enabled");
+        }
 
         //TODO for later
         /*

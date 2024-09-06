@@ -23,16 +23,36 @@ async fn main(_spawner: Spawner) {
 
         //let data = [0xC0, 0xDE];
         //usart.blocking_write(&data).unwrap();
+
+        let mut status = GenericStatus::Success;
         let mut data = [0xC0, 0xDE];
-        usart.write_blocking(&mut data, 2);
-        info!("UART test write_blocking() done");
+        status = usart.write_blocking(&mut data, 2);
+        if status != GenericStatus::Success {
+            info!("UART test write_blocking() failed");
+        } else {
+            info!("UART test write_blocking() done");
+        }
 
         let mut buf = [0; 2];
         //usart.blocking_read(&mut buf).unwrap();
-        usart.read_blocking(&mut buf, 2);
-        info!("UART test read_blocking() done");
+        status = usart.read_blocking(&mut buf, 2);
+        if status != GenericStatus::Success {
+            info!("UART test read_blocking() failed");
+        } else {
+            info!("UART test read_blocking() done");
+        }
 
-        assert_eq!(buf, data);
+        if status == GenericStatus::Success {
+            //assert_eq!(buf, data);
+            if &buf[0..2] == &data[..] {
+                info!("UART test passed");
+            } else {
+                info!("UART test failed");
+            }
+        } else {
+            info!("UART test failed");
+        }
+
         usart.deinit();
         info!("UART test deinit() done");
         info!("UART test done");

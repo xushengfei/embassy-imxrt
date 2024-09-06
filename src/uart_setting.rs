@@ -38,7 +38,10 @@ impl Flexcomm {
         self.clock_attach();
         self.clock_enable();
         self.reset_peripheral();
-        self.flexcomm_set_peripheral();
+        let mut status = self.flexcomm_set_peripheral();
+        if status != GenericStatus::Success {
+            info!("Error: Flexcomm peripheral not supported");
+        }
     }
 
     pub fn flexcomm_getClkFreq(&self) -> u32 {
