@@ -54,7 +54,7 @@ impl Flexcomm {
     fn clock_get_audio_pll_clk_freq(&self) -> u32 {
         // return CLOCK_GetAudioPfdFreq(kCLOCK_Pfd0) / ((CLKCTL1->AUDIOPLLCLKDIV & CLKCTL1_AUDIOPLLCLKDIV_DIV_MASK) + 1U);
         // TODO: check and hardcode.
-        return 0x2dc6c00;
+        return 20000000; //0x2dc6c00;
     }
 
     /// Exposing a method to access reg internally with the assumption that only the flexcomm0 is being used
@@ -86,20 +86,26 @@ impl Flexcomm {
         // kAUDIO_PLL_to_FLEXCOMM0  = CLKCTL1_TUPLE_MUXA(FC0FCLKSEL_OFFSET, 2), => [( 0x80000000U | (0x508 | 0x2000))= 0x80002508 ]
         // So pClkSet will be 0x4002 1508 => FC0FCLKSEL (full CLKCTL1_FC0FCLKSEL)
 
+        /*self.clk1_reg()
+        .flexcomm(0)
+        .fcfclksel()
+        .write(|w| w.sel().audio_pll_clk());*/
         self.clk1_reg()
             .flexcomm(0)
             .fcfclksel()
-            .write(|w| w.sel().audio_pll_clk());
+            .modify(|_, w| w.sel().audio_pll_clk());
     }
 
     fn clock_enable(&self) {
         // Enable the peripheral clock
         // kCLOCK_Flexcomm0    = CLK_GATE_DEFINE(CLK_CTL1_PSCCTL0, 8)
+        //Note: modify doesnt exist for pscctl0_set() because its a write only register
         self.clk1_reg().pscctl0_set().write(|w| w.fc0_clk_set().set_bit());
     }
 
     fn reset_peripheral(&self) {
         // Reset the FLEXCOMM module
+        //Note: modify doesnt exist for prstctl0() because its a write only register
         self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().set_bit());
         self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().clear_bit());
     }
@@ -116,10 +122,12 @@ impl Flexcomm {
             return GenericStatus::Fail;
         }
 
-        self.reg().pselid().write(|w| w.persel().usart());
+        //self.reg().pselid().write(|w| w.persel().usart());
+        self.reg().pselid().modify(|_, w| w.persel().usart());
         if self.lock == FlexcommLock::Locked {
             // Lock the Flexcomm to the peripheral type
-            self.reg().pselid().write(|w| w.lock().set_bit());
+            //self.reg().pselid().write(|w| w.lock().set_bit());
+            self.reg().pselid().modify(|_, w| w.lock().set_bit());
         }
 
         return GenericStatus::Success;
