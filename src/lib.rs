@@ -12,6 +12,7 @@ pub(crate) mod fmt;
 pub mod adc;
 pub mod clocks;
 pub mod gpio;
+pub mod i2c;
 pub mod iopctl;
 pub mod pwm;
 #[cfg(feature = "time-driver")]
