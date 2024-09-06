@@ -68,14 +68,12 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
         fc
     }
 
-    // TODO: Use new wip clock traits for all methods
-    // TBD: Does flexcomm own the associated external config and control bits in SYSCON and RST_CTL ?
-    //      If flexcomm does own the external config and control bits, then peripheral drivers
-    //      must tell flexcomm which source clock to select (add it to Config struct).
+    // flexcomm owns the associated external config and control bits in SYSCON and RST_CTL.
+    // TODO: peripheral drivers must tell flexcomm which source clock to select (add it to Config struct).
 
     /// enable channel and connect source clock
     /// Need config information: Function, Lock, and source clock to use
-    fn enable(&self) {
+    pub fn enable(&self) {
         // Enable the Flexcomm channel
         self.select_clock();
         T::enable_clock();
@@ -84,7 +82,7 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
     }
 
     /// disable channel and disconnect associated source clock
-    fn disable(&self) {
+    pub fn disable(&self) {
         // Disable the Flexcomm channel
         T::disable_clock();
         self.deselect_clock();
