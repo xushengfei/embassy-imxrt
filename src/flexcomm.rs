@@ -12,6 +12,7 @@ use crate::pac::flexcomm0;
 use mimxrt685s_pac as pac;
 
 // Re-export SVD variants to allow user to directly set values.
+pub use pac::clkctl1::flexcomm::fcfclksel::Sel as Clksel;
 pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
 pub use pac::flexcomm0::pselid::Persel as Function;
 
@@ -31,7 +32,7 @@ pub enum ConfigError {
 pub struct Config {
     pub function: Function, // serial comm peripheral type
     pub lock: FlexcommLock, // lock the FC, or not
-                            // TBD: Specify preferred source clock? ex: low speed / high speed / pll / external
+    pub clksel: Clksel,     // required clock source
 }
 
 // a safe default for peripheral drivers to pre-init their configs
@@ -40,6 +41,7 @@ impl Default for Config {
         Config {
             function: Function::NoPeriphSelected,
             lock: FlexcommLock::Unlocked,
+            clksel: Clksel::None,
         }
     }
 }
@@ -75,7 +77,7 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
     /// Need config information: Function, Lock, and source clock to use
     pub fn enable(&self) {
         // Enable the Flexcomm channel
-        T::select_clock();
+        T::select_clock(self.config.clksel);
         T::enable_clock();
         T::reset_peripheral();
         self.set_function_and_lock();
@@ -85,7 +87,7 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
     pub fn disable(&self) {
         // Disable the Flexcomm channel
         T::disable_clock();
-        self.deselect_clock();
+        T::deselect_clock();
     }
 
     /// Determine clock freq of actual source clock
@@ -136,7 +138,7 @@ impl<'d, T: FlexcommInstance> Flexcomm<'d, T> {
                 }
             }
         }
-        // TBD: Do we need to support the lock feature?
+
         if self.config.lock == FlexcommLock::Locked {
             T::fc_reg().pselid().modify(|_, w| w.lock().locked());
         } else {
@@ -156,10 +158,12 @@ trait SealedFlexcommInstance {
     fn reset_peripheral();
 
     /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn select_clock(&self) {}
+    //fn select_clock(&self) {}
+    fn select_clock(clksel: Clksel) {}
 
     /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-    fn deselect_clock(&self) {}
+    //fn deselect_clock(&self) {}
+    fn deselect_clock() {}
 
     /// Enable the source clock (SYSCON CLKCTL1_PSCCTL0)
     fn enable_clock();
@@ -174,7 +178,7 @@ pub trait FlexcommInstance: SealedFlexcommInstance {}
 // macro to replicate FlexcommInstance traits for all fc channel register sets
 
 macro_rules! impl_instance {
-    ($fc_periph:ident, $fc_reg_block:ident, $fcn_clk_set:ident, $fcn_clk_clr:ident, $flexcommn_rst_set:ident, $flexcommn_rst_clr:ident, $flexcommn_rst:ident) => {
+    ($fc_periph:ident, $fc_reg_block:ident, $fcn_clk_set:ident, $fcn_clk_clr:ident, $fcn_rst_set:ident, $fcn_rst_clr:ident, $fcn_rst:ident, $fcn_sel:literal) => {
         // Implement the actual private trait
         impl SealedFlexcommInstance for crate::peripherals::$fc_periph {
             fn fc_reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
@@ -184,24 +188,120 @@ macro_rules! impl_instance {
             }
 
             /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-            fn select_clock(&self) {
-                todo!();
+            fn select_clock(clksel: Clksel) {
+                let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
+                let mut fcfclksel = clkctl1.flexcomm(0).fcfclksel(); //default
+
+                // fc 0 - 7 addressed with flexcomm(n).fcfclksel()
+                // fc 14 addressed with .fc14fclksel()
+                // fc 15 addressed with .fc15fclksel()
+
+                match $fcn_sel {
+                    0 => {
+                        fcfclksel = clkctl1.flexcomm(0).fcfclksel();
+                    }
+                    1 => {
+                        fcfclksel = clkctl1.flexcomm(1).fcfclksel();
+                    }
+                    2 => {
+                        fcfclksel = clkctl1.flexcomm(2).fcfclksel();
+                    }
+                    3 => {
+                        fcfclksel = clkctl1.flexcomm(3).fcfclksel();
+                    }
+                    4 => {
+                        fcfclksel = clkctl1.flexcomm(4).fcfclksel();
+                    }
+                    5 => {
+                        fcfclksel = clkctl1.flexcomm(5).fcfclksel();
+                    }
+                    6 => {
+                        fcfclksel = clkctl1.flexcomm(6).fcfclksel();
+                    }
+                    7 => {
+                        fcfclksel = clkctl1.flexcomm(7).fcfclksel();
+                    }
+                    14 => {
+                        // TODO: Fix this, ptr is a diff data type
+                        fcfclksel = clkctl1.fc14fclksel();
+                    }
+                    15 => {
+                        // TODO: Fix this, ptr is a diff data type
+                        fcfclksel = clkctl1.fc15fclksel();
+                    }
+                    _ => {
+                        panic!();
+                    }
+                }
+
+                match clksel {
+                    Clksel::SfroClk => fcfclksel.write(|w| w.sel().sfro_clk()),
+                    Clksel::FfroClk => fcfclksel.write(|w| w.sel().ffro_clk()),
+                    Clksel::AudioPllClk => fcfclksel.write(|w| w.sel().audio_pll_clk()),
+                    Clksel::MasterClk => fcfclksel.write(|w| w.sel().master_clk()),
+                    Clksel::MasterClk => fcfclksel.write(|w| w.sel().none()),
+                    //Clksel::FcnFrgClk => fcfclksel.write(|w| w.sel().fcn_frg_clk()),
+                    _ => {
+                        panic!();
+                    }
+                }
             }
 
             /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-            fn deselect_clock(&self) {
-                todo!();
+            fn deselect_clock() {
+                let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
+                let mut fcfclksel = clkctl1.flexcomm(0).fcfclksel(); //default
+
+                match $fcn_sel {
+                    0 => {
+                        fcfclksel = clkctl1.flexcomm(0).fcfclksel();
+                    }
+                    1 => {
+                        fcfclksel = clkctl1.flexcomm(1).fcfclksel();
+                    }
+                    2 => {
+                        fcfclksel = clkctl1.flexcomm(2).fcfclksel();
+                    }
+                    3 => {
+                        fcfclksel = clkctl1.flexcomm(3).fcfclksel();
+                    }
+                    4 => {
+                        fcfclksel = clkctl1.flexcomm(4).fcfclksel();
+                    }
+                    5 => {
+                        fcfclksel = clkctl1.flexcomm(5).fcfclksel();
+                    }
+                    6 => {
+                        fcfclksel = clkctl1.flexcomm(6).fcfclksel();
+                    }
+                    7 => {
+                        fcfclksel = clkctl1.flexcomm(7).fcfclksel();
+                    }
+                    14 => {
+                        // TODO: Fix this, ptr is a diff data type
+                        fcfclksel = clkctl1.fc14fclksel();
+                    }
+                    15 => {
+                        // TODO: Fix this, ptr is a diff data type
+                        fcfclksel = clkctl1.fc15fclksel();
+                    }
+                    _ => {
+                        panic!();
+                    }
+                }
+
+                fcfclksel.write(|w| w.sel().none());
             }
 
             fn enable_clock() {
                 // SAFETY: safe if executed from single executor context or during initialization only. Write to "Set" register affects only the specific bit being touched
-                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+                let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
                 clkctl1.pscctl0_set().write(|w| w.$fcn_clk_set().set_bit());
             }
 
             fn disable_clock() {
                 // SAFETY: safe if executed from single executor context or during initialization only. Write to "Clr" register affects only the specific bit being touched
-                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+                let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
                 clkctl1.pscctl0_clr().write(|w| w.$fcn_clk_clr().set_bit());
             }
 
@@ -210,16 +310,12 @@ macro_rules! impl_instance {
                 let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
 
                 // set reset
-                rstctl1
-                    .prstctl0_set()
-                    .write(|w| w.$flexcommn_rst_set().set_reset());
-                while rstctl1.prstctl0().read().$flexcommn_rst().bit_is_clear() {}
+                rstctl1.prstctl0_set().write(|w| w.$fcn_rst_set().set_reset());
+                while rstctl1.prstctl0().read().$fcn_rst().bit_is_clear() {}
 
                 // clear reset
-                rstctl1
-                    .prstctl0_clr()
-                    .write(|w| w.$flexcommn_rst_clr().clr_reset());
-                while rstctl1.prstctl0().read().$flexcommn_rst().bit_is_set() {}
+                rstctl1.prstctl0_clr().write(|w| w.$fcn_rst_clr().clr_reset());
+                while rstctl1.prstctl0().read().$fcn_rst().bit_is_set() {}
             }
         }
 
@@ -235,7 +331,8 @@ impl_instance!(
     fc0_clk_clr,
     flexcomm0_rst_set,
     flexcomm0_rst_clr,
-    flexcomm0_rst
+    flexcomm0_rst,
+    0
 );
 
 impl_instance!(
@@ -245,7 +342,8 @@ impl_instance!(
     fc1_clk_clr,
     flexcomm1_rst_set,
     flexcomm1_rst_clr,
-    flexcomm1_rst
+    flexcomm1_rst,
+    1
 );
 
 impl_instance!(
@@ -255,7 +353,8 @@ impl_instance!(
     fc2_clk_clr,
     flexcomm2_rst_set,
     flexcomm2_rst_clr,
-    flexcomm2_rst
+    flexcomm2_rst,
+    2
 );
 
 impl_instance!(
@@ -265,7 +364,8 @@ impl_instance!(
     fc3_clk_clr,
     flexcomm3_rst_set,
     flexcomm3_rst_clr,
-    flexcomm3_rst
+    flexcomm3_rst,
+    3
 );
 
 impl_instance!(
@@ -275,7 +375,8 @@ impl_instance!(
     fc4_clk_clr,
     flexcomm4_rst_set,
     flexcomm4_rst_clr,
-    flexcomm4_rst
+    flexcomm4_rst,
+    4
 );
 
 impl_instance!(
@@ -285,7 +386,8 @@ impl_instance!(
     fc5_clk_clr,
     flexcomm5_rst_set,
     flexcomm5_rst_clr,
-    flexcomm5_rst
+    flexcomm5_rst,
+    5
 );
 
 impl_instance!(
@@ -295,7 +397,8 @@ impl_instance!(
     fc6_clk_clr,
     flexcomm6_rst_set,
     flexcomm6_rst_clr,
-    flexcomm6_rst
+    flexcomm6_rst,
+    6
 );
 
 impl_instance!(
@@ -305,7 +408,8 @@ impl_instance!(
     fc7_clk_clr,
     flexcomm7_rst_set,
     flexcomm7_rst_clr,
-    flexcomm7_rst
+    flexcomm7_rst,
+    7
 );
 
 // 14 is SPI only
@@ -316,7 +420,8 @@ impl_instance!(
     fc14_spi_clk_clr,
     flexcomm14_spi_rst_set,
     flexcomm14_spi_rst_clr,
-    flexcomm14_spi_rst
+    flexcomm14_spi_rst,
+    14
 );
 
 // 15 is I2C only
@@ -327,5 +432,6 @@ impl_instance!(
     fc15_i2c_clk_clr,
     flexcomm15_i2c_rst_set,
     flexcomm15_i2c_rst_clr,
-    flexcomm15_i2c_rst
+    flexcomm15_i2c_rst,
+    15
 );
