@@ -3,15 +3,15 @@
 
 #![macro_use]
 
-use crate::pac::flexcomm0;
+use crate::pac::flexcomm1;
 use crate::pac::Clkctl0;
 use crate::pac::Clkctl1;
 use crate::uart::GenericStatus;
 use mimxrt685s_pac as pac;
 
 // Re-export SVD variants to allow user to directly set values.
-pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
-pub use pac::flexcomm0::pselid::Persel as Function;
+pub use pac::flexcomm1::pselid::Lock as FlexcommLock;
+pub use pac::flexcomm1::pselid::Persel as Function;
 
 pub enum FlexcommFunc {
     // Only define the first one for now.
@@ -54,12 +54,12 @@ impl Flexcomm {
     fn clock_get_audio_pll_clk_freq(&self) -> u32 {
         // return CLOCK_GetAudioPfdFreq(kCLOCK_Pfd0) / ((CLKCTL1->AUDIOPLLCLKDIV & CLKCTL1_AUDIOPLLCLKDIV_DIV_MASK) + 1U);
         // TODO: check and hardcode.
-        return 20000000; //0x2dc6c00;
+        return 0x2dc6c00; //0x2dc6c00; //20000000
     }
 
     /// Exposing a method to access reg internally with the assumption that only the flexcomm0 is being used
-    fn reg(&self) -> &'static pac::flexcomm0::RegisterBlock {
-        unsafe { &*(pac::Flexcomm0::ptr() as *const pac::flexcomm0::RegisterBlock) }
+    fn reg(&self) -> &'static pac::flexcomm1::RegisterBlock {
+        unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm1::RegisterBlock) }
     }
 
     /// Exposing a method to access reg internally with the assumption that only the clkctl1 is being used
@@ -91,23 +91,26 @@ impl Flexcomm {
         .fcfclksel()
         .write(|w| w.sel().audio_pll_clk());*/
         self.clk1_reg()
-            .flexcomm(0)
+            .flexcomm(1) //.flexcomm(0)
             .fcfclksel()
-            .modify(|_, w| w.sel().audio_pll_clk());
+            .modify(|_, w| w.sel().ffro_clk()); //.modify(|_, w| w.sel().audio_pll_clk());
     }
 
     fn clock_enable(&self) {
         // Enable the peripheral clock
         // kCLOCK_Flexcomm0    = CLK_GATE_DEFINE(CLK_CTL1_PSCCTL0, 8)
         //Note: modify doesnt exist for pscctl0_set() because its a write only register
-        self.clk1_reg().pscctl0_set().write(|w| w.fc0_clk_set().set_bit());
+        //self.clk1_reg().pscctl0_set().write(|w| w.fc0_clk_set().set_bit());
+        self.clk1_reg().pscctl0_set().write(|w| w.fc1_clk_set().set_bit());
     }
 
     fn reset_peripheral(&self) {
         // Reset the FLEXCOMM module
         //Note: modify doesnt exist for prstctl0() because its a write only register
-        self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().set_bit());
-        self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().clear_bit());
+        //self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().set_bit());
+        //self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().clear_bit());
+        self.rstctl1_reg().prstctl0().write(|w| w.flexcomm1_rst().set_bit());
+        self.rstctl1_reg().prstctl0().write(|w| w.flexcomm1_rst().clear_bit());
     }
 
     fn flexcomm_set_peripheral(&self) -> GenericStatus {

@@ -6,30 +6,30 @@
 use core::marker::PhantomData;
 
 use crate::iopctl::*;
-use crate::pac::usart0;
+use crate::pac::usart1;
 use crate::peripherals;
 use crate::uart_setting::Flexcomm;
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use mimxrt685s_pac as pac;
-use pac::usart0::RegisterBlock;
+use pac::usart1::RegisterBlock;
 
 // Re-export SVD variants to allow user to directly set values.
-pub use pac::usart0::cfg::Datalen;
-pub use pac::usart0::cfg::Paritysel as Parity;
-pub use pac::usart0::cfg::Stoplen;
+pub use pac::usart1::cfg::Datalen;
+pub use pac::usart1::cfg::Paritysel as Parity;
+pub use pac::usart1::cfg::Stoplen;
 pub use u32 as Baudrate;
 
-pub use pac::usart0::cfg::Clkpol;
-pub use pac::usart0::cfg::Loop;
+pub use pac::usart1::cfg::Clkpol;
+pub use pac::usart1::cfg::Loop;
 /// Syncen : Sync/ Async mode selection
-pub use pac::usart0::cfg::Syncen;
+pub use pac::usart1::cfg::Syncen;
 /// Syncmst : Sync master/slave mode selection (only applicable in sync mode)
-pub use pac::usart0::cfg::Syncmst;
-pub use pac::usart0::ctl::Cc;
+pub use pac::usart1::cfg::Syncmst;
+pub use pac::usart1::ctl::Cc;
 
 /// Todo: Will be used when the uart is fully implemented - both tx and rx. Right now only Rx is implemented
-pub use pac::usart0::fifocfg::Enablerx;
-pub use pac::usart0::fifocfg::Enabletx;
+pub use pac::usart1::fifocfg::Enablerx;
+pub use pac::usart1::fifocfg::Enabletx;
 
 ///Assumptions
 /// - This is a basic test code to verify a very basic functionality of the UART.- reading/ writing a single buffer of data
@@ -98,12 +98,12 @@ impl UartRxTx {
             data_bits: Datalen::Bit8,
             parity: Parity::NoParity,
             stop_bits: Stoplen::Bit1,
-            flexcomm_freq: 20000000, //0x2dc6c00,
+            flexcomm_freq: 0x2dc6c00, //0x2dc6c00, //20000000
         }
     }
     /// Exposing a method to access reg internally with the assumption that only the uart0 is being used
-    fn reg(&self) -> &'static pac::usart0::RegisterBlock {
-        unsafe { &*(pac::Usart0::ptr() as *const pac::usart0::RegisterBlock) }
+    fn reg(&self) -> &'static pac::usart1::RegisterBlock {
+        unsafe { &*(pac::Usart1::ptr() as *const pac::usart1::RegisterBlock) }
     }
 
     /// Initializes a USART instance with user configuration structure and peripheral clock.
@@ -114,7 +114,7 @@ impl UartRxTx {
             operation: Syncen::AsynchronousMode,
             sync_mode_master_select: Syncmst::Slave,
             continuous_clock: Cc::ClockOnCharacter,
-            loopback_mode: Loop::Loopback,
+            loopback_mode: Loop::Normal,
         };
 
         Flexcomm::new().init();
@@ -258,7 +258,7 @@ impl UartRxTx {
                 self.reg().fifowr().write(|w| unsafe { w.txdata().bits(x as u16) });
             }
             // Wait to finish transfer
-            //while self.reg().stat().read().txidle().bit_is_clear() {}
+            while self.reg().stat().read().txidle().bit_is_clear() {}
         }
         return GenericStatus::Success;
     }
@@ -356,6 +356,11 @@ impl UartRxTx {
         //base->FIFOTRIG |= USART_FIFOTRIG_RXLVL(config->rxWatermark);
         /* enable trigger interrupt */
         //base->FIFOTRIG |= USART_FIFOTRIG_RXLVLENA_MASK;
+        unsafe {
+            self.reg()
+                .fifotrig()
+                .modify(|_, w| w.rxlvl().bits(0).rxlvlena().set_bit());
+        }
     }
 
     fn set_uart_tx_fifo(&self) {
@@ -385,6 +390,11 @@ impl UartRxTx {
         // enable trigger interrupt
         base->FIFOTRIG |= USART_FIFOTRIG_TXLVLENA_MASK;
          */
+        unsafe {
+            self.reg()
+                .fifotrig()
+                .modify(|_, w| w.txlvl().bits(1).txlvlena().set_bit());
+        }
     }
 
     fn set_uart_baudrate(&self) -> GenericStatus {
@@ -465,21 +475,23 @@ impl UartRxTx {
     /// This function configures the uart pins for testing purpose.
     /// Note: this is not the correct way of calling the ioctl. This is just for testing purpose.
     fn configure_pins(&self) {
-        let pin = unsafe { crate::peripherals::PIO3_1::steal() }; // Host uart tx
-        pin.set_function(Function::F5);
+        let pin = unsafe { crate::peripherals::PIO0_8::steal() }; // Host uart tx
+        pin.set_function(Function::F1);
         pin.set_drive_mode(DriveMode::PushPull);
         pin.set_pull(Pull::None);
         pin.set_slew_rate(SlewRate::Slow);
         pin.set_drive_strength(DriveStrength::Normal);
         pin.disable_analog_multiplex();
+        pin.enable_input_buffer();
 
-        let pin = unsafe { crate::peripherals::PIO3_2::steal() }; // Host uart rx
-        pin.set_function(Function::F5);
+        let pin = unsafe { crate::peripherals::PIO0_9::steal() }; // Host uart rx
+        pin.set_function(Function::F1);
         pin.set_drive_mode(DriveMode::PushPull);
         pin.set_pull(Pull::None);
         pin.set_slew_rate(SlewRate::Slow);
         pin.set_drive_strength(DriveStrength::Normal);
         pin.disable_analog_multiplex();
+        pin.enable_input_buffer();
 
         /*
         let pin = unsafe { crate::peripherals::PIO3_3::steal() }; // Host uart cts
