@@ -3,6 +3,7 @@
 
 use crate::pac::flexcomm0;
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::flexcomm::Config as FcConfig;
 use embassy_imxrt::flexcomm::Flexcomm;
@@ -25,6 +26,7 @@ async fn main(_spawner: Spawner) {
 
     let fc0 = Flexcomm::new(p.FLEXCOMM0, fc0_config);
     fc0.enable();
+    info!("fc0 enabled");
 
     let mut fc1_config = FcConfig::default();
     fc1_config.function = FcFunction::Spi;
@@ -33,6 +35,7 @@ async fn main(_spawner: Spawner) {
 
     let fc1 = Flexcomm::new(p.FLEXCOMM1, fc1_config);
     fc1.enable();
+    info!("fc1 enabled");
 
     let mut fc2_config = FcConfig::default();
     fc2_config.function = FcFunction::I2c;
@@ -41,6 +44,7 @@ async fn main(_spawner: Spawner) {
 
     let fc2 = Flexcomm::new(p.FLEXCOMM2, fc2_config);
     fc2.enable();
+    info!("fc2 enabled");
 
     let mut fc14_config = FcConfig::default();
     fc14_config.function = FcFunction::Spi;
@@ -49,6 +53,7 @@ async fn main(_spawner: Spawner) {
 
     let fc14 = Flexcomm::new(p.FLEXCOMM14, fc14_config);
     fc14.enable();
+    info!("fc14 enabled");
 
     let mut fc15_config = FcConfig::default();
     fc15_config.function = FcFunction::I2c;
@@ -57,11 +62,17 @@ async fn main(_spawner: Spawner) {
 
     let fc15 = Flexcomm::new(p.FLEXCOMM15, fc15_config);
     fc15.enable();
+    info!("fc15 enabled");
 
     fc0.disable();
+    info!("fc0 disabled");
     fc1.disable();
+    info!("fc1 disabled");
     fc2.disable();
+    info!("fc2 disabled");
 
     fc14.disable();
+    info!("fc14 disabled");
     fc15.disable();
+    info!("fc15 disabled");
 }

@@ -12,7 +12,7 @@ use crate::pac::flexcomm0;
 use mimxrt685s_pac as pac;
 
 // Re-export SVD variants to allow user to directly set values.
-pub use pac::clkctl1::flexcomm::fcfclksel::Sel as Clksel;
+pub use pac::clkctl1::flexcomm::fcfclksel::Sel as FcClksel;
 pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
 pub use pac::flexcomm0::pselid::Persel as Function;
 
@@ -32,7 +32,7 @@ pub enum ConfigError {
 pub struct Config {
     pub function: Function, // serial comm peripheral type
     pub lock: FlexcommLock, // lock the FC, or not
-    pub clksel: Clksel,     // required clock source
+    pub clksel: FcClksel,   // required clock source
 }
 
 // a safe default for peripheral drivers to pre-init their configs
@@ -41,7 +41,7 @@ impl Default for Config {
         Config {
             function: Function::NoPeriphSelected,
             lock: FlexcommLock::Unlocked,
-            clksel: Clksel::None,
+            clksel: FcClksel::None,
         }
     }
 }
@@ -159,7 +159,7 @@ trait SealedFlexcommInstance {
 
     /// select associated source clock (SYSCON CLKCTL1_FCnFCLKSEL)
     //fn select_clock(&self) {}
-    fn select_clock(clksel: Clksel) {}
+    fn select_clock(clksel: FcClksel) {}
 
     /// deselect associated source clock (SYSCON CLKCTL1_FCnFCLKSEL)
     //fn deselect_clock(&self) {}
@@ -188,80 +188,57 @@ macro_rules! impl_instance {
             }
 
             /// select associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
-            fn select_clock(clksel: Clksel) {
-                let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
-
+            fn select_clock(clksel: FcClksel) {
                 // fc 0 - 7 addressed with flexcomm(n).fcfclksel()
                 // fc 14 addressed with .fc14fclksel()
                 // fc 15 addressed with .fc15fclksel()
 
+                // SAFETY: safe from single executor
+                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+
                 if ($fcn_sel >= 0) && ($fcn_sel <= 7) {
-                    let mut fcfclksel = clkctl1.flexcomm(0).fcfclksel(); //default
-                    match $fcn_sel {
-                        0 => {
-                            fcfclksel = clkctl1.flexcomm(0).fcfclksel();
-                        }
-                        1 => {
-                            fcfclksel = clkctl1.flexcomm(1).fcfclksel();
-                        }
-                        2 => {
-                            fcfclksel = clkctl1.flexcomm(2).fcfclksel();
-                        }
-                        3 => {
-                            fcfclksel = clkctl1.flexcomm(3).fcfclksel();
-                        }
-                        4 => {
-                            fcfclksel = clkctl1.flexcomm(4).fcfclksel();
-                        }
-                        5 => {
-                            fcfclksel = clkctl1.flexcomm(5).fcfclksel();
-                        }
-                        6 => {
-                            fcfclksel = clkctl1.flexcomm(6).fcfclksel();
-                        }
-                        7 => {
-                            fcfclksel = clkctl1.flexcomm(7).fcfclksel();
-                        }
-                        _ => {
-                            panic!();
-                        }
-                    }
                     match clksel {
-                        Clksel::SfroClk => fcfclksel.write(|w| w.sel().sfro_clk()),
-                        Clksel::FfroClk => fcfclksel.write(|w| w.sel().ffro_clk()),
-                        Clksel::AudioPllClk => fcfclksel.write(|w| w.sel().audio_pll_clk()),
-                        Clksel::MasterClk => fcfclksel.write(|w| w.sel().master_clk()),
-                        Clksel::MasterClk => fcfclksel.write(|w| w.sel().none()),
-                        //Clksel::FcnFrgClk => fcfclksel.write(|w| w.sel().fcn_frg_clk()),
-                        _ => {
-                            panic!();
-                        }
+                        FcClksel::SfroClk => clkctl1
+                            .flexcomm($fcn_sel)
+                            .fcfclksel()
+                            .write(|w| w.sel().sfro_clk()),
+                        FcClksel::FfroClk => clkctl1
+                            .flexcomm($fcn_sel)
+                            .fcfclksel()
+                            .write(|w| w.sel().ffro_clk()),
+                        FcClksel::AudioPllClk => clkctl1
+                            .flexcomm($fcn_sel)
+                            .fcfclksel()
+                            .write(|w| w.sel().audio_pll_clk()),
+                        FcClksel::MasterClk => clkctl1
+                            .flexcomm($fcn_sel)
+                            .fcfclksel()
+                            .write(|w| w.sel().master_clk()),
+                        FcClksel::FcnFrgClk => clkctl1
+                            .flexcomm($fcn_sel)
+                            .fcfclksel()
+                            .write(|w| w.sel().fcn_frg_clk()),
+                        FcClksel::None => clkctl1.flexcomm($fcn_sel).fcfclksel().write(|w| w.sel().none()),
                     }
                 } else if $fcn_sel == 14 {
                     let fc14clksel = clkctl1.fc14fclksel();
                     match clksel {
-                        Clksel::SfroClk => fc14clksel.write(|w| w.sel().sfro_clk()),
-                        Clksel::FfroClk => fc14clksel.write(|w| w.sel().ffro_clk()),
-                        Clksel::AudioPllClk => fc14clksel.write(|w| w.sel().audio_pll_clk()),
-                        Clksel::MasterClk => fc14clksel.write(|w| w.sel().master_clk()),
-                        Clksel::MasterClk => fc14clksel.write(|w| w.sel().none()),
-                        //Clksel::FcnFrgClk => fc14clksel.write(|w| w.sel().fcn_frg_clk()),
-                        _ => {
-                            panic!();
-                        }
+                        FcClksel::SfroClk => fc14clksel.write(|w| w.sel().sfro_clk()),
+                        FcClksel::FfroClk => fc14clksel.write(|w| w.sel().ffro_clk()),
+                        FcClksel::AudioPllClk => fc14clksel.write(|w| w.sel().audio_pll_clk()),
+                        FcClksel::MasterClk => fc14clksel.write(|w| w.sel().master_clk()),
+                        FcClksel::FcnFrgClk => fc14clksel.write(|w| w.sel().fcn_frg_clk()),
+                        FcClksel::None => fc14clksel.write(|w| w.sel().none()),
                     }
                 } else if $fcn_sel == 15 {
                     let fc15clksel = clkctl1.fc15fclksel();
                     match clksel {
-                        Clksel::SfroClk => fc15clksel.write(|w| w.sel().sfro_clk()),
-                        Clksel::FfroClk => fc15clksel.write(|w| w.sel().ffro_clk()),
-                        Clksel::AudioPllClk => fc15clksel.write(|w| w.sel().audio_pll_clk()),
-                        Clksel::MasterClk => fc15clksel.write(|w| w.sel().master_clk()),
-                        Clksel::MasterClk => fc15clksel.write(|w| w.sel().none()),
-                        //Clksel::FcnFrgClk => fc15clksel.write(|w| w.sel().fcn_frg_clk()),
-                        _ => {
-                            panic!();
-                        }
+                        FcClksel::SfroClk => fc15clksel.write(|w| w.sel().sfro_clk()),
+                        FcClksel::FfroClk => fc15clksel.write(|w| w.sel().ffro_clk()),
+                        FcClksel::AudioPllClk => fc15clksel.write(|w| w.sel().audio_pll_clk()),
+                        FcClksel::MasterClk => fc15clksel.write(|w| w.sel().master_clk()),
+                        FcClksel::FcnFrgClk => fc15clksel.write(|w| w.sel().fcn_frg_clk()),
+                        FcClksel::None => fc15clksel.write(|w| w.sel().none()),
                     }
                 } else {
                     panic!();
@@ -270,7 +247,7 @@ macro_rules! impl_instance {
 
             /// deselect associated source clock (SYSCON CLKCTL1_FC1FCLKSEL)
             fn deselect_clock() {
-                let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
+                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
                 let mut fcfclksel = clkctl1.flexcomm(0).fcfclksel(); //default
 
                 // fc 0 - 7 addressed with flexcomm(n).fcfclksel()
