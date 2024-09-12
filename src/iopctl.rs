@@ -81,12 +81,12 @@ pub enum Polarity {
 }
 
 trait SealedPin {}
-trait ToRawPin: SealedPin {
+trait ToAnyPin: SealedPin {
     #[inline]
-    fn to_raw(port: u8, pin: u8) -> RawPin {
+    fn to_raw(port: u8, pin: u8) -> AnyPin {
         // SAFETY: This is safe since this is only called from within the module,
         // where the port and pin numbers have been verified to be correct.
-        unsafe { RawPin::new(port, pin) }
+        unsafe { AnyPin::new(port, pin) }
     }
 }
 
@@ -165,11 +165,12 @@ pub trait IopctlPin: SealedPin {
 }
 
 /// Represents a pin peripheral created at run-time from given port and pin numbers.
-pub(crate) struct RawPin {
+pub struct AnyPin {
+    pin_port: u8,
     reg: &'static PioM_N,
 }
 
-impl RawPin {
+impl AnyPin {
     /// Creates a pin from raw port and pin numbers which can then be configured.
     ///
     /// This should ONLY be called when there is no other choice
@@ -180,14 +181,14 @@ impl RawPin {
     /// # Safety
     ///
     /// The caller MUST ensure valid port and pin numbers are provided,
-    /// and that multiple instances of [RawPin] with the same port
+    /// and that multiple instances of [AnyPin] with the same port
     /// and pin combination are not being used simultaneously.
     ///
     /// Failure to uphold these requirements will result in undefined behavior.
     ///
     /// See Table 297 in reference manual for a list of valid
     /// pin and port number combinations.
-    pub(crate) unsafe fn new(port: u8, pin: u8) -> Self {
+    pub unsafe fn new(port: u8, pin: u8) -> Self {
         // Calculates the offset from the beginning of the IOPCTL register block
         // address to the register address representing the pin.
         //
@@ -196,12 +197,25 @@ impl RawPin {
 
         // SAFETY: This is safe assuming the caller of this function satisfies the safety requirements above.
         let reg = unsafe { &*(Iopctl::ptr().byte_offset(offset as isize) as *const _) };
-        Self { reg }
+        Self {
+            pin_port: port * 32 + pin,
+            reg,
+        }
+    }
+
+    /// Returns the pin's port and pin combination.
+    pub fn pin_port(&self) -> usize {
+        self.pin_port as usize
     }
 }
 
-impl SealedPin for RawPin {}
-impl IopctlPin for RawPin {
+// This allows AnyPin to be used in HAL constructors that require types
+// which impl Peripheral. Used primarily by GPIO HAL to convert type-erased
+// GPIO pins back into an Output or Input pin specifically.
+embassy_hal_internal::impl_peripheral!(AnyPin);
+
+impl SealedPin for AnyPin {}
+impl IopctlPin for AnyPin {
     fn set_function(&self, function: Function) -> &Self {
         match function {
             Function::F0 => self.reg.modify(|_, w| w.fsel().function_0()),
@@ -287,7 +301,7 @@ impl IopctlPin for RawPin {
 macro_rules! impl_pin {
     ($pin_periph:ident, $pin_port:expr, $pin_no:expr) => {
         impl SealedPin for crate::peripherals::$pin_periph {}
-        impl ToRawPin for crate::peripherals::$pin_periph {}
+        impl ToAnyPin for crate::peripherals::$pin_periph {}
         impl IopctlPin for crate::peripherals::$pin_periph {
             #[inline]
             fn set_function(&self, function: Function) -> &Self {
