@@ -1,6 +1,6 @@
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr, u32, u64};
+use core::{mem, ptr};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -58,14 +58,31 @@ struct TimerDriver {
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 }
 
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [AlarmState::new(); ALARM_COUNT]),
 });
 
 impl TimerDriver {
+    /// Access the GPREG0 register to use it as a 31-bit counter.
+    #[inline]
+    fn counter_reg(&self) -> &pac::rtc::Gpreg {
+        rtc().gpreg(0)
+    }
+
+    /// Access the GPREG1 register to use it as a compare register for triggering alarms.
+    #[inline]
+    fn compare_reg(&self) -> &pac::rtc::Gpreg {
+        rtc().gpreg(1)
+    }
+
+    /// Access the GPREG2 register to use it to enable or disable interrupts (int_en).
+    #[inline]
+    fn int_en_reg(&self) -> &pac::rtc::Gpreg {
+        rtc().gpreg(2)
+    }
+
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
         // enable RTC int (1kHz since subsecond doesn't generate an int)
@@ -76,7 +93,7 @@ impl TimerDriver {
         // safety: Writing to the gregs is always considered unsafe, gpreg1 is used
         // as a compare register for triggering an alarm so to avoid unnecessary triggers
         // after initialization, this is set to 0x:FFFF_FFFF
-        r.gpreg(1).write(|w| unsafe { w.gpdata().bits(u32::MAX) });
+        self.compare_reg().write(|w| unsafe { w.gpdata().bits(u32::MAX) });
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
     }
@@ -90,22 +107,22 @@ impl TimerDriver {
         //
         // TODO: this is admittedly not great for power that we're generating this
         // many interrupts, will probably get updated in future iterations.
-        if r.ctrl().read().wake1khz().bit_is_set() == true {
+        if r.ctrl().read().wake1khz().bit_is_set() {
             r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
             // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
             // The following reloads 10 into the count-down timer after it triggers an int.
             // The countdown begins anew after the write so time can continue to be measured.
             r.wake().write(|w| unsafe { w.bits(0xA) });
-            if (r.gpreg(0).read().bits() + 0xA) > 0x8000_0000 {
+            if (self.counter_reg().read().bits() + 0xA) > 0x8000_0000 {
                 // if we're going to "overflow", increase the period
                 self.next_period();
-                let rollover_diff = 0x8000_0000 - (r.gpreg(0).read().bits() + 0xA);
+                let rollover_diff = 0x8000_0000 - (self.counter_reg().read().bits() + 0xA);
                 // safety: writing to gpregs is always considered unsafe. In order to
                 // not "lose" time when incrementing the period, gpreg0, the extended
                 // counter, is restarted at the # of ticks it would overflow by
-                r.gpreg(0).write(|w| unsafe { w.bits(rollover_diff) });
+                self.counter_reg().write(|w| unsafe { w.bits(rollover_diff) });
             } else {
-                r.gpreg(0).modify(|r, w| unsafe { w.bits(r.bits() + 0xA) });
+                self.counter_reg().modify(|r, w| unsafe { w.bits(r.bits() + 0xA) });
             }
         }
 
@@ -113,10 +130,10 @@ impl TimerDriver {
             // gpreg2 as an "int_en" set by next_period(). This is
             // 1 when the timestamp for the alarm deadline expires
             // before the counter register overflows again.
-            if r.gpreg(2).read().gpdata().bits() == 1 {
+            if self.int_en_reg().read().gpdata().bits() == 1 {
                 // gpreg0 is our extended counter register, check if
                 // our counter is larger than the compare value
-                if r.gpreg(0).read().bits() > r.gpreg(1).read().bits() {
+                if self.counter_reg().read().bits() > self.compare_reg().read().bits() {
                     self.trigger_alarm(0, cs);
                 }
             }
@@ -125,7 +142,6 @@ impl TimerDriver {
 
     fn next_period(&self) {
         critical_section::with(|cs| {
-            let r = rtc();
             let period = self
                 .period
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |p| Some(p + 1))
@@ -143,7 +159,7 @@ impl TimerDriver {
                 // safety: writing to gpregs is always unsafe, gpreg2 is an alarm
                 // enable. If the alarm must trigger within the next period, then
                 // just enable it. `set_alarm` has already set the correct CC val.
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(1) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
             }
         })
     }
@@ -155,13 +171,12 @@ impl TimerDriver {
     }
 
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        let r = rtc();
         // safety: writing to gpregs is always unsafe. Because
         // gpreg 2 is "int_en" and gpreg1 is the compare register,
         // after we trigger an alarm, the enable must be cleared and
         // our compare must go back to the initialization value
-        r.gpreg(2).write(|w| unsafe { w.bits(0) });
-        r.gpreg(1).write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        self.int_en_reg().write(|w| unsafe { w.bits(0) });
+        self.compare_reg().write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -181,7 +196,7 @@ impl Driver for TimerDriver {
         // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Acquire);
         compiler_fence(Ordering::Acquire);
-        let counter = rtc().gpreg(0).read().bits();
+        let counter = self.counter_reg().read().bits();
         calc_now(period, counter)
     }
 
@@ -211,15 +226,13 @@ impl Driver for TimerDriver {
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
-            let r = rtc();
-
             let t = self.now();
             if timestamp <= t {
                 // safety: Writing to the gpregs is always unsafe, gpreg2 is
                 // always just used as the alarm enable for the timer driver.
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(0) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -235,7 +248,7 @@ impl Driver for TimerDriver {
             // the compare register, gpreg1, is set to the last 31 bits of the timestamp
             // as the 32nd and final bit is used for the parity check in `next_period`
             // `period` will be used for the upper bits in a timestamp comparison.
-            r.gpreg(1)
+            self.compare_reg()
                 .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
 
             // The following checks that the difference in timestamp is less than the overflow period
@@ -245,12 +258,12 @@ impl Driver for TimerDriver {
 
                 // safety: writing to the gpregs is always unsafe. If the alarm
                 // must trigger within the next period, set the "int enable"
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(1) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
             } else {
                 // safety: writing to the gpregs is always unsafe. If alarm must trigger
                 // some time after the current period, too far in the future, don't setup
                 // the alarm enable, gpreg2, yet. It will be setup later by `next_period`.
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(0) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
             }
 
             true
@@ -259,6 +272,7 @@ impl Driver for TimerDriver {
 }
 
 #[cfg(feature = "rt")]
+#[allow(non_snake_case)]
 #[interrupt]
 fn RTC() {
     DRIVER.on_interrupt()

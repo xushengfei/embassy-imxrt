@@ -10,6 +10,7 @@ use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef}
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Binding;
+use crate::iopctl::*;
 use crate::pac::adc0;
 use crate::{interrupt, peripherals};
 
@@ -159,13 +160,16 @@ impl<'p, const N: usize> Adc<'p, N> {
         // Set up a cmd chain, one cmd per channel
         //   one points to the next, last one points to 0
         for ch in channel_config {
+            // Mapping cmd [1-15] into reg array index [0-14]
+            // Reg array index is one less than cmd
+            let cmd_index = cmd - 1;
             let p = ch.p_channel.channel();
             let diff = match ch.n_channel {
                 None => adc0::cmdl::Diff::Diff0,
                 Some(_) => adc0::cmdl::Diff::Diff1,
             };
 
-            reg.cmdl(cmd).write(|w| {
+            reg.cmdl(cmd_index).write(|w| {
                 w.adch()
                     .variant(p.ch) /* Analog channel number */
                     .absel()
@@ -176,7 +180,7 @@ impl<'p, const N: usize> Adc<'p, N> {
                     .cscale_1() /* Full scale */
             });
 
-            reg.cmdh(cmd).write(|w| unsafe {
+            reg.cmdh(cmd_index).write(|w| unsafe {
                 w.cmpen()
                     .cmpen_0() /* Disable analog comparator */
                     .lwi()
@@ -404,39 +408,21 @@ impl SealedInput for AnyInput {
 impl Input for AnyInput {}
 
 /// Macro to implement required types for dual purpose pins
-macro_rules! impl_adc_input {
-    ($pin:ident, $ch:ident, $side:ident, $io_pin:ident) => {
-        impl_adc_input!(@local, crate::peripherals::$pin, $ch, $side, $io_pin);
+macro_rules! impl_pin {
+    ($pin:ident, $ch:ident, $side:ident) => {
+        impl_pin!(@local, crate::peripherals::$pin, $ch, $side);
     };
-    (@local, $pin:ty, $ch:ident, $side:ident, $io_pin:ident) => {
+    (@local, $pin:ty, $ch:ident, $side:ident) => {
         impl crate::adc::SealedInput for $pin {
             fn channel(&self) -> crate::adc::AdcChannel {
-
-                // IO configuration placeholder until GPIO HAL is ready to go
-                {
-                    let iopctl = unsafe { crate::pac::Iopctl::steal() };
-
-                    iopctl.$io_pin().write(|w| {
-                        w.fsel()
-                            .function_0()
-                            .pupdena()
-                            .disabled()
-                            .pupdsel()
-                            .pull_down()
-                            .ibena()
-                            .disabled()
-                            .slewrate()
-                            .normal()
-                            .fulldrive()
-                            .normal_drive()
-                            .amena()
-                            .enabled()
-                            .odena()
-                            .disabled()
-                            .iiena()
-                            .disabled()
-                    });
-                }
+                self.set_function(Function::F0)
+                    .set_pull(Pull::None)
+                    .disable_input_buffer()
+                    .set_slew_rate(SlewRate::Standard)
+                    .set_drive_strength(DriveStrength::Normal)
+                    .enable_analog_multiplex()
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_input_polarity(Polarity::ActiveHigh);
 
                 AdcChannel {
                     ch: crate::pac::adc0::cmdl::Adch::$ch,
@@ -454,3 +440,16 @@ macro_rules! impl_adc_input {
         }
     };
 }
+
+impl_pin!(PIO0_5, Adch0, A);
+impl_pin!(PIO0_6, Adch0, B);
+impl_pin!(PIO0_12, Adch1, A);
+impl_pin!(PIO0_13, Adch1, B);
+impl_pin!(PIO0_19, Adch2, A);
+impl_pin!(PIO0_20, Adch2, B);
+impl_pin!(PIO0_26, Adch3, A);
+impl_pin!(PIO0_27, Adch3, B);
+impl_pin!(PIO1_8, Adch4, A);
+impl_pin!(PIO1_9, Adch4, B);
+impl_pin!(PIO3_23, Adch5, A);
+impl_pin!(PIO3_24, Adch5, B);
