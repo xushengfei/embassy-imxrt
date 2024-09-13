@@ -11,7 +11,9 @@ pub(crate) mod fmt;
 
 pub mod adc;
 pub mod clocks;
+pub mod flexcomm;
 pub mod gpio;
+pub mod i2c;
 pub mod iopctl;
 pub mod pwm;
 pub mod spi;
