@@ -200,7 +200,7 @@ pub struct Input<'d> {
 
 impl<'d> Input<'d> {
     /// New input pin
-    pub fn new(pin: impl Peripheral<P = AnyPin> + 'd, pull: Pull, polarity: Polarity) -> Self {
+    pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd, pull: Pull, polarity: Polarity) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull, polarity);
         Self { pin }
