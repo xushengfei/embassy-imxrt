@@ -66,7 +66,7 @@ async fn main(_spawner: Spawner) {
     // Pseudo Output Drain is disabled
     // Input function is not inverted
     info!("Configuring GPIO1_5 as input");
-    let _isr_pin = Input::new(p.PIO1_5.degrade(), Pull::Down, Polarity::ActiveHigh);
+    let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Polarity::ActiveHigh);
 
     info!("i2c example - I2c::new");
     let mut i2c = i2c::I2cMaster::new(
