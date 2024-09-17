@@ -16,6 +16,7 @@ pub mod gpio;
 pub mod i2c;
 pub mod iopctl;
 pub mod pwm;
+pub mod rng;
 #[cfg(feature = "time-driver")]
 mod time_driver;
 pub mod wwdt;
