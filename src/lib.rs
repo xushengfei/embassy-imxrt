@@ -11,6 +11,7 @@ pub(crate) mod fmt;
 
 pub mod adc;
 pub mod clocks;
+pub mod crc;
 pub mod flexcomm;
 pub mod gpio;
 pub mod i2c;
@@ -136,6 +137,7 @@ embassy_hal_internal::peripherals!(
     ACMP,
     ADC0,
     CASPER,
+    CRC,
     CTIMER0,
     CTIMER1,
     CTIMER2,
