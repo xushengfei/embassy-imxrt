@@ -5,6 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_imxrt::rng::Rng;
 use embassy_imxrt::{bind_interrupts, peripherals, rng};
+use rand::RngCore;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -17,8 +18,21 @@ async fn main(_spawner: Spawner) {
 
     info!("Initializing RNG");
     let mut rng = Rng::new(p.RNG, Irqs);
-    let mut buf = [0u8; 16];
+    let mut buf = [0u8; 65];
 
+    // Async interface
     unwrap!(rng.async_fill_bytes(&mut buf).await);
     info!("random bytes: {:02x}", buf);
+
+    // RngCore interface
+    let mut random_bytes = [0; 16];
+
+    let random_u32 = rng.next_u32();
+    let random_u64 = rng.next_u64();
+
+    rng.fill_bytes(&mut random_bytes);
+
+    info!("random_u32 {}", random_u32);
+    info!("random_u64 {}", random_u64);
+    info!("random_bytes {}", random_bytes);
 }

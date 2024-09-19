@@ -4,6 +4,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::block_on;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
@@ -94,8 +95,12 @@ impl<'d, T: Instance> Rng<'d, T> {
 
     /// Fill the given slice with random values.
     pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        for chunk in dest.chunks_mut(4) {
+        // We have a total of 16 words (512 bits) of entropy at our
+        // disposal. The idea here is to read all bits and copy the
+        // necessary bytes to the slice.
+        for chunk in dest.chunks_mut(64) {
             let mut bits = T::regs().mctl().read();
+
             if bits.ent_val().bit_is_clear() {
                 // wait for interrupt
                 poll_fn(|cx| {
@@ -121,14 +126,25 @@ impl<'d, T: Instance> Rng<'d, T> {
             }
 
             if bits.ent_val().bit_is_set() {
-                let random_word = T::regs().ent(0).read().bits();
+                let mut entropy = [0; 16];
 
-                if random_word == 0 {
+                for (i, item) in entropy.iter_mut().enumerate() {
+                    *item = T::regs().ent(i).read().bits();
+                }
+
+                // Read MCTL after reading ENT15
+                let _ = T::regs().mctl().read();
+
+                if entropy.iter().any(|e| *e == 0) {
                     return Err(Error::SeedError);
                 }
 
+                // SAFETY: entropy is the same for input and output types in
+                // native endianness.
+                let entropy: [u8; 64] = unsafe { core::mem::transmute(entropy) };
+
                 // write bytes to chunk
-                for (dest, src) in chunk.iter_mut().zip(random_word.to_ne_bytes().iter()) {
+                for (dest, src) in chunk.iter_mut().zip(entropy.iter()) {
                     *dest = *src
                 }
             }
@@ -140,26 +156,19 @@ impl<'d, T: Instance> Rng<'d, T> {
 
 impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
-        loop {
-            if T::regs().int_status().read().ent_val().bit_is_set() {
-                return T::regs().ent(0).read().bits();
-            }
-        }
+        let mut bytes = [0u8; 4];
+        block_on(self.async_fill_bytes(&mut bytes)).unwrap();
+        u32::from_ne_bytes(bytes)
     }
 
     fn next_u64(&mut self) -> u64 {
-        let mut rand = self.next_u32() as u64;
-        rand |= (self.next_u32() as u64) << 32;
-        rand
+        let mut bytes = [0u8; 8];
+        block_on(self.async_fill_bytes(&mut bytes)).unwrap();
+        u64::from_ne_bytes(bytes)
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for chunk in dest.chunks_mut(4) {
-            let rand = self.next_u32();
-            for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
-                *slot = *num
-            }
-        }
+        block_on(self.async_fill_bytes(dest)).unwrap();
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
