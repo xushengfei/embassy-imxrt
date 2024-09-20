@@ -12,17 +12,10 @@ async fn main(_spawner: Spawner) {
     info!("Initializing GPIO");
     gpio::init();
 
-    let mut led = gpio::Output::new(
-        p.PIO0_26,
-        gpio::Level::Low,
-        gpio::DriveMode::PushPull,
-        gpio::DriveStrength::Normal,
-        gpio::SlewRate::Standard,
-    );
+    let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveHigh);
 
     loop {
-        info!("Toggling LED");
-        led.toggle();
+        info!("Pin level is {}", monitor.get_level());
         embassy_imxrt_examples::delay(50_000);
     }
 }
