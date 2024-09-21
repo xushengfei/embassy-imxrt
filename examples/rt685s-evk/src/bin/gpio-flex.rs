@@ -11,7 +11,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
     info!("Initializing GPIO");
-    gpio::init();
+    unsafe { gpio::init() };
 
     let mut flex = gpio::Flex::new(p.PIO1_0);
 
