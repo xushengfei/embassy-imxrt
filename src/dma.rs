@@ -11,10 +11,10 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 /// DMA channel descriptor
 #[derive(Copy, Clone, Debug)]
 struct ChannelDescriptor {
-    _reserved: u32,
-    _src_data_end_addr: u32,
-    _dst_data_end_addr: u32,
-    _nxt_desc_link_addr: u32,
+    reserved: u32,
+    src_data_end_addr: u32,
+    dst_data_end_addr: u32,
+    nxt_desc_link_addr: u32,
 }
 
 /// DMA channel descriptor memory block (1KB aligned)
@@ -27,12 +27,20 @@ struct DescriptorBlock {
 /// DMA channel descriptor list
 static mut DESCRIPTORS: DescriptorBlock = DescriptorBlock {
     list: [ChannelDescriptor {
-        _reserved: 0,
-        _src_data_end_addr: 0,
-        _dst_data_end_addr: 0,
-        _nxt_desc_link_addr: 0,
+        reserved: 0,
+        src_data_end_addr: 0,
+        dst_data_end_addr: 0,
+        nxt_desc_link_addr: 0,
     }; 33],
 };
+
+/// Error information type
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// configuration requested is not supported
+    UnsupportedConfiguration,
+}
 
 /// DMA driver
 pub struct Dma<'d, T: Instance> {
@@ -47,13 +55,12 @@ impl<'d, T: Instance> Dma<'d, T> {
 
         // TODO: move - will have multiple consumers calling new
         Self::init();
+
         dma
     }
 
     /// Initialize the DMA controller
     pub fn init() {
-        info!("DMA init");
-
         let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
         let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
         let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
@@ -80,6 +87,73 @@ impl<'d, T: Instance> Dma<'d, T> {
         unsafe {
             sysctl0.ahbmatrixprior().modify(|_, w| w.m4().bits(0));
         }
+    }
+
+    /// Ready the specified DMA channel for triggering
+    pub fn configure_channel(&mut self, channel: usize, srcbase: u32, dstbase: u32, length: u32) -> Result<(), Error> {
+        // TODO
+
+        let xfercount = length - 1;
+        let xferwidth = 1;
+
+        // Configure descriptor
+        unsafe {
+            DESCRIPTORS.list[channel].reserved = 0;
+            DESCRIPTORS.list[channel].src_data_end_addr = srcbase + (xfercount * xferwidth);
+            DESCRIPTORS.list[channel].dst_data_end_addr = dstbase + (xfercount * xferwidth);
+            DESCRIPTORS.list[channel].nxt_desc_link_addr = 0;
+        }
+
+        // Configure for memory-to-memory, no HW trigger, high priority
+        T::regs()
+            .channel(channel)
+            .cfg()
+            .modify(|_, w| w.periphreqen().clear_bit());
+        T::regs().channel(channel).cfg().modify(|_, w| w.hwtrigen().clear_bit());
+        unsafe { T::regs().channel(channel).cfg().modify(|_, w| w.chpriority().bits(0)) };
+
+        // Mark configuration valid, clear trigger on complete, width is 1 byte, source & destination increments are width x 1 (1 byte), no reload
+        T::regs()
+            .channel(channel)
+            .xfercfg()
+            .modify(|_, w| w.cfgvalid().set_bit());
+        T::regs()
+            .channel(channel)
+            .xfercfg()
+            .modify(|_, w| w.clrtrig().set_bit());
+        T::regs()
+            .channel(channel)
+            .xfercfg()
+            .modify(|_, w| w.reload().clear_bit());
+        unsafe { T::regs().channel(channel).xfercfg().modify(|_, w| w.width().bits(0)) };
+        unsafe { T::regs().channel(channel).xfercfg().modify(|_, w| w.srcinc().bits(1)) };
+        unsafe { T::regs().channel(channel).xfercfg().modify(|_, w| w.dstinc().bits(1)) };
+        unsafe {
+            T::regs()
+                .channel(channel)
+                .xfercfg()
+                .modify(|_, w| w.xfercount().bits(xfercount as u16))
+        };
+        Ok(())
+    }
+
+    /// Enable the specified DMA channel (must be configured)
+    pub fn enable_channel(&mut self, channel: usize) -> Result<(), Error> {
+        // TODO
+        unsafe { T::regs().enableset0().modify(|_, w| w.ena().bits(1 << channel)) };
+        Ok(())
+    }
+    /// Trigger the specified DMA channel
+    pub fn trigger_channel(&mut self, channel: usize) -> Result<(), Error> {
+        // TODO
+        T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
+        Ok(())
+    }
+
+    /// Is the specified DMA channel active?
+    pub fn is_channel_active(&mut self, channel: usize) -> Result<bool, Error> {
+        // TODO
+        Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
 }
 
