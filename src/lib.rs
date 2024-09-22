@@ -12,6 +12,7 @@ pub(crate) mod fmt;
 pub mod adc;
 pub mod clocks;
 pub mod crc;
+pub mod dma;
 pub mod flexcomm;
 pub mod gpio;
 pub mod i2c;
@@ -145,7 +146,73 @@ embassy_hal_internal::peripherals!(
     CTIMER3,
     CTIMER4,
     DMA0,
+    DMA0_CH0,
+    DMA0_CH1,
+    DMA0_CH2,
+    DMA0_CH3,
+    DMA0_CH4,
+    DMA0_CH5,
+    DMA0_CH6,
+    DMA0_CH7,
+    DMA0_CH8,
+    DMA0_CH9,
+    DMA0_CH10,
+    DMA0_CH11,
+    DMA0_CH12,
+    DMA0_CH13,
+    DMA0_CH14,
+    DMA0_CH15,
+    DMA0_CH16,
+    DMA0_CH17,
+    DMA0_CH18,
+    DMA0_CH19,
+    DMA0_CH20,
+    DMA0_CH21,
+    DMA0_CH22,
+    DMA0_CH23,
+    DMA0_CH24,
+    DMA0_CH25,
+    DMA0_CH26,
+    DMA0_CH27,
+    DMA0_CH28,
+    DMA0_CH29,
+    DMA0_CH30,
+    DMA0_CH31,
+    DMA0_CH32,
     DMA1,
+    DMA1_CH0,
+    DMA1_CH1,
+    DMA1_CH2,
+    DMA1_CH3,
+    DMA1_CH4,
+    DMA1_CH5,
+    DMA1_CH6,
+    DMA1_CH7,
+    DMA1_CH8,
+    DMA1_CH9,
+    DMA1_CH10,
+    DMA1_CH11,
+    DMA1_CH12,
+    DMA1_CH13,
+    DMA1_CH14,
+    DMA1_CH15,
+    DMA1_CH16,
+    DMA1_CH17,
+    DMA1_CH18,
+    DMA1_CH19,
+    DMA1_CH20,
+    DMA1_CH21,
+    DMA1_CH22,
+    DMA1_CH23,
+    DMA1_CH24,
+    DMA1_CH25,
+    DMA1_CH26,
+    DMA1_CH27,
+    DMA1_CH28,
+    DMA1_CH29,
+    DMA1_CH30,
+    DMA1_CH31,
+    DMA1_CH32,
     DMIC0,
     DSPWAKE,
     FLEXCOMM0,
@@ -392,7 +459,7 @@ pub fn init(config: config::Config) -> Peripherals {
         clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
-        // dma::init();
+        dma::init();
     }
 
     peripherals
