@@ -182,11 +182,11 @@ impl UartRxTx {
             // rxfifo is enabled
             for i in 0..len {
                 // Add to check to see of txfifo is empty (it should not be)
-                if self.reg().fifostat().read().txempty().bit_is_set() {
+                /*if self.reg().fifostat().read().txempty().bit_is_set() {
                     info!("Error: TX FIFO is empty");
                 } else {
                     info!("Info: TX FIFO is not empty");
-                }
+                }*/
                 // loop until rxFifo has some data to read
                 while self.reg().fifostat().read().rxnotempty().bit_is_clear() {}
 

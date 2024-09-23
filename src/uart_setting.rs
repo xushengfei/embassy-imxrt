@@ -3,6 +3,8 @@
 
 #![macro_use]
 
+use crate::iopctl::Function as PinFunction;
+use crate::iopctl::*;
 use crate::pac::flexcomm1;
 use crate::pac::Clkctl0;
 use crate::pac::Clkctl1;
@@ -42,6 +44,7 @@ impl Flexcomm {
         if status != GenericStatus::Success {
             info!("Error: Flexcomm peripheral not supported");
         }
+        self.set_clock_trace();
     }
 
     pub fn flexcomm_getClkFreq(&self) -> u32 {
@@ -94,6 +97,13 @@ impl Flexcomm {
             .flexcomm(1) //.flexcomm(0)
             .fcfclksel()
             .modify(|_, w| w.sel().ffro_clk()); //.modify(|_, w| w.sel().audio_pll_clk());
+        self.clk1_reg().flexcomm(1).frgclksel().write(|w| w.sel().ffro_clk());
+        unsafe {
+            self.clk1_reg()
+                .flexcomm(1)
+                .frgctl()
+                .modify(|_, w| w.div().bits(0xff).mult().bits(0));
+        }
     }
 
     fn clock_enable(&self) {
@@ -101,7 +111,7 @@ impl Flexcomm {
         // kCLOCK_Flexcomm0    = CLK_GATE_DEFINE(CLK_CTL1_PSCCTL0, 8)
         //Note: modify doesnt exist for pscctl0_set() because its a write only register
         //self.clk1_reg().pscctl0_set().write(|w| w.fc0_clk_set().set_bit());
-        self.clk1_reg().pscctl0_set().write(|w| w.fc1_clk_set().set_bit());
+        self.clk1_reg().pscctl0_set().write(|w| w.fc1_clk_set().set_clock());
     }
 
     fn reset_peripheral(&self) {
@@ -144,5 +154,21 @@ impl Flexcomm {
 
         let mut is_usart_present = self.reg().pselid().read().usartpresent().bit_is_set();
         return is_usart_present;
+    }
+
+    fn set_clock_trace(&self) {
+        self.clk1_reg().clkoutsel0().write(|w| w.sel().main_clk());
+        self.clk1_reg().clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+        unsafe { self.clk1_reg().clkoutdiv().write(|w| w.div().bits(0)) }; // 0=> divide by 1
+
+        // Now configure the gpio over which CLKOUT can be traced. From the Evalkit, such a pin is GPIO1_10
+        let pin = unsafe { crate::peripherals::PIO1_10::steal() }; // CLOCKOUT (func 7)
+        pin.set_function(PinFunction::F7); //
+        pin.set_drive_mode(DriveMode::PushPull); //
+        pin.set_pull(Pull::None); //
+        pin.set_slew_rate(SlewRate::Standard); // fast slew rate
+        pin.set_drive_strength(DriveStrength::Full);
+        pin.disable_analog_multiplex();
+        pin.disable_input_buffer();
     }
 }
