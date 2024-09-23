@@ -96,8 +96,8 @@ impl Flexcomm {
         self.clk1_reg()
             .flexcomm(1) //.flexcomm(0)
             .fcfclksel()
-            .modify(|_, w| w.sel().ffro_clk()); //.modify(|_, w| w.sel().audio_pll_clk());
-        self.clk1_reg().flexcomm(1).frgclksel().write(|w| w.sel().ffro_clk());
+            .modify(|_, w| w.sel().sfro_clk()); //.modify(|_, w| w.sel().audio_pll_clk());
+        self.clk1_reg().flexcomm(1).frgclksel().write(|w| w.sel().sfro_clk());
         unsafe {
             self.clk1_reg()
                 .flexcomm(1)
@@ -157,18 +157,26 @@ impl Flexcomm {
     }
 
     fn set_clock_trace(&self) {
-        self.clk1_reg().clkoutsel0().write(|w| w.sel().main_clk());
+        self.clk1_reg().clkoutsel0().write(|w| w.sel().sfro_clk());
         self.clk1_reg().clkoutsel1().write(|w| w.sel().clkoutsel0_output());
         unsafe { self.clk1_reg().clkoutdiv().write(|w| w.div().bits(0)) }; // 0=> divide by 1
 
         // Now configure the gpio over which CLKOUT can be traced. From the Evalkit, such a pin is GPIO1_10
         let pin = unsafe { crate::peripherals::PIO1_10::steal() }; // CLOCKOUT (func 7)
-        pin.set_function(PinFunction::F7); //
-        pin.set_drive_mode(DriveMode::PushPull); //
-        pin.set_pull(Pull::None); //
-        pin.set_slew_rate(SlewRate::Standard); // fast slew rate
-        pin.set_drive_strength(DriveStrength::Full);
-        pin.disable_analog_multiplex();
-        pin.disable_input_buffer();
+                                                                   /*pin.set_function(PinFunction::F7); //
+                                                                   pin.set_drive_mode(DriveMode::PushPull); //
+                                                                   pin.set_pull(Pull::None); //
+                                                                   pin.set_slew_rate(SlewRate::Standard); // fast slew rate
+                                                                   pin.set_drive_strength(DriveStrength::Full);
+                                                                   pin.disable_analog_multiplex();
+                                                                   pin.disable_input_buffer();*/
+        pin.set_function(PinFunction::F7)
+            .set_pull(Pull::None)
+            .disable_input_buffer()
+            .set_slew_rate(SlewRate::Standard)
+            .set_drive_strength(DriveStrength::Normal)
+            .enable_analog_multiplex()
+            .set_drive_mode(DriveMode::PushPull)
+            .set_input_polarity(Polarity::ActiveHigh);
     }
 }

@@ -10,6 +10,7 @@ async fn main(_spawner: Spawner) {
     let _p = embassy_imxrt::init(Default::default());
 
     {
+        board_init_sfro_clocks();
         //let config = Config::default();
         //let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap(); //toto change
 
@@ -59,4 +60,18 @@ async fn main(_spawner: Spawner) {
 
         embassy_imxrt_examples::delay(50000);
     }
+}
+
+fn board_init_sfro_clocks() {
+    let pac = embassy_imxrt::pac::Peripherals::take().unwrap();
+
+    // Ensure SFRO Clock is set to run (power down is cleared)
+    pac.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
+
+    info!("Enabling GPIO1 clock");
+    pac.clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
+
+    // Take GPIO0 out of reset
+    info!("Clearing GPIO1 reset");
+    pac.rstctl1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
 }

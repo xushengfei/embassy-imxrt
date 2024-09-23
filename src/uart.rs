@@ -98,7 +98,7 @@ impl UartRxTx {
             data_bits: Datalen::Bit8,
             parity: Parity::NoParity,
             stop_bits: Stoplen::Bit1,
-            flexcomm_freq: 0x2dc6c00, //0x2dc6c00, //20000000
+            flexcomm_freq: 0xf42400, //sfro : 0xf42400, //ffro: 0x2dc6c00,
         }
     }
     /// Exposing a method to access reg internally with the assumption that only the uart0 is being used
