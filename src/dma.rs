@@ -90,8 +90,13 @@ impl<'d, T: Instance> Dma<'d, T> {
     }
 
     /// Ready the specified DMA channel for triggering
-    pub fn configure_channel(&mut self, channel: usize, srcbase: u32, dstbase: u32, length: u32) -> Result<(), Error> {
+    pub fn configure_channel(&mut self, channel: usize, src: &[u8], dst: &mut [u8]) -> Result<(), Error> {
         // TODO
+
+        let length = core::cmp::max(src.len(), dst.len());
+
+        let srcbase = src.as_ptr() as u32;
+        let dstbase = dst.as_mut_ptr() as u32;
 
         let xfercount = length - 1;
         let xferwidth = 1;
@@ -99,8 +104,8 @@ impl<'d, T: Instance> Dma<'d, T> {
         // Configure descriptor
         unsafe {
             DESCRIPTORS.list[channel].reserved = 0;
-            DESCRIPTORS.list[channel].src_data_end_addr = srcbase + (xfercount * xferwidth);
-            DESCRIPTORS.list[channel].dst_data_end_addr = dstbase + (xfercount * xferwidth);
+            DESCRIPTORS.list[channel].src_data_end_addr = srcbase + (xfercount * xferwidth) as u32;
+            DESCRIPTORS.list[channel].dst_data_end_addr = dstbase + (xfercount * xferwidth) as u32;
             DESCRIPTORS.list[channel].nxt_desc_link_addr = 0;
         }
 
