@@ -10,6 +10,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 /// DMA channel descriptor
 #[derive(Copy, Clone, Debug)]
+#[repr(C)]
 struct ChannelDescriptor {
     reserved: u32,
     src_data_end_addr: u32,
@@ -66,7 +67,7 @@ impl<'d, T: Instance> Dma<'d, T> {
         let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
 
         // Enable the DMA controller clock
-        clkctl1.pscctl1().modify(|_, w| w.dmac0_clk().set_bit());
+        clkctl1.pscctl1_set().write(|w| w.dmac0_clk_set().set_bit());
 
         // Clear DMA reset
         rstctl1.prstctl1_clr().write(|w| w.dmac0_rst_clr().set_bit());
@@ -84,9 +85,7 @@ impl<'d, T: Instance> Dma<'d, T> {
 
         // Ensure AHB priority it highest (M4 == DMAC0)
         // SAFETY: unsafe only due to .bits usage
-        unsafe {
-            sysctl0.ahbmatrixprior().modify(|_, w| w.m4().bits(0));
-        }
+        sysctl0.ahbmatrixprior().modify(|_, w| unsafe { w.m4().bits(0) });
     }
 
     /// Ready the specified DMA channel for triggering
@@ -110,42 +109,31 @@ impl<'d, T: Instance> Dma<'d, T> {
         }
 
         // Configure for memory-to-memory, no HW trigger, high priority
-        T::regs()
-            .channel(channel)
-            .cfg()
-            .modify(|_, w| w.periphreqen().clear_bit());
-        T::regs().channel(channel).cfg().modify(|_, w| w.hwtrigen().clear_bit());
-        unsafe { T::regs().channel(channel).cfg().modify(|_, w| w.chpriority().bits(0)) };
+        T::regs().channel(channel).cfg().modify(|_, w| unsafe {
+            w.periphreqen().clear_bit();
+            w.hwtrigen().clear_bit();
+            w.chpriority().bits(0)
+        });
 
         // Mark configuration valid, clear trigger on complete, width is 1 byte, source & destination increments are width x 1 (1 byte), no reload
-        T::regs()
-            .channel(channel)
-            .xfercfg()
-            .modify(|_, w| w.cfgvalid().set_bit());
-        T::regs()
-            .channel(channel)
-            .xfercfg()
-            .modify(|_, w| w.clrtrig().set_bit());
-        T::regs()
-            .channel(channel)
-            .xfercfg()
-            .modify(|_, w| w.reload().clear_bit());
-        unsafe { T::regs().channel(channel).xfercfg().modify(|_, w| w.width().bits(0)) };
-        unsafe { T::regs().channel(channel).xfercfg().modify(|_, w| w.srcinc().bits(1)) };
-        unsafe { T::regs().channel(channel).xfercfg().modify(|_, w| w.dstinc().bits(1)) };
-        unsafe {
-            T::regs()
-                .channel(channel)
-                .xfercfg()
-                .modify(|_, w| w.xfercount().bits(xfercount as u16))
-        };
+        T::regs().channel(channel).xfercfg().modify(|_, w| unsafe {
+            w.cfgvalid().set_bit();
+            w.clrtrig().set_bit();
+            w.reload().clear_bit();
+            w.width().bits(0);
+            w.srcinc().bits(1);
+            w.dstinc().bits(1);
+            w.xfercount().bits(xfercount as u16)
+        });
         Ok(())
     }
 
     /// Enable the specified DMA channel (must be configured)
     pub fn enable_channel(&mut self, channel: usize) -> Result<(), Error> {
         // TODO
-        unsafe { T::regs().enableset0().modify(|_, w| w.ena().bits(1 << channel)) };
+        T::regs()
+            .enableset0()
+            .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
         Ok(())
     }
     /// Trigger the specified DMA channel
