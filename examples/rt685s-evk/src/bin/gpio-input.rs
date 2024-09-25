@@ -10,7 +10,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
     info!("Initializing GPIO");
-    gpio::init();
+    unsafe { gpio::init() };
 
     let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveHigh);
 
