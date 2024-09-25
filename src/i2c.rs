@@ -63,6 +63,12 @@ pub enum TransferError {
     WriteFail,
     /// I2C Address not ACK'd
     AddressNack,
+    /// Bus level arbitration loss
+    ArbitrationLoss,
+    /// Address + Start/Stop error
+    StartStopError,
+    /// state mismatch or other internal register unexpected state
+    OtherBusError,
 }
 
 /// Error information type
@@ -229,18 +235,68 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         Ok(this)
     }
 
-    fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+    fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
         let i2cregs = self.bus.i2c();
+
+        // cannot start if not in IDLE state
+        if !i2cregs.stat().read().mststate().is_idle() {
+            return Err(TransferError::OtherBusError.into());
+        }
 
         i2cregs.mstdat().write(|w|
             // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1 | 0x01) });
+            unsafe { w.data().bits(address << 1 | if is_read {0x01} else {0x00}) });
+
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
         self.poll_ready()?;
 
+        if i2cregs.stat().read().mststate().is_nack_address() {
+            // STOP bit to complete the attempted transfer
+            self.stop()?;
+
+            return Err(TransferError::AddressNack.into());
+        }
+
+        if is_read && !i2cregs.stat().read().mststate().is_receive_ready() {
+            return Err(TransferError::ReadFail.into());
+        }
+
+        if !is_read && !i2cregs.stat().read().mststate().is_transmit_ready() {
+            return Err(TransferError::WriteFail.into());
+        }
+
+        self.check_for_bus_errors()
+    }
+
+    fn check_for_bus_errors(&self) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        if i2cregs.stat().read().mstarbloss().is_arbitration_loss() {
+            Err(TransferError::ArbitrationLoss.into())
+        } else if i2cregs.stat().read().mstststperr().is_error() {
+            Err(TransferError::StartStopError.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, true)?;
+
         for r in read {
-            while i2cregs.stat().read().mstpending().bit_is_clear() {}
-            *r = (i2cregs.mstdat().read().bits() & 0xFF) as u8;
+            self.poll_ready()?;
+
+            // check transmission continuity
+            if !i2cregs.stat().read().mststate().is_receive_ready() {
+                return Err(TransferError::ReadFail.into());
+            }
+
+            self.check_for_bus_errors()?;
+
+            *r = i2cregs.mstdat().read().data().bits();
         }
 
         Ok(())
@@ -250,18 +306,17 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.bus.i2c();
 
-        i2cregs.mstdat().write(|w|
-        // SAFETY: unsafe only due to .bits usage
-        unsafe { w.data().bits(address << 1) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
+        self.start(address, false)?;
 
         for byte in write.iter() {
             i2cregs.mstdat().write(|w|
-            // SAFETY: unsafe only due to .bits usage
-            unsafe { w.data().bits(*byte) });
+                // SAFETY: unsafe only due to .bits usage
+                unsafe { w.data().bits(*byte) });
+
             i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+
             self.poll_ready()?;
+            self.check_for_bus_errors()?;
         }
 
         Ok(())
@@ -273,8 +328,14 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
         self.poll_ready()?;
+        self.check_for_bus_errors()?;
 
-        Ok(())
+        // ensure return to idle state for bus (no stuck SCL/SDA lines)
+        if i2cregs.stat().read().mststate().is_idle() {
+            Ok(())
+        } else {
+            Err(TransferError::OtherBusError.into())
+        }
     }
 
     fn check_timeout(&mut self) -> Result<()> {
@@ -324,6 +385,9 @@ impl embedded_hal_1::i2c::Error for Error {
                 TransferError::AddressNack => {
                     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
                 }
+                TransferError::ArbitrationLoss => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+                TransferError::StartStopError => embedded_hal_1::i2c::ErrorKind::Bus,
+                TransferError::OtherBusError => embedded_hal_1::i2c::ErrorKind::Bus,
             },
         }
     }
@@ -340,103 +404,19 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
     for I2cMaster<'a, FC, T, SCL, SDA>
 {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        // Procedure from 24.3.1.2 pg 546
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1 | 0x01) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        for r in read {
-            self.poll_ready()?;
-            *r = (i2cregs.mstdat().read().bits() & 0xFF) as u8;
-        }
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
+        self.read_no_stop(address, read)?;
+        self.stop()
     }
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        // Procedure from 24.3.1.1 pg 545
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-        // SAFETY: unsafe only due to .bits usage
-        unsafe { w.data().bits(address << 1) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        for byte in write.iter() {
-            i2cregs.mstdat().write(|w|
-            // SAFETY: unsafe only due to .bits usage
-            unsafe { w.data().bits(*byte) });
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-            self.poll_ready()?;
-        }
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
+        self.write_no_stop(address, write)?;
+        self.stop()
     }
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1) });
-
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        if i2cregs.stat().read().mststate().is_nack_address() {
-            // STOP bit to complete the attempted transfer
-            i2cregs.mstctl().write(|w| w.mststop().set_bit());
-            self.poll_ready()?;
-
-            return Err(Error::Transfer(TransferError::AddressNack));
-        }
-
-        for byte in write.iter() {
-            i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(*byte) });
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-            self.poll_ready()?;
-        }
-
-        i2cregs.mstdat().write(|w|
-        // SAFETY: only unsafe due to .bits usage
-        unsafe { w.data().bits((address << 1) | 1) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        if i2cregs.stat().read().mststate().is_nack_address() {
-            // STOP bit to complete the attempted transfer
-            i2cregs.mstctl().write(|w| w.mststop().set_bit());
-            self.poll_ready()?;
-
-            return Err(TransferError::AddressNack.into());
-        }
-
-        for r in read {
-            self.poll_ready()?;
-
-            if i2cregs.stat().read().mststate().is_nack_data() {
-                return Err(TransferError::ReadFail.into());
-            }
-            *r = i2cregs.mstdat().read().data().bits();
-        }
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
+        self.write_no_stop(address, write)?;
+        self.read_no_stop(address, read)?;
+        self.stop()
     }
 
     fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
