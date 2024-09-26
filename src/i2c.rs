@@ -286,7 +286,9 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
 
         self.start(address, true)?;
 
-        for r in read {
+        let read_len = read.len();
+
+        for (i, r) in read.iter_mut().enumerate() {
             self.poll_ready()?;
 
             // check transmission continuity
@@ -297,6 +299,11 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
             self.check_for_bus_errors()?;
 
             *r = i2cregs.mstdat().read().data().bits();
+
+            // continue after ACK until last byte
+            if i < read_len - 1 {
+                i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+            }
         }
 
         Ok(())
