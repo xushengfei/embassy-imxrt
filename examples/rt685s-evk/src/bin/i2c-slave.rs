@@ -25,7 +25,7 @@ fn wait_for_magic(i2c: &impl I2cSlaveBlocking) {
         Ok(_) => {
             info!("i2cs example - read(4) success! Checking Code");
 
-            for (rx, mg) in (&received).iter().zip(magic_code.iter()) {
+            for (rx, mg) in received.iter().zip(magic_code.iter()) {
                 if rx != mg {
                     error!("Mismatch got {:?} but expected {:?}", rx, mg);
                 }
