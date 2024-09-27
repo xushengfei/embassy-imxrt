@@ -6,30 +6,32 @@
 use core::marker::PhantomData;
 
 use crate::iopctl::*;
-use crate::pac::usart1;
+use crate::pac::usart0;
 use crate::peripherals;
 use crate::uart_setting::Flexcomm;
+use crate::uart_setting::FlexcommFunc;
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use mimxrt685s_pac as pac;
-use pac::usart1::RegisterBlock;
+use mimxrt685s_pac::usart0::brg;
+use pac::usart0::RegisterBlock;
 
 // Re-export SVD variants to allow user to directly set values.
-pub use pac::usart1::cfg::Datalen;
-pub use pac::usart1::cfg::Paritysel as Parity;
-pub use pac::usart1::cfg::Stoplen;
+pub use pac::usart0::cfg::Datalen;
+pub use pac::usart0::cfg::Paritysel as Parity;
+pub use pac::usart0::cfg::Stoplen;
 pub use u32 as Baudrate;
 
-pub use pac::usart1::cfg::Clkpol;
-pub use pac::usart1::cfg::Loop;
+pub use pac::usart0::cfg::Clkpol;
+pub use pac::usart0::cfg::Loop;
 /// Syncen : Sync/ Async mode selection
-pub use pac::usart1::cfg::Syncen;
+pub use pac::usart0::cfg::Syncen;
 /// Syncmst : Sync master/slave mode selection (only applicable in sync mode)
-pub use pac::usart1::cfg::Syncmst;
-pub use pac::usart1::ctl::Cc;
+pub use pac::usart0::cfg::Syncmst;
+pub use pac::usart0::ctl::Cc;
 
 /// Todo: Will be used when the uart is fully implemented - both tx and rx. Right now only Rx is implemented
-pub use pac::usart1::fifocfg::Enablerx;
-pub use pac::usart1::fifocfg::Enabletx;
+pub use pac::usart0::fifocfg::Enablerx;
+pub use pac::usart0::fifocfg::Enabletx;
 
 ///Assumptions
 /// - This is a basic test code to verify a very basic functionality of the UART.- reading/ writing a single buffer of data
@@ -49,6 +51,7 @@ pub struct UartRxTx {
     pub parity: Parity,
     pub stop_bits: Stoplen,
     pub flexcomm_freq: u32,
+    pub fc: FlexcommFunc,
 }
 
 #[derive(Clone, Copy)]
@@ -92,18 +95,27 @@ pub enum GenericStatus {
 }
 
 impl UartRxTx {
-    pub fn new() -> Self {
+    pub fn new(_fc: FlexcommFunc) -> Self {
         UartRxTx {
             baudrate: 115200,
             data_bits: Datalen::Bit8,
             parity: Parity::NoParity,
             stop_bits: Stoplen::Bit1,
             flexcomm_freq: 0xf42400, //sfro : 0xf42400, //ffro: 0x2dc6c00,
+            fc: _fc,
         }
     }
     /// Exposing a method to access reg internally with the assumption that only the uart0 is being used
-    fn reg(&self) -> &'static pac::usart1::RegisterBlock {
-        unsafe { &*(pac::Usart1::ptr() as *const pac::usart1::RegisterBlock) }
+    fn reg(&self) -> &'static pac::usart0::RegisterBlock {
+        match self.fc {
+            FlexcommFunc::Flexcomm1 => {
+                return unsafe { &*(pac::Usart2::ptr() as *const pac::usart0::RegisterBlock) };
+            }
+            FlexcommFunc::Flexcomm2 => {
+                return unsafe { &*(pac::Usart2::ptr() as *const pac::usart0::RegisterBlock) };
+            }
+        }
+        //unsafe { &*(pac::Usart2::ptr() as *const pac::usart0::RegisterBlock) }
     }
 
     /// Initializes a USART instance with user configuration structure and peripheral clock.
@@ -117,16 +129,13 @@ impl UartRxTx {
             loopback_mode: Loop::Normal,
         };
 
-        Flexcomm::new().init();
+        Flexcomm::new(FlexcommFunc::Flexcomm2).init();
+
         self.configure_pins();
-        // TODO: Add if enableTx, Rx before calling self.set_uart_rx_fifo(), self.set_uart_tx_fifo();
+        self.set_uart_baudrate();
         self.set_uart_tx_fifo();
         self.set_uart_rx_fifo();
         self.set_uart_config(default_mcu_specific_uart_config);
-        self.set_uart_baudrate();
-
-        // Setting continuous Clock configuration. used for synchronous master mode.
-        self.enable_continuous_clock(default_mcu_specific_uart_config.continuous_clock);
     }
 
     /// Deinitializes a USART instance.
@@ -138,10 +147,6 @@ impl UartRxTx {
         }
 
         // Disable interrupts
-        /*self.reg().fifointenclr().write(|w| w.txerr().set_bit());
-        self.reg().fifointenclr().write(|w| w.rxerr().set_bit());
-        self.reg().fifointenclr().write(|w| w.txlvl().set_bit());
-        self.reg().fifointenclr().write(|w| w.rxlvl().set_bit());*/
         self.reg().fifointenclr().modify(|_, w| {
             w.txerr()
                 .set_bit()
@@ -154,14 +159,11 @@ impl UartRxTx {
         });
 
         //  Disable dma requests
-        /*self.reg().fifocfg().write(|w| w.dmatx().clear_bit());
-        self.reg().fifocfg().write(|w| w.dmarx().clear_bit());*/
         self.reg()
             .fifocfg()
             .modify(|_, w| w.dmatx().clear_bit().dmarx().clear_bit());
 
         // Disable peripheral
-        //self.reg().cfg().write(|w| w.enable().disabled());
         self.reg().cfg().modify(|_, w| w.enable().disabled());
     }
 
@@ -181,20 +183,12 @@ impl UartRxTx {
         } else {
             // rxfifo is enabled
             for i in 0..len {
-                // Add to check to see of txfifo is empty (it should not be)
-                /*if self.reg().fifostat().read().txempty().bit_is_set() {
-                    info!("Error: TX FIFO is empty");
-                } else {
-                    info!("Info: TX FIFO is not empty");
-                }*/
                 // loop until rxFifo has some data to read
                 while self.reg().fifostat().read().rxnotempty().bit_is_clear() {}
 
                 // Now that there is some data in the rxFifo, read it
                 // Let's verify the rxFifo status flags
                 if self.reg().fifostat().read().rxerr().bit_is_set() {
-                    //self.reg().fifocfg().write(|w| w.emptyrx().set_bit());
-                    //self.reg().fifostat().write(|w| w.rxerr().set_bit());
                     self.reg().fifocfg().modify(|_, w| w.emptyrx().set_bit());
                     self.reg().fifostat().modify(|_, w| w.rxerr().set_bit());
                     return GenericStatus::USART_RxError;
@@ -211,26 +205,22 @@ impl UartRxTx {
 
                 if rx_status & (1 << 14) != 0 {
                     //writing to it will clear the status since it is W1C
-                    //self.reg().stat().write(|w| w.parityerrint().set_bit());
                     self.reg().stat().modify(|_, w| w.parityerrint().set_bit());
                     generic_status = GenericStatus::USART_ParityError;
                 }
                 if rx_status & (1 << 13) != 0 {
                     //writing to it will clear the status since it is W1C
-                    //self.reg().stat().write(|w| w.framerrint().set_bit());
                     self.reg().stat().modify(|_, w| w.framerrint().set_bit());
                     generic_status = GenericStatus::USART_FramingError;
                 }
                 if rx_status & (1 << 15) != 0 {
                     //writing to it will clear the status since it is W1C
-                    //self.reg().stat().write(|w| w.rxnoiseint().set_bit());
                     self.reg().stat().modify(|_, w| w.rxnoiseint().set_bit());
                     generic_status = GenericStatus::USART_NoiseError;
                 }
 
                 if generic_status == GenericStatus::Success {
                     // read the data from the rxFifo
-                    //todo: check if this conversion is correct
                     buf[i as usize] = self.reg().fiford().read().rxdata().bits() as u8;
                 } else {
                     return generic_status;
@@ -264,6 +254,8 @@ impl UartRxTx {
     }
 
     fn set_uart_config(&self, uart_mcu_config: UartMcuSpecific) {
+        self.reg().cfg().write(|w| w.enable().disabled());
+
         // setting the uart data len
         if self.data_bits == Datalen::Bit8 {
             //self.reg().cfg().write(|w| w.datalen().bit_8());
@@ -330,17 +322,11 @@ impl UartRxTx {
             self.reg().cfg().modify(|_, w| w.clkpol().falling_edge());
         }
 
-        // Now enable the uart
-        //self.reg().cfg().write(|w| w.enable().enabled());
+        //Note: Some weird behaviour .Do not enable the uart. config and fifo tx will work correctly!
         self.reg().cfg().modify(|_, w| w.enable().enabled());
     }
 
     fn set_uart_rx_fifo(&self) {
-        // Todo : Add condition to check if (enableRx){}
-        // The setting below needs to be encapsulated in a condition if (enableRx)
-        // setting the rx fifo
-        /*self.reg().fifocfg().write(|w| w.enablerx().enabled());
-        self.reg().fifocfg().write(|w| w.emptyrx().set_bit());*/
         self.reg()
             .fifocfg()
             .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
@@ -350,28 +336,12 @@ impl UartRxTx {
         } else {
             info!("Info: RX FIFO is enabled");
         }
-        // Todo: Add code for setting Fifo trigger register. Refer to USART_Init() in fsl_uart.c
-        //  setup trigger level
-        //base->FIFOTRIG &= ~(USART_FIFOTRIG_RXLVL_MASK);
-        //base->FIFOTRIG |= USART_FIFOTRIG_RXLVL(config->rxWatermark);
-        /* enable trigger interrupt */
-        //base->FIFOTRIG |= USART_FIFOTRIG_RXLVLENA_MASK;
-        unsafe {
-            self.reg()
-                .fifotrig()
-                .modify(|_, w| w.rxlvl().bits(0).rxlvlena().set_bit());
-        }
+
+        // clear FIFO error
+        self.reg().fifostat().write(|w| w.rxerr().set_bit());
     }
 
     fn set_uart_tx_fifo(&self) {
-        // Todo : Add condition to check if (enableTx){}
-        // The setting below needs to be encapsulated in a condition if (enableTx)
-        // setting the Tx fifo
-
-        // empty and enable txFIFO
-        /*self.reg().fifocfg().write(|w| w.enabletx().enabled());
-        self.reg().fifocfg().write(|w| w.emptytx().set_bit());
-        */
         self.reg()
             .fifocfg()
             .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
@@ -382,19 +352,8 @@ impl UartRxTx {
             info!("Info: TX FIFO is enabled");
         }
 
-        //TODO for later
-        /*
-        //setup trigger level
-        base->FIFOTRIG &= ~(USART_FIFOTRIG_TXLVL_MASK);
-        base->FIFOTRIG |= USART_FIFOTRIG_TXLVL(config->txWatermark);
-        // enable trigger interrupt
-        base->FIFOTRIG |= USART_FIFOTRIG_TXLVLENA_MASK;
-         */
-        unsafe {
-            self.reg()
-                .fifotrig()
-                .modify(|_, w| w.txlvl().bits(1).txlvlena().set_bit());
-        }
+        // clear FIFO error
+        self.reg().fifostat().write(|w| w.txerr().set_bit());
     }
 
     fn set_uart_baudrate(&self) -> GenericStatus {
@@ -426,7 +385,8 @@ impl UartRxTx {
             //Smaller values of OSR can make the sampling position within a data bit less accurate and may
             //potentially cause more noise errors or incorrect data.
             for osrval in (8..=best_osrval).rev() {
-                brgval = (((source_clock_hz * 10u32) / ((osrval + 1u32) * baudrate_bps)) - 5u32) / 10u32;
+                // brgval = (((source_clock_hz * 10u32) / ((osrval + 1u32) * baudrate_bps)) - 5u32) / 10u32;
+                brgval = (source_clock_hz / ((osrval + 1u32) * baudrate_bps)) - 1u32;
                 if brgval > 0xFFFFu32 {
                     continue;
                 }
@@ -450,6 +410,8 @@ impl UartRxTx {
 
             // Value over range
             if best_brgval > 0xFFFFu32 {
+                best_osrval = 0;
+                best_brgval = 0;
                 return GenericStatus::USART_BaudrateNotSupport;
             }
 
@@ -475,7 +437,7 @@ impl UartRxTx {
     /// This function configures the uart pins for testing purpose.
     /// Note: this is not the correct way of calling the ioctl. This is just for testing purpose.
     fn configure_pins(&self) {
-        let pin = unsafe { crate::peripherals::PIO0_8::steal() }; // Host uart tx
+        let pin = unsafe { crate::peripherals::PIO0_15::steal() }; // Host uart tx
         pin.set_function(Function::F1);
         pin.set_drive_mode(DriveMode::PushPull);
         pin.set_pull(Pull::None);
@@ -484,7 +446,7 @@ impl UartRxTx {
         pin.disable_analog_multiplex();
         pin.enable_input_buffer();
 
-        let pin = unsafe { crate::peripherals::PIO0_9::steal() }; // Host uart rx
+        let pin = unsafe { crate::peripherals::PIO0_16::steal() }; // Host uart rx
         pin.set_function(Function::F1);
         pin.set_drive_mode(DriveMode::PushPull);
         pin.set_pull(Pull::None);
@@ -492,13 +454,5 @@ impl UartRxTx {
         pin.set_drive_strength(DriveStrength::Normal);
         pin.disable_analog_multiplex();
         pin.enable_input_buffer();
-
-        /*
-        let pin = unsafe { crate::peripherals::PIO3_3::steal() }; // Host uart cts
-        pin.set_function(Function::F5);
-
-        let pin = unsafe { crate::peripherals::PIO3_4::steal() }; // Host uart rts
-        pin.set_function(Function::F5);
-        */
     }
 }

@@ -5,19 +5,20 @@
 
 use crate::iopctl::Function as PinFunction;
 use crate::iopctl::*;
-use crate::pac::flexcomm1;
-use crate::pac::Clkctl0;
+use crate::pac::flexcomm0;
 use crate::pac::Clkctl1;
 use crate::uart::GenericStatus;
 use mimxrt685s_pac as pac;
 
 // Re-export SVD variants to allow user to directly set values.
-pub use pac::flexcomm1::pselid::Lock as FlexcommLock;
-pub use pac::flexcomm1::pselid::Persel as Function;
+pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
+pub use pac::flexcomm0::pselid::Persel as Function;
 
 pub enum FlexcommFunc {
     // Only define the first one for now.
-    Flexcomm0,
+    //Flexcomm0,
+    Flexcomm1,
+    Flexcomm2,
 }
 
 pub struct Flexcomm {
@@ -27,42 +28,36 @@ pub struct Flexcomm {
 }
 
 impl Flexcomm {
-    pub fn new() -> Self {
+    pub fn new(fc: FlexcommFunc) -> Self {
         // hardcoding the config for now
         Self {
-            flexcomm: FlexcommFunc::Flexcomm0,
+            flexcomm: fc,
             function: Function::Usart,
             lock: FlexcommLock::Unlocked,
         }
     }
 
     pub fn init(&self) {
-        self.clock_attach();
         self.clock_enable();
+        self.clock_attach();
         self.reset_peripheral();
         let mut status = self.flexcomm_set_peripheral();
         if status != GenericStatus::Success {
             info!("Error: Flexcomm peripheral not supported");
         }
-        self.set_clock_trace();
-    }
-
-    pub fn flexcomm_getClkFreq(&self) -> u32 {
-        // Get the clock frequency of the flexcomm
-        // For now, hardcoding the value for flexcomm0
-        let freq = self.clock_get_audio_pll_clk_freq();
-        return freq;
-    }
-
-    fn clock_get_audio_pll_clk_freq(&self) -> u32 {
-        // return CLOCK_GetAudioPfdFreq(kCLOCK_Pfd0) / ((CLKCTL1->AUDIOPLLCLKDIV & CLKCTL1_AUDIOPLLCLKDIV_DIV_MASK) + 1U);
-        // TODO: check and hardcode.
-        return 0x2dc6c00; //0x2dc6c00; //20000000
     }
 
     /// Exposing a method to access reg internally with the assumption that only the flexcomm0 is being used
-    fn reg(&self) -> &'static pac::flexcomm1::RegisterBlock {
-        unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm1::RegisterBlock) }
+    fn reg(&self) -> &'static pac::flexcomm0::RegisterBlock {
+        match self.flexcomm {
+            FlexcommFunc::Flexcomm1 => {
+                return unsafe { &*(pac::Flexcomm1::ptr() as *const pac::flexcomm0::RegisterBlock) }
+            }
+            FlexcommFunc::Flexcomm2 => {
+                return unsafe { &*(pac::Flexcomm2::ptr() as *const pac::flexcomm0::RegisterBlock) }
+            }
+        }
+        //unsafe { &*(pac::Flexcomm2::ptr() as *const pac::flexcomm0::RegisterBlock) }
     }
 
     /// Exposing a method to access reg internally with the assumption that only the clkctl1 is being used
@@ -75,32 +70,27 @@ impl Flexcomm {
         unsafe { &*(pac::Rstctl1::ptr() as *const pac::rstctl1::RegisterBlock) }
     }
 
-    /// This func would return the specific instance of the flexcomm peripheral, i.e flexcomm0,1, 2,etc
-    /*fn get_instance() -> u32 {
-        // add code
-        return 0;
-    }*/
-
     fn clock_attach(&self) {
-        // Be careful to connect the correct clock.
-        // In gen3, this func deals with this CLOCK_AttachClk()
-        // For the purpose of uart testing, the following case is hardcoded :
-        // CLOCK_AttachClk(mcuPortDef_FlexCommAudioClkSelect[eFLEXCOMM_DEBUG_UART])
-        // kAUDIO_PLL_to_FLEXCOMM0  = CLKCTL1_TUPLE_MUXA(FC0FCLKSEL_OFFSET, 2), => [( 0x80000000U | (0x508 | 0x2000))= 0x80002508 ]
-        // So pClkSet will be 0x4002 1508 => FC0FCLKSEL (full CLKCTL1_FC0FCLKSEL)
-
-        /*self.clk1_reg()
-        .flexcomm(0)
-        .fcfclksel()
-        .write(|w| w.sel().audio_pll_clk());*/
+        let mut fc_index: usize = 0;
+        match self.flexcomm {
+            FlexcommFunc::Flexcomm1 => {
+                fc_index = 1;
+            }
+            FlexcommFunc::Flexcomm2 => {
+                fc_index = 2;
+            }
+        }
         self.clk1_reg()
-            .flexcomm(1) //.flexcomm(0)
+            .flexcomm(fc_index) //.flexcomm(0)
             .fcfclksel()
             .modify(|_, w| w.sel().sfro_clk()); //.modify(|_, w| w.sel().audio_pll_clk());
-        self.clk1_reg().flexcomm(1).frgclksel().write(|w| w.sel().sfro_clk());
+        self.clk1_reg()
+            .flexcomm(fc_index)
+            .frgclksel()
+            .write(|w| w.sel().sfro_clk());
         unsafe {
             self.clk1_reg()
-                .flexcomm(1)
+                .flexcomm(fc_index)
                 .frgctl()
                 .modify(|_, w| w.div().bits(0xff).mult().bits(0));
         }
@@ -108,19 +98,20 @@ impl Flexcomm {
 
     fn clock_enable(&self) {
         // Enable the peripheral clock
-        // kCLOCK_Flexcomm0    = CLK_GATE_DEFINE(CLK_CTL1_PSCCTL0, 8)
-        //Note: modify doesnt exist for pscctl0_set() because its a write only register
-        //self.clk1_reg().pscctl0_set().write(|w| w.fc0_clk_set().set_bit());
-        self.clk1_reg().pscctl0_set().write(|w| w.fc1_clk_set().set_clock());
+        match self.flexcomm {
+            FlexcommFunc::Flexcomm1 => self.clk1_reg().pscctl0_set().write(|w| w.fc1_clk_set().set_clock()),
+            FlexcommFunc::Flexcomm2 => self.clk1_reg().pscctl0_set().write(|w| w.fc2_clk_set().set_clock()),
+        }
+        //self.clk1_reg().pscctl0_set().write(|w| w.fc2_clk_set().set_clock());
     }
 
     fn reset_peripheral(&self) {
         // Reset the FLEXCOMM module
-        //Note: modify doesnt exist for prstctl0() because its a write only register
-        //self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().set_bit());
-        //self.rstctl1_reg().prstctl0().write(|w| w.flexcomm0_rst().clear_bit());
-        self.rstctl1_reg().prstctl0().write(|w| w.flexcomm1_rst().set_bit());
-        self.rstctl1_reg().prstctl0().write(|w| w.flexcomm1_rst().clear_bit());
+        match self.flexcomm {
+            FlexcommFunc::Flexcomm1 => self.rstctl1_reg().prstctl0().write(|w| w.flexcomm1_rst().clear_reset()),
+            FlexcommFunc::Flexcomm2 => self.rstctl1_reg().prstctl0().write(|w| w.flexcomm2_rst().clear_reset()),
+        }
+        //self.rstctl1_reg().prstctl0().write(|w| w.flexcomm2_rst().clear_reset());
     }
 
     fn flexcomm_set_peripheral(&self) -> GenericStatus {
@@ -135,11 +126,9 @@ impl Flexcomm {
             return GenericStatus::Fail;
         }
 
-        //self.reg().pselid().write(|w| w.persel().usart());
         self.reg().pselid().modify(|_, w| w.persel().usart());
         if self.lock == FlexcommLock::Locked {
             // Lock the Flexcomm to the peripheral type
-            //self.reg().pselid().write(|w| w.lock().set_bit());
             self.reg().pselid().modify(|_, w| w.lock().set_bit());
         }
 
@@ -149,34 +138,8 @@ impl Flexcomm {
     /// This function checks whether flexcomm supports peripheral type
     fn flexcomm_is_peripheral_supported(&self) -> bool {
         // Check if the peripheral is supported by the flexcomm
-
         // TODO: Check for all peripheral types. For now only usart being supported by flexcomm 0 is checked.
-
         let mut is_usart_present = self.reg().pselid().read().usartpresent().bit_is_set();
         return is_usart_present;
-    }
-
-    fn set_clock_trace(&self) {
-        self.clk1_reg().clkoutsel0().write(|w| w.sel().sfro_clk());
-        self.clk1_reg().clkoutsel1().write(|w| w.sel().clkoutsel0_output());
-        unsafe { self.clk1_reg().clkoutdiv().write(|w| w.div().bits(0)) }; // 0=> divide by 1
-
-        // Now configure the gpio over which CLKOUT can be traced. From the Evalkit, such a pin is GPIO1_10
-        let pin = unsafe { crate::peripherals::PIO1_10::steal() }; // CLOCKOUT (func 7)
-                                                                   /*pin.set_function(PinFunction::F7); //
-                                                                   pin.set_drive_mode(DriveMode::PushPull); //
-                                                                   pin.set_pull(Pull::None); //
-                                                                   pin.set_slew_rate(SlewRate::Standard); // fast slew rate
-                                                                   pin.set_drive_strength(DriveStrength::Full);
-                                                                   pin.disable_analog_multiplex();
-                                                                   pin.disable_input_buffer();*/
-        pin.set_function(PinFunction::F7)
-            .set_pull(Pull::None)
-            .disable_input_buffer()
-            .set_slew_rate(SlewRate::Standard)
-            .set_drive_strength(DriveStrength::Normal)
-            .enable_analog_multiplex()
-            .set_drive_mode(DriveMode::PushPull)
-            .set_input_polarity(Polarity::ActiveHigh);
     }
 }

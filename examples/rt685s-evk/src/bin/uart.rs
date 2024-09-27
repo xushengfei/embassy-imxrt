@@ -4,6 +4,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::uart::*;
+use embassy_imxrt::uart_setting::FlexcommFunc;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -11,32 +12,26 @@ async fn main(_spawner: Spawner) {
 
     {
         board_init_sfro_clocks();
-        //let config = Config::default();
-        //let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap(); //toto change
 
         info!("UART test start");
-        let mut usart = UartRxTx::new();
+        let mut usart = UartRxTx::new(FlexcommFunc::Flexcomm2);
         usart.init();
 
-        info!("UART test init() done");
-        // We can't send too many bytes, they have to fit in the FIFO.
-        // This is because we aren't sending+receiving at the same time.
+        info!("UART init() complete");
 
-        //let data = [0xC0, 0xDE];
-        //usart.blocking_write(&data).unwrap();
-
+        // To test connect an FTDI cable and verify the data received from uart tx on Tera term/ putty
         let mut status = GenericStatus::Success;
-        let mut data = [0xC0]; //[0xC0, 0xDE];
-        status = usart.write_blocking(&mut data, 1);
+        let mut data = [0x55, 0x56, 0x41, 0x42, 0x44]; //[0x41, 0x42, 0x43, 0x44, 0x45];
+        status = usart.write_blocking(&mut data, 5);
         if status != GenericStatus::Success {
             info!("UART test write_blocking() failed");
         } else {
             info!("UART test write_blocking() done");
         }
 
-        let mut buf = [0; 1];
-        //usart.blocking_read(&mut buf).unwrap();
-        status = usart.read_blocking(&mut buf, 1);
+        // To test read send the data on tera term / putty and verify from the buffer
+        /*  let mut buf = [0; 5];
+        status = usart.read_blocking(&mut buf, 5);
         if status != GenericStatus::Success {
             info!("UART test read_blocking() failed");
         } else {
@@ -45,20 +40,23 @@ async fn main(_spawner: Spawner) {
 
         if status == GenericStatus::Success {
             //assert_eq!(buf, data);
-            if &buf[0..2] == &data[..] {
+            if &buf[0..5] == &data[..] {
                 info!("UART test passed");
             } else {
                 info!("UART test failed");
             }
         } else {
             info!("UART test failed");
-        }
+        }*/
 
         usart.deinit();
         info!("UART test deinit() done");
+
         info!("UART test done");
 
-        embassy_imxrt_examples::delay(50000);
+        loop {
+            embassy_imxrt_examples::delay(50_000_000);
+        }
     }
 }
 
@@ -69,9 +67,11 @@ fn board_init_sfro_clocks() {
     pac.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
 
     info!("Enabling GPIO1 clock");
+    pac.clkctl1.pscctl1_set().write(|w| w.hsgpio0_clk_set().set_clock());
     pac.clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
 
     // Take GPIO0 out of reset
     info!("Clearing GPIO1 reset");
+    pac.rstctl1.prstctl1_clr().write(|w| w.hsgpio0_rst_clr().clr_reset());
     pac.rstctl1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
 }
