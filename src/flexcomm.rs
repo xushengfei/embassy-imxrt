@@ -113,7 +113,7 @@ pub struct I2cBus<'p, F: I2cPeripheral> {
 #[allow(private_bounds)]
 impl<'p, F: I2cPeripheral> I2cBus<'p, F> {
     /// use Flexcomm fc as an I2c Bus
-    pub fn new(fc: impl I2cPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+    pub fn new(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::I2c)?;
         Ok(Self { _fc: fc.into_ref() })

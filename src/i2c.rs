@@ -4,7 +4,6 @@
 use embassy_time::{Duration, Instant};
 
 use crate::iopctl::IopctlPin as Pin;
-use crate::PeripheralRef;
 
 /// Bus speed (nominal SCL, no clock stretching)
 pub enum Speed {
@@ -110,43 +109,39 @@ impl<T: Pin> sealed::Sealed for T {}
 
 /// shared functions between master and slave operation
 #[allow(private_bounds)]
-pub trait I2cAny<const FC: usize>: crate::flexcomm::I2cPeripheral {}
-impl I2cAny<0> for crate::peripherals::FLEXCOMM0 {}
-impl I2cAny<1> for crate::peripherals::FLEXCOMM1 {}
-impl I2cAny<2> for crate::peripherals::FLEXCOMM2 {}
-impl I2cAny<3> for crate::peripherals::FLEXCOMM3 {}
-impl I2cAny<4> for crate::peripherals::FLEXCOMM4 {}
-impl I2cAny<5> for crate::peripherals::FLEXCOMM5 {}
-impl I2cAny<6> for crate::peripherals::FLEXCOMM6 {}
-impl I2cAny<7> for crate::peripherals::FLEXCOMM7 {}
+pub trait Instance: crate::flexcomm::I2cPeripheral {}
+impl Instance for crate::peripherals::FLEXCOMM0 {}
+impl Instance for crate::peripherals::FLEXCOMM1 {}
+impl Instance for crate::peripherals::FLEXCOMM2 {}
+impl Instance for crate::peripherals::FLEXCOMM3 {}
+impl Instance for crate::peripherals::FLEXCOMM4 {}
+impl Instance for crate::peripherals::FLEXCOMM5 {}
+impl Instance for crate::peripherals::FLEXCOMM6 {}
+impl Instance for crate::peripherals::FLEXCOMM7 {}
 
 /// io configuration trait for easier configuration
-pub trait SclPin<const FC: usize>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for SCL usage
     fn as_scl(&self, pull: crate::iopctl::Pull);
 }
 
 /// io configuration trait for easier configuration
-pub trait SdaPin<const FC: usize>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SdaPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for SDA usage
     fn as_sda(&self, pull: crate::iopctl::Pull);
 }
 
 /// use FCn as I2C Master controller
-pub struct I2cMaster<'a, const FC: usize, T: I2cAny<FC>, SCL: SclPin<FC>, SDA: SdaPin<FC>> {
-    bus: crate::flexcomm::I2cBus<'a, T>,
-    _scl: PeripheralRef<'a, SCL>,
-    _sda: PeripheralRef<'a, SDA>,
+pub struct I2cMaster<'a, FC: Instance> {
+    bus: crate::flexcomm::I2cBus<'a, FC>,
     timeout: TimeoutSettings,
     #[cfg(feature = "time")]
     poll_start: Instant,
 }
 
 /// use FCn as I2C Slave controller
-pub struct I2cSlave<'a, const FC: usize, T: I2cAny<FC>, SCL: SclPin<FC>, SDA: SdaPin<FC>> {
-    bus: crate::flexcomm::I2cBus<'a, T>,
-    _scl: PeripheralRef<'a, SCL>,
-    _sda: PeripheralRef<'a, SDA>,
+pub struct I2cSlave<'a, FC: Instance> {
+    bus: crate::flexcomm::I2cBus<'a, FC>,
 }
 
 /// configuration struct for i2c master timeout control
@@ -159,14 +154,12 @@ pub struct TimeoutSettings {
     pub sw_timeout: Duration,
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>>
-    I2cMaster<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cMaster<'a, FC> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     pub fn new(
-        fc: T,
-        scl: SCL,
-        sda: SDA,
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC> + 'a,
+        sda: impl SdaPin<FC> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         speed: Speed,
@@ -178,7 +171,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         sda.as_sda(pull);
         scl.as_scl(pull);
 
-        let bus = crate::flexcomm::I2cBus::new(fc, clock)?;
+        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
 
@@ -224,8 +217,6 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         bus.i2c().cfg().write(|w| w.msten().set_bit());
         let mut this = Self {
             bus,
-            _scl: scl.into_ref(),
-            _sda: sda.into_ref(),
             timeout,
             #[cfg(feature = "time")]
             poll_start: Instant::now(),
@@ -400,16 +391,12 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>>
-    I2cMasterBlockingErrorType for I2cMaster<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cMasterBlockingErrorType for I2cMaster<'a, FC> {
     type Error = Error;
 }
 
 // implement generic i2c interface for peripheral master type
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>> I2cMasterBlocking
-    for I2cMaster<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cMasterBlocking for I2cMaster<'a, FC> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read)?;
         self.stop()
@@ -460,14 +447,12 @@ pub trait I2cSlaveBlocking {
     fn write(&self, write: &[u8]) -> Result<()>;
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>>
-    I2cSlave<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cSlave<'a, FC> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     pub fn new(
-        fc: T,
-        scl: SCL,
-        sda: SDA,
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC>,
+        sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         address: Address,
@@ -507,11 +492,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         // SLVEN = 1, per UM11147 24.3.2.1
         i2c.cfg().write(|w| w.slven().enabled());
 
-        Ok(Self {
-            bus,
-            _scl: scl.into_ref(),
-            _sda: sda.into_ref(),
-        })
+        Ok(Self { bus })
     }
 
     fn poll(&self) -> Result<()> {
@@ -523,9 +504,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
     }
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>> I2cSlaveBlocking
-    for I2cSlave<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC> {
     fn block_until_addressed(&self) -> Result<()> {
         self.poll()?;
 
@@ -584,8 +563,8 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
 
 // flexcomm <-> Pin function map
 macro_rules! impl_scl {
-    ($piom_n:ident, $fn:ident, $fcn:expr) => {
-        impl SclPin<$fcn> for crate::peripherals::$piom_n {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl SclPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_scl(&self, pull: crate::iopctl::Pull) {
                 // UM11147 table 299 pg 262+
                 self.set_pull(pull)
@@ -600,8 +579,8 @@ macro_rules! impl_scl {
     };
 }
 macro_rules! impl_sda {
-    ($piom_n:ident, $fn:ident, $fcn:expr) => {
-        impl SdaPin<$fcn> for crate::peripherals::$piom_n {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl SdaPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_sda(&self, pull: crate::iopctl::Pull) {
                 // UM11147 table 299 pg 262+
                 self.set_pull(pull)
@@ -617,67 +596,67 @@ macro_rules! impl_sda {
 }
 
 // Flexcomm0 GPIOs -
-impl_scl!(PIO0_1, F1, 0);
-impl_sda!(PIO0_2, F1, 0);
+impl_scl!(PIO0_1, F1, FLEXCOMM0);
+impl_sda!(PIO0_2, F1, FLEXCOMM0);
 
-impl_scl!(PIO3_1, F5, 0);
-impl_sda!(PIO3_2, F5, 0);
-impl_sda!(PIO3_3, F5, 0);
-impl_scl!(PIO3_4, F5, 0);
+impl_scl!(PIO3_1, F5, FLEXCOMM0);
+impl_sda!(PIO3_2, F5, FLEXCOMM0);
+impl_sda!(PIO3_3, F5, FLEXCOMM0);
+impl_scl!(PIO3_4, F5, FLEXCOMM0);
 
 // Flexcomm1 GPIOs -
-impl_scl!(PIO0_8, F1, 1);
-impl_sda!(PIO0_9, F1, 1);
-impl_sda!(PIO0_10, F1, 1);
-impl_scl!(PIO0_11, F1, 1);
+impl_scl!(PIO0_8, F1, FLEXCOMM1);
+impl_sda!(PIO0_9, F1, FLEXCOMM1);
+impl_sda!(PIO0_10, F1, FLEXCOMM1);
+impl_scl!(PIO0_11, F1, FLEXCOMM1);
 
-impl_scl!(PIO7_26, F1, 1);
-impl_sda!(PIO7_27, F1, 1);
-impl_sda!(PIO7_28, F1, 1);
-impl_scl!(PIO7_29, F1, 1);
+impl_scl!(PIO7_26, F1, FLEXCOMM1);
+impl_sda!(PIO7_27, F1, FLEXCOMM1);
+impl_sda!(PIO7_28, F1, FLEXCOMM1);
+impl_scl!(PIO7_29, F1, FLEXCOMM1);
 
 // Flexcomm2 GPIOs -
-impl_scl!(PIO0_15, F1, 2);
-impl_sda!(PIO0_16, F1, 2);
-impl_sda!(PIO0_17, F1, 2);
-impl_scl!(PIO0_18, F1, 2);
+impl_scl!(PIO0_15, F1, FLEXCOMM2);
+impl_sda!(PIO0_16, F1, FLEXCOMM2);
+impl_sda!(PIO0_17, F1, FLEXCOMM2);
+impl_scl!(PIO0_18, F1, FLEXCOMM2);
 
-impl_sda!(PIO4_8, F5, 2);
+impl_sda!(PIO4_8, F5, FLEXCOMM2);
 
-impl_scl!(PIO7_30, F5, 2);
-impl_sda!(PIO7_31, F5, 2);
+impl_scl!(PIO7_30, F5, FLEXCOMM2);
+impl_sda!(PIO7_31, F5, FLEXCOMM2);
 
 // Flexcomm3 GPIOs -
-impl_scl!(PIO0_22, F1, 3);
-impl_sda!(PIO0_23, F1, 3);
-impl_sda!(PIO0_24, F1, 3);
-impl_scl!(PIO0_25, F1, 3);
+impl_scl!(PIO0_22, F1, FLEXCOMM3);
+impl_sda!(PIO0_23, F1, FLEXCOMM3);
+impl_sda!(PIO0_24, F1, FLEXCOMM3);
+impl_scl!(PIO0_25, F1, FLEXCOMM3);
 
 // Flexcomm4 GPIOs -
-impl_scl!(PIO0_29, F1, 4);
-impl_sda!(PIO0_30, F1, 4);
-impl_sda!(PIO0_31, F1, 4);
-impl_scl!(PIO1_0, F1, 4);
+impl_scl!(PIO0_29, F1, FLEXCOMM4);
+impl_sda!(PIO0_30, F1, FLEXCOMM4);
+impl_sda!(PIO0_31, F1, FLEXCOMM4);
+impl_scl!(PIO1_0, F1, FLEXCOMM4);
 
 // Flexcomm5 GPIOs -
-impl_scl!(PIO1_4, F1, 5);
-impl_sda!(PIO1_5, F1, 5);
-impl_sda!(PIO1_6, F1, 5);
-impl_scl!(PIO1_7, F1, 5);
+impl_scl!(PIO1_4, F1, FLEXCOMM5);
+impl_sda!(PIO1_5, F1, FLEXCOMM5);
+impl_sda!(PIO1_6, F1, FLEXCOMM5);
+impl_scl!(PIO1_7, F1, FLEXCOMM5);
 
-impl_scl!(PIO3_16, F4, 5);
-impl_sda!(PIO3_17, F4, 5);
-impl_sda!(PIO3_18, F4, 5);
-impl_scl!(PIO3_22, F5, 5);
+impl_scl!(PIO3_16, F4, FLEXCOMM5);
+impl_sda!(PIO3_17, F4, FLEXCOMM5);
+impl_sda!(PIO3_18, F4, FLEXCOMM5);
+impl_scl!(PIO3_22, F5, FLEXCOMM5);
 
 // Flexcomm6 GPIOs -
-impl_scl!(PIO3_26, F1, 6);
-impl_sda!(PIO3_27, F1, 6);
-impl_sda!(PIO3_28, F1, 6);
-impl_scl!(PIO3_29, F1, 6);
+impl_scl!(PIO3_26, F1, FLEXCOMM6);
+impl_sda!(PIO3_27, F1, FLEXCOMM6);
+impl_sda!(PIO3_28, F1, FLEXCOMM6);
+impl_scl!(PIO3_29, F1, FLEXCOMM6);
 
 // Flexcomm7 GPIOs -
-impl_scl!(PIO4_1, F1, 7);
-impl_sda!(PIO4_2, F1, 7);
-impl_sda!(PIO4_3, F1, 7);
-impl_scl!(PIO4_4, F1, 7);
+impl_scl!(PIO4_1, F1, FLEXCOMM7);
+impl_sda!(PIO4_2, F1, FLEXCOMM7);
+impl_sda!(PIO4_3, F1, FLEXCOMM7);
+impl_scl!(PIO4_4, F1, FLEXCOMM7);
