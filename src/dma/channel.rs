@@ -94,11 +94,15 @@ impl<'d, T: Instance> Channel<'d, T> {
             w.chpriority().bits(0)
         });
 
+        // Enable the interrupt on this channel
+        T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
+
         // Mark configuration valid, clear trigger on complete, width is 1 byte, source & destination increments are width x 1 (1 byte), no reload
         T::regs().channel(channel).xfercfg().modify(|_, w| unsafe {
             w.cfgvalid().set_bit();
             w.clrtrig().set_bit();
             w.reload().clear_bit();
+            w.setinta().set_bit();
             w.width().bits(options.width.into());
             if dir == Direction::PeripheralToMemory {
                 w.srcinc().bits(0);
