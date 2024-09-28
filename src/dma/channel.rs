@@ -62,12 +62,11 @@ pub struct Channel<'d, T: Instance> {
     /// DMA controller
     pub controller: PeripheralRef<'d, T>,
     /// DMA channel number
-    pub number: u8,
+    pub number: usize,
 }
 
 impl<'d, T: Instance> Channel<'d, T> {
     /// Ready the specified DMA channel for triggering
-    //pub fn configure_channel(&mut self, channel: usize, src: &[u8], dst: &mut [u8]) -> Result<(), Error> {
     pub fn configure_channel(
         &mut self,
         channel: usize,
@@ -75,11 +74,6 @@ impl<'d, T: Instance> Channel<'d, T> {
         dstbase: *mut u32,
         mem_len: usize,
     ) -> Result<(), Error> {
-        // TODO
-
-        //let srcbase = src.as_ptr() as u32;
-        //let dstbase = dst.as_mut_ptr() as u32;
-
         let xfercount = mem_len - 1;
         let xferwidth = 1;
 
@@ -127,7 +121,7 @@ impl<'d, T: Instance> Channel<'d, T> {
     }
 
     /// Is the specified DMA channel active?
-    pub fn is_channel_active(&mut self, channel: usize) -> Result<bool, Error> {
+    pub fn is_channel_active(&mut self, channel: u8) -> Result<bool, Error> {
         // TODO
         Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }

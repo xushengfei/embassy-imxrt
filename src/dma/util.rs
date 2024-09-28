@@ -179,8 +179,6 @@ impl<'d, T: Instance> Transfer<'d, T> {
         // 1. configure_channel
         // 2. enable_channel
         // 3. trigger_channel
-        let a = channel.is_channel_active(channel.number as usize);
-        info!("DMA channel active: {}", a);
 
         Self { _channel: channel }
     }
@@ -195,18 +193,18 @@ impl<'d, T: Instance> Transfer<'d, T> {
         _options: TransferOptions,
     ) -> Self {
         // 1. configure_channel
-        match channel.configure_channel(channel.number as usize, src_buf, dst_buf, mem_len) {
+        match channel.configure_channel(channel.number, src_buf, dst_buf, mem_len) {
             Ok(v) => v,
             Err(_e) => info!("failed to configure DMA channel"),
         };
         // 2. enable_channel
-        match channel.enable_channel(channel.number as usize) {
+        match channel.enable_channel(channel.number) {
             Ok(v) => v,
             Err(_e) => info!("failed to enable DMA channel"),
         };
 
         // 3. trigger_channel
-        match channel.trigger_channel(channel.number as usize) {
+        match channel.trigger_channel(channel.number) {
             Ok(v) => v,
             Err(_e) => info!("failed to trigger DMA channel"),
         };

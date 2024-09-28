@@ -13,6 +13,116 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 //  - add support for DMA1
 //  - configure NVIC table
 
+/// DMA channel ID
+pub enum ChannelId {
+    /// Channel ID 0
+    Channel0,
+    /// Channel ID 1
+    Channel1,
+    /// Channel ID 2
+    Channel2,
+    /// Channel ID 3
+    Channel3,
+    /// Channel ID 4
+    Channel4,
+    /// Channel ID 5
+    Channel5,
+    /// Channel ID 6
+    Channel6,
+    /// Channel ID 7
+    Channel7,
+    /// Channel ID 8
+    Channel8,
+    /// Channel ID 9
+    Channel9,
+    /// Channel ID 10
+    Channel10,
+    /// Channel ID 11
+    Channel11,
+    /// Channel ID 12
+    Channel12,
+    /// Channel ID 13
+    Channel13,
+    /// Channel ID 14
+    Channel14,
+    /// Channel ID 15
+    Channel15,
+    /// Channel ID 16
+    Channel16,
+    /// Channel ID 17
+    Channel17,
+    /// Channel ID 18
+    Channel18,
+    /// Channel ID 19
+    Channel19,
+    /// Channel ID 20
+    Channel20,
+    /// Channel ID 21
+    Channel21,
+    /// Channel ID 22
+    Channel22,
+    /// Channel ID 23
+    Channel23,
+    /// Channel ID 24
+    Channel24,
+    /// Channel ID 25
+    Channel25,
+    /// Channel ID 26
+    Channel26,
+    /// Channel ID 27
+    Channel27,
+    /// Channel ID 28
+    Channel28,
+    /// Channel ID 29
+    Channel29,
+    /// Channel ID 30
+    Channel30,
+    /// Channel ID 31
+    Channel31,
+    /// Channel ID 32
+    Channel32,
+}
+
+impl From<ChannelId> for usize {
+    fn from(channel_id: ChannelId) -> Self {
+        match channel_id {
+            ChannelId::Channel0 => 0,
+            ChannelId::Channel1 => 1,
+            ChannelId::Channel2 => 2,
+            ChannelId::Channel3 => 3,
+            ChannelId::Channel4 => 4,
+            ChannelId::Channel5 => 5,
+            ChannelId::Channel6 => 6,
+            ChannelId::Channel7 => 7,
+            ChannelId::Channel8 => 8,
+            ChannelId::Channel9 => 9,
+            ChannelId::Channel10 => 10,
+            ChannelId::Channel11 => 11,
+            ChannelId::Channel12 => 12,
+            ChannelId::Channel13 => 13,
+            ChannelId::Channel14 => 14,
+            ChannelId::Channel15 => 15,
+            ChannelId::Channel16 => 16,
+            ChannelId::Channel17 => 17,
+            ChannelId::Channel18 => 18,
+            ChannelId::Channel19 => 19,
+            ChannelId::Channel20 => 20,
+            ChannelId::Channel21 => 21,
+            ChannelId::Channel22 => 22,
+            ChannelId::Channel23 => 23,
+            ChannelId::Channel24 => 24,
+            ChannelId::Channel25 => 25,
+            ChannelId::Channel26 => 26,
+            ChannelId::Channel27 => 27,
+            ChannelId::Channel28 => 28,
+            ChannelId::Channel29 => 29,
+            ChannelId::Channel30 => 30,
+            ChannelId::Channel31 => 31,
+            ChannelId::Channel32 => 32,
+        }
+    }
+}
+
 /// DMA channel descriptor
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -95,12 +205,12 @@ impl<'d, T: Instance> Dma<'d, T> {
 
     // TODO - return Result
     /// Reserve DMA channel
-    pub fn reserve_channel(&mut self, channel: u8) -> ChannelAndRequest<'d, T> {
+    pub fn reserve_channel(&mut self, channel: ChannelId) -> ChannelAndRequest<'d, T> {
         let request: Request = 0; // TODO
 
         let channel = Channel {
             controller: unsafe { self.inner.clone_unchecked() }, // TODO - better design option?
-            number: channel,
+            number: channel.into(),
         };
 
         ChannelAndRequest { channel, request }
