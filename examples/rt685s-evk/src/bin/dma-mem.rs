@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::{util::TransferOptions, Dma};
+use embassy_imxrt::dma::{util::TransferOptions, ChannelId, Dma};
 use {defmt_rtt as _, panic_probe as _};
 
 static ARRAY1: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
 
     info!("DMA memory-to-memory transfer");
     let mut dma = Dma::new(p.DMA0);
-    let mut ch = dma.reserve_channel(0);
+    let mut ch = dma.reserve_channel(ChannelId::Channel10);
 
     // SAFETY: use of a mutable static is unsafe
     ch.write_mem(&ARRAY1[..], unsafe { &mut ARRAY2[..] }, TransferOptions::default());
