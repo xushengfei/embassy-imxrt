@@ -59,11 +59,25 @@ pub enum Width {
     Bit32,
 }
 
+impl From<Width> for u8 {
+    fn from(w: Width) -> Self {
+        match w {
+            Width::Bit8 => 0,
+            Width::Bit16 => 1,
+            Width::Bit32 => 2,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum Dir {
+/// DMA transfer direction
+pub enum Direction {
+    /// Memory-to-memory transfer
     MemoryToMemory,
+    /// Memory-to-peripheral transfer
     MemoryToPeripheral,
+    /// Peripheral-to-memory transfer
     PeripheralToMemory,
 }
 
@@ -99,7 +113,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         Self::new_inner(
             channel,
             request,
-            Dir::PeripheralToMemory,
+            Direction::PeripheralToMemory,
             peri_addr as *const u32,
             buf as *mut u8 as *mut u32, // TODO
             buf.len(),
@@ -129,7 +143,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         Self::new_inner(
             channel,
             request,
-            Dir::MemoryToPeripheral,
+            Direction::MemoryToPeripheral,
             peri_addr as *mut u32,
             buf as *const u8 as *mut u32, // TODO
             buf.len(),
@@ -156,10 +170,10 @@ impl<'d, T: Instance> Transfer<'d, T> {
         dst_buf: *mut [u8],   // TODO
         options: TransferOptions,
     ) -> Self {
-        Self::new_inner_mem(
+        Self::new_inner(
             channel,
             request,
-            Dir::MemoryToMemory,
+            Direction::MemoryToMemory,
             src_buf as *const u32, // TODO
             dst_buf as *mut u32,
             src_buf.len(),
@@ -170,30 +184,14 @@ impl<'d, T: Instance> Transfer<'d, T> {
     fn new_inner(
         channel: &'d mut Channel<'d, T>,
         _request: Request,
-        _dir: Dir,
-        _peri_addr: *const u32,
-        _buf: *mut u32,
-        _mem_len: usize,
-        _options: TransferOptions,
-    ) -> Self {
-        // 1. configure_channel
-        // 2. enable_channel
-        // 3. trigger_channel
-
-        Self { _channel: channel }
-    }
-
-    fn new_inner_mem(
-        channel: &'d mut Channel<'d, T>,
-        _request: Request,
-        _dir: Dir,
+        dir: Direction,
         src_buf: *const u32,
         dst_buf: *mut u32,
         mem_len: usize,
-        _options: TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         // 1. configure_channel
-        match channel.configure_channel(channel.number, src_buf, dst_buf, mem_len) {
+        match channel.configure_channel(channel.number, dir, src_buf, dst_buf, mem_len, options) {
             Ok(v) => v,
             Err(_e) => info!("failed to configure DMA channel"),
         };

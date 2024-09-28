@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::{util::TransferOptions, ChannelId, Dma};
+use embassy_imxrt::dma::{transfer::TransferOptions, ChannelId, Dma};
 use {defmt_rtt as _, panic_probe as _};
 
 static ARRAY1: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
