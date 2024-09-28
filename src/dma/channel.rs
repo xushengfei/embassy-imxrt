@@ -5,7 +5,7 @@ use super::Error;
 use super::Instance;
 use super::DESCRIPTORS;
 
-use crate::dma::util::{Transfer, TransferOptions};
+use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 use embassy_hal_internal::PeripheralRef;
 
 /// DMA request identifier
@@ -70,9 +70,11 @@ impl<'d, T: Instance> Channel<'d, T> {
     pub fn configure_channel(
         &mut self,
         channel: usize,
+        dir: Direction,
         srcbase: *const u32,
         dstbase: *mut u32,
         mem_len: usize,
+        options: TransferOptions,
     ) -> Result<(), Error> {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
@@ -97,9 +99,17 @@ impl<'d, T: Instance> Channel<'d, T> {
             w.cfgvalid().set_bit();
             w.clrtrig().set_bit();
             w.reload().clear_bit();
-            w.width().bits(0);
-            w.srcinc().bits(1);
-            w.dstinc().bits(1);
+            w.width().bits(options.width.into());
+            if dir == Direction::PeripheralToMemory {
+                w.srcinc().bits(0);
+            } else {
+                w.srcinc().bits(1);
+            }
+            if dir == Direction::MemoryToPeripheral {
+                w.dstinc().bits(0);
+            } else {
+                w.dstinc().bits(1);
+            }
             w.xfercount().bits(xfercount as u16)
         });
         Ok(())
@@ -107,7 +117,6 @@ impl<'d, T: Instance> Channel<'d, T> {
 
     /// Enable the specified DMA channel (must be configured)
     pub fn enable_channel(&mut self, channel: usize) -> Result<(), Error> {
-        // TODO
         T::regs()
             .enableset0()
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
@@ -115,14 +124,12 @@ impl<'d, T: Instance> Channel<'d, T> {
     }
     /// Trigger the specified DMA channel
     pub fn trigger_channel(&mut self, channel: usize) -> Result<(), Error> {
-        // TODO
         T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
         Ok(())
     }
 
     /// Is the specified DMA channel active?
     pub fn is_channel_active(&mut self, channel: u8) -> Result<bool, Error> {
-        // TODO
         Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
 }

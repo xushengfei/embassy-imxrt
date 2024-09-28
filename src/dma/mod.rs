@@ -1,7 +1,7 @@
 //! DMA
 
 pub mod channel;
-pub mod util;
+pub mod transfer;
 
 use core::ptr;
 
