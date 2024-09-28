@@ -3,11 +3,12 @@
 pub mod channel;
 pub mod transfer;
 
-use core::ptr;
-
 use crate::dma::channel::{Channel, ChannelAndRequest, Request};
 use crate::{interrupt, peripherals, Peripheral};
+use core::ptr;
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 
 // TODO:
 //  - add support for DMA1
@@ -158,6 +159,42 @@ pub enum Error {
     UnsupportedConfiguration,
 }
 
+#[allow(clippy::declare_interior_mutable_const)]
+const DMA_WAKER: AtomicWaker = AtomicWaker::new();
+const CHANNEL_COUNT: usize = 32;
+
+// One waker per channel
+static DMA_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [DMA_WAKER; CHANNEL_COUNT];
+
+#[interrupt]
+#[allow(non_snake_case)]
+fn DMA0() {
+    irq_handler(&DMA_WAKERS);
+}
+
+fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
+    let reg = unsafe { crate::pac::Dma0::steal() };
+
+    info!("DMA0 Interrupt!");
+
+    // Error interrupt pending?
+    if reg.intstat().read().activeerrint().bit() {
+        // TODO
+    }
+
+    // Interrupt pending?
+    if reg.intstat().read().activeint().bit() {
+        for (channel, waker) in wakers.iter().enumerate() {
+            // Go through all the channels to check which ones contributed to the interrupt
+            if reg.inta0().read().bits() & (1 << channel) != 0 {
+                // Clear the interrupt for this channel
+                reg.inta0().write(|w| unsafe { w.ia().bits(1 << channel) });
+                // TODO - Disable the channel interrupt?
+                waker.wake();
+            }
+        }
+    }
+}
 /// DMA driver
 pub struct Dma<'d, T: Instance> {
     inner: PeripheralRef<'d, T>,
@@ -201,6 +238,12 @@ impl<'d, T: Instance> Dma<'d, T> {
         // Ensure AHB priority it highest (M4 == DMAC0)
         // SAFETY: unsafe only due to .bits usage
         sysctl0.ahbmatrixprior().modify(|_, w| unsafe { w.m4().bits(0) });
+
+        // Enable DMA interrupts on DMA0
+        interrupt::DMA0.unpend();
+        unsafe {
+            interrupt::DMA0.enable();
+        }
     }
 
     // TODO - return Result
