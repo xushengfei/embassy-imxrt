@@ -1,6 +1,11 @@
 //! DMA
+
+pub mod channel;
+pub mod util;
+
 use core::ptr;
 
+use crate::dma::channel::{Channel, ChannelAndRequest, Request};
 use crate::{interrupt, peripherals, Peripheral};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
@@ -45,14 +50,14 @@ pub enum Error {
 
 /// DMA driver
 pub struct Dma<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+    inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Dma<'d, T> {
     /// Create a new DMA driver.
     pub fn new(inner: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(inner);
-        let dma = Self { _inner: inner };
+        let dma = Self { inner };
 
         // TODO: move - will have multiple consumers calling new
         Self::init();
@@ -88,65 +93,17 @@ impl<'d, T: Instance> Dma<'d, T> {
         sysctl0.ahbmatrixprior().modify(|_, w| unsafe { w.m4().bits(0) });
     }
 
-    /// Ready the specified DMA channel for triggering
-    pub fn configure_channel(&mut self, channel: usize, src: &[u8], dst: &mut [u8]) -> Result<(), Error> {
-        // TODO
+    // TODO - return Result
+    /// Reserve DMA channel
+    pub fn reserve_channel(&mut self, channel: u8) -> ChannelAndRequest<'d, T> {
+        let request: Request = 0; // TODO
 
-        let length = core::cmp::max(src.len(), dst.len());
+        let channel = Channel {
+            controller: unsafe { self.inner.clone_unchecked() }, // TODO - better design option?
+            number: channel,
+        };
 
-        let srcbase = src.as_ptr() as u32;
-        let dstbase = dst.as_mut_ptr() as u32;
-
-        let xfercount = length - 1;
-        let xferwidth = 1;
-
-        // Configure descriptor
-        unsafe {
-            DESCRIPTORS.list[channel].reserved = 0;
-            DESCRIPTORS.list[channel].src_data_end_addr = srcbase + (xfercount * xferwidth) as u32;
-            DESCRIPTORS.list[channel].dst_data_end_addr = dstbase + (xfercount * xferwidth) as u32;
-            DESCRIPTORS.list[channel].nxt_desc_link_addr = 0;
-        }
-
-        // Configure for memory-to-memory, no HW trigger, high priority
-        T::regs().channel(channel).cfg().modify(|_, w| unsafe {
-            w.periphreqen().clear_bit();
-            w.hwtrigen().clear_bit();
-            w.chpriority().bits(0)
-        });
-
-        // Mark configuration valid, clear trigger on complete, width is 1 byte, source & destination increments are width x 1 (1 byte), no reload
-        T::regs().channel(channel).xfercfg().modify(|_, w| unsafe {
-            w.cfgvalid().set_bit();
-            w.clrtrig().set_bit();
-            w.reload().clear_bit();
-            w.width().bits(0);
-            w.srcinc().bits(1);
-            w.dstinc().bits(1);
-            w.xfercount().bits(xfercount as u16)
-        });
-        Ok(())
-    }
-
-    /// Enable the specified DMA channel (must be configured)
-    pub fn enable_channel(&mut self, channel: usize) -> Result<(), Error> {
-        // TODO
-        T::regs()
-            .enableset0()
-            .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
-        Ok(())
-    }
-    /// Trigger the specified DMA channel
-    pub fn trigger_channel(&mut self, channel: usize) -> Result<(), Error> {
-        // TODO
-        T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
-        Ok(())
-    }
-
-    /// Is the specified DMA channel active?
-    pub fn is_channel_active(&mut self, channel: usize) -> Result<bool, Error> {
-        // TODO
-        Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
+        ChannelAndRequest { channel, request }
     }
 }
 
