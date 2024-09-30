@@ -103,12 +103,11 @@ impl ClockConfig {
                 mult: AtomicU8::new(16),
                 pfd0: 19, //
                 pfd1: 0,  // future field
-                pfd2: 19, // future field
+                pfd2: 19, // 0x13
                 pfd3: 0,  // future field
                 aux0_div: 0,
                 aux1_div: 0,
             },
-            //os_timer_clk: Some(OsTimerClkConfig {}),
             sys_clk: SysClkConfig {
                 sysclkfreq: AtomicU32::new(SYS_CLK_FREQ),
             },
@@ -411,6 +410,7 @@ pub struct MainClkConfig {
 /// System Core Clock config, SW concept for systick
 pub struct SysClkConfig {
     /// keeps track of the system core clock frequency
+    /// future use with systick
     pub sysclkfreq: AtomicU32,
 }
 
@@ -533,7 +533,6 @@ impl ConfigurableClock for FfroConfig {
         // SAFETY: should be called once
         FfroConfig::init_ffro_clk();
         // default is 48 MHz
-        self.freq.store(Into::into(FfroFreq::Ffro48m), Ordering::Relaxed);
         Ok(())
     }
     fn disable(&self) -> Result<(), ClockError> {
@@ -725,6 +724,8 @@ impl ConfigurableClock for MainPllClkConfig {
             sysctl0.pdruncfg0().write(|w| w.syspllldo_pd().power_down());
             sysctl0.pdruncfg0().write(|w| w.syspllana_pd().power_down());
 
+            let desired_freq: u64 = self.freq.load(Ordering::Relaxed).into();
+
             match self.src {
                 c if c == MainPllClkSrc::ClkIn || c == MainPllClkSrc::FFRO || c == MainPllClkSrc::SFRO => {
                     let mut base_rate;
@@ -736,7 +737,7 @@ impl ConfigurableClock for MainPllClkConfig {
                         }
                         MainPllClkSrc::FFRO => {
                             trace!("found FFRO as source, wait a bit");
-                            delay_loop_clocks(1000, 528_000_000);
+                            delay_loop_clocks(1000, desired_freq);
                             match clkctl0.ffroctl0().read().trim_range().is_ffro_48mhz() {
                                 true => base_rate = Into::into(FfroFreq::Ffro48m),
                                 false => base_rate = Into::into(FfroFreq::Ffro60m),
@@ -745,7 +746,7 @@ impl ConfigurableClock for MainPllClkConfig {
                             if div == 2 {
                                 trace!("dividing FFRO rate by 2");
                                 clkctl0.syspll0clksel().write(|w| w.sel().ffro_div_2());
-                                delay_loop_clocks(150, 528_000_000);
+                                delay_loop_clocks(150, desired_freq);
                                 base_rate /= 2;
                             } else {
                                 return Err(ClockError::InvalidDiv);
@@ -760,7 +761,7 @@ impl ConfigurableClock for MainPllClkConfig {
                     trace!("calculated base rate at: {:#}", base_rate);
                     if base_rate != freq {
                         // make sure to power syspll back up before returning the error
-                        error!("invalid frequency found, powering syspll back up before returning error");
+                        error!("invalid frequency found, powering syspll back up before returning error. Check div and mult");
                         // Clear System PLL reset
                         clkctl0.syspll0ctl0().write(|w| w.reset().clear_bit());
                         // Power up SYSPLL
@@ -773,7 +774,7 @@ impl ConfigurableClock for MainPllClkConfig {
                     // SAFETY: unsafe needed to write the bits for the num and demon fields
                     clkctl0.syspll0num().write(|w| unsafe { w.num().bits(0b0) });
                     clkctl0.syspll0denom().write(|w| unsafe { w.denom().bits(0b1) });
-                    delay_loop_clocks(30, 12_000_000);
+                    delay_loop_clocks(30, desired_freq);
                     self.mult.store(mult, Ordering::Relaxed);
                     trace!("setting self.mult as: {:#}", mult);
                     match mult {
@@ -795,11 +796,11 @@ impl ConfigurableClock for MainPllClkConfig {
 
                     // Set System PLL HOLDRINGOFF_ENA
                     clkctl0.syspll0ctl0().modify(|_, w| w.holdringoff_ena().enable());
-                    delay_loop_clocks(75, 12_000_000);
+                    delay_loop_clocks(75, desired_freq);
 
                     // Clear System PLL HOLDRINGOFF_ENA
                     clkctl0.syspll0ctl0().modify(|_, w| w.holdringoff_ena().dsiable());
-                    delay_loop_clocks(15, 12_000_000);
+                    delay_loop_clocks(15, desired_freq);
 
                     trace!("setting new PFD0 bits");
                     // gate the output and clear bits.
@@ -814,7 +815,7 @@ impl ConfigurableClock for MainPllClkConfig {
                         .syspll0pfd()
                         .modify(|_r, w| unsafe { w.pfd0_clkgate().not_gated().pfd0().bits(0x12) });
                     // wait for ready bit to be set
-                    delay_loop_clocks(50, 12_000_000);
+                    delay_loop_clocks(50, desired_freq);
                     trace!("waiting for mainpll clock to be ready");
                     while clkctl0.syspll0pfd().read().pfd0_clkrdy().bit_is_clear() {}
                     // clear by writing a 1
@@ -1296,6 +1297,7 @@ pub fn delay_loop_clocks(usec: u64, freq_mhz: u64) {
 
 /// Configure the pad voltage pmc registers for all 3 vddio ranges
 fn set_pad_voltage_range() {
+    // SAFETY: unsafe needed to take pointer to PNC as well as to write specific bits
     unsafe {
         let pmc = crate::pac::Pmc::steal();
         // Set up IO voltages
@@ -1308,8 +1310,10 @@ fn set_pad_voltage_range() {
 
 /// Initialize AHB clock
 fn init_syscpuahb_clk() {
+    // SAFETY: unsafe needed to take pointer to Clkctl0
     let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-
+    // SAFETY: unsafe needed to write the bits
+    // Set syscpuahbclkdiv to value 2, Subtract 1 since 0-> 1, 1-> 2, etc...
     clkctl0.syscpuahbclkdiv().write(|w| unsafe { w.div().bits(2 - 1) });
 
     while clkctl0.syscpuahbclkdiv().read().reqflag().bit_is_set() {}
@@ -1445,13 +1449,11 @@ impl ClockOutConfig {
     pub fn set_clkout_divider(&self, div: u8) -> Result<(), ClockError> {
         // don't wait for clock to be ready if there's no source
         if self.src != ClkOutSrc::None {
-            // SAFETY: unsafe needed to take pointer to Clkctl1 and to write specific bits
-            unsafe {
-                let cc1 = pac::Clkctl1::steal();
+            let cc1 = unsafe { pac::Clkctl1::steal() };
 
-                cc1.clkoutdiv().modify(|_, w| w.div().bits(div).halt().clear_bit());
-                while cc1.clkoutdiv().read().reqflag().bit_is_set() {}
-            }
+            cc1.clkoutdiv()
+                .modify(|_, w| unsafe { w.div().bits(div).halt().clear_bit() });
+            while cc1.clkoutdiv().read().reqflag().bit_is_set() {}
         }
         Ok(())
     }
@@ -1465,5 +1467,88 @@ impl ClockOutConfig {
     }
 }
 
-/// safety: must be called exactly once at bootup
-pub(crate) unsafe fn init(_config: ClockConfig) {}
+/// Using the config, enables all desired clocks to desired clock rates
+fn init_clock_hw(config: ClockConfig) -> Result<(), ClockError> {
+    if let Err(e) = config.rtc.enable_and_reset() {
+        error!("couldn't Power on OSC for RTC, result: {:?}", e);
+        return Err(e);
+    }
+
+    if let Err(e) = config.lposc.enable_and_reset() {
+        error!("couldn't Power on LPOSC, result: {:?}", e);
+        return Err(e);
+    }
+
+    if let Err(e) = config.ffro.enable_and_reset() {
+        error!("couldn't Power on FFRO, result: {:?}", e);
+        return Err(e);
+    }
+
+    if let Err(e) = config.sfro.enable_and_reset() {
+        error!("couldn't Power on SFRO, result: {:?}", e);
+        return Err(e);
+    }
+
+    if let Err(e) = config.sys_osc.enable_and_reset() {
+        error!("Couldn't enable sys oscillator {:?}", e);
+        return Err(e);
+    }
+
+    if let Err(e) = config.main_pll_clk.enable_and_reset() {
+        error!("Couldn't enable main pll clock {:?}", e);
+        return Err(e);
+    }
+
+    // Move FLEXSPI clock source from main clock to FFRO to avoid instruction/data fetch issue in XIP when
+    // updating PLL and main clock.
+    // SAFETY: unsafe needed to take pointers to Clkctl0
+    let cc0 = unsafe { pac::Clkctl0::steal() };
+    cc0.flexspifclksel().write(|w| w.sel().ffro_clk());
+    init_syscpuahb_clk();
+
+    if let Err(e) = config.main_clk.enable_and_reset() {
+        error!("Couldn't enable main clock {:?}", e);
+        return Err(e);
+    }
+
+    config.sys_clk.update_sys_core_clock();
+    Ok(())
+}
+
+/// SAFETY: must be called exactly once at bootup
+pub(crate) unsafe fn init(config: ClockConfig) -> Result<(), ClockError> {
+    init_clock_hw(config)?;
+    //peripheral_resets();
+    let cc1 = unsafe { pac::Clkctl1::steal() };
+    cc1.pscctl1().modify(|_r, w| w.crc_clk().disable_clock());
+    cc1.pscctl1().modify(|_r, w| w.crc_clk().enable_clock());
+
+    // set VDDIO ranges 0-2
+    set_pad_voltage_range();
+    Ok(())
+}
+
+fn peripheral_resets() {
+    let cc1 = unsafe { pac::Clkctl1::steal() };
+    let rc1 = unsafe { pac::Rstctl1::steal() };
+    trace!("begin peripheral resets");
+    // peripheral resets
+    cc1.pscctl1_set().write(|w| w.hsgpio0_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio0_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio2_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio2_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio3_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio3_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio4_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio4_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio5_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio5_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio6_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio6_rst_clr().clr_reset());
+    cc1.pscctl1_set().write(|w| w.hsgpio7_clk_set().set_bit());
+    rc1.prstctl1_clr().write(|w| w.hsgpio7_rst_clr().clr_reset());
+    cc1.pscctl1().modify(|_r, w| w.crc_clk().disable_clock());
+    cc1.pscctl1().modify(|_r, w| w.crc_clk().enable_clock());
+}

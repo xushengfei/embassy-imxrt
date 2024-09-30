@@ -360,7 +360,7 @@ pub mod config {
     impl Default for Config {
         fn default() -> Self {
             Self {
-                clocks: ClockConfig::crystal(24_000_000),
+                clocks: ClockConfig::crystal(),
                 #[cfg(feature = "time-driver")]
                 time_interrupt_priority: crate::interrupt::Priority::P0,
             }
