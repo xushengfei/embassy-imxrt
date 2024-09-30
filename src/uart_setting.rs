@@ -14,6 +14,7 @@ use mimxrt685s_pac as pac;
 pub use pac::flexcomm0::pselid::Lock as FlexcommLock;
 pub use pac::flexcomm0::pselid::Persel as Function;
 
+#[derive(Copy, Clone)]
 pub enum FlexcommFunc {
     // Only define the first one for now.
     //Flexcomm0,

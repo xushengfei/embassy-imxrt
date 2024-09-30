@@ -109,7 +109,7 @@ impl UartRxTx {
     fn reg(&self) -> &'static pac::usart0::RegisterBlock {
         match self.fc {
             FlexcommFunc::Flexcomm1 => {
-                return unsafe { &*(pac::Usart2::ptr() as *const pac::usart0::RegisterBlock) };
+                return unsafe { &*(pac::Usart1::ptr() as *const pac::usart0::RegisterBlock) };
             }
             FlexcommFunc::Flexcomm2 => {
                 return unsafe { &*(pac::Usart2::ptr() as *const pac::usart0::RegisterBlock) };
@@ -129,7 +129,7 @@ impl UartRxTx {
             loopback_mode: Loop::Normal,
         };
 
-        Flexcomm::new(FlexcommFunc::Flexcomm2).init();
+        Flexcomm::new(self.fc).init();
 
         self.configure_pins();
         self.set_uart_baudrate();
@@ -437,22 +437,47 @@ impl UartRxTx {
     /// This function configures the uart pins for testing purpose.
     /// Note: this is not the correct way of calling the ioctl. This is just for testing purpose.
     fn configure_pins(&self) {
-        let pin = unsafe { crate::peripherals::PIO0_15::steal() }; // Host uart tx
-        pin.set_function(Function::F1);
-        pin.set_drive_mode(DriveMode::PushPull);
-        pin.set_pull(Pull::None);
-        pin.set_slew_rate(SlewRate::Slow);
-        pin.set_drive_strength(DriveStrength::Normal);
-        pin.disable_analog_multiplex();
-        pin.enable_input_buffer();
-
-        let pin = unsafe { crate::peripherals::PIO0_16::steal() }; // Host uart rx
-        pin.set_function(Function::F1);
-        pin.set_drive_mode(DriveMode::PushPull);
-        pin.set_pull(Pull::None);
-        pin.set_slew_rate(SlewRate::Slow);
-        pin.set_drive_strength(DriveStrength::Normal);
-        pin.disable_analog_multiplex();
-        pin.enable_input_buffer();
+        match self.fc {
+            FlexcommFunc::Flexcomm1 => {
+                let tx = unsafe { crate::peripherals::PIO0_8::steal() }; // Host uart tx
+                let rx = unsafe { crate::peripherals::PIO0_9::steal() }; // Host uart rx
+                tx.configure();
+                rx.configure();
+            }
+            FlexcommFunc::Flexcomm2 => {
+                let tx = unsafe { crate::peripherals::PIO0_15::steal() }; // Host uart tx
+                let rx = unsafe { crate::peripherals::PIO0_16::steal() }; // Host uart rx
+                tx.configure();
+                rx.configure();
+            }
+        }
     }
 }
+
+pub trait UartPin {
+    fn configure(&self);
+}
+
+macro_rules! impl_uart_pin {
+    ($pin:ident) => {
+        impl_uart_pin!(@local, crate::peripherals::$pin);
+    };
+    (@local, $pin:ty) => {
+        impl crate::uart::UartPin for $pin {
+            fn configure(&self) {
+                self.set_function(Function::F1);
+                self.set_drive_mode(DriveMode::PushPull);
+                self.set_pull(Pull::None);
+                self.set_slew_rate(SlewRate::Slow);
+                self.set_drive_strength(DriveStrength::Normal);
+                self.disable_analog_multiplex();
+                self.enable_input_buffer();
+            }
+        }
+    };
+}
+
+impl_uart_pin!(PIO0_8);
+impl_uart_pin!(PIO0_9);
+impl_uart_pin!(PIO0_15);
+impl_uart_pin!(PIO0_16);

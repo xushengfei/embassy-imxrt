@@ -14,14 +14,14 @@ async fn main(_spawner: Spawner) {
         board_init_sfro_clocks();
 
         info!("UART test start");
-        let mut usart = UartRxTx::new(FlexcommFunc::Flexcomm2);
+        /*let mut usart = UartRxTx::new(FlexcommFunc::Flexcomm2);
         usart.init();
 
         info!("UART init() complete");
 
         // To test connect an FTDI cable and verify the data received from uart tx on Tera term/ putty
         let mut status = GenericStatus::Success;
-        let mut data = [0x55, 0x56, 0x41, 0x42, 0x44]; //[0x41, 0x42, 0x43, 0x44, 0x45];
+        let mut data = [0x49, 0x4A, 0x4B, 0x4C, 0x4D]; //[0x41, 0x42, 0x43, 0x44, 0x45];
         status = usart.write_blocking(&mut data, 5);
         if status != GenericStatus::Success {
             info!("UART test write_blocking() failed");
@@ -29,25 +29,38 @@ async fn main(_spawner: Spawner) {
             info!("UART test write_blocking() done");
         }
 
+        usart.deinit();
+        info!("UART test deinit() done");*/
+
+        // Testing read on FC1
+        let mut usart = UartRxTx::new(FlexcommFunc::Flexcomm1);
+        usart.init();
+
+        info!("UART init() complete");
         // To test read send the data on tera term / putty and verify from the buffer
-        /*  let mut buf = [0; 5];
+        let mut buf = [0; 5];
+        let mut status = GenericStatus::Success;
         status = usart.read_blocking(&mut buf, 5);
         if status != GenericStatus::Success {
             info!("UART test read_blocking() failed");
         } else {
+            for i in &buf {
+                info!("{} ", *i as char);
+            }
             info!("UART test read_blocking() done");
         }
 
         if status == GenericStatus::Success {
+            info!("UART test passed");
             //assert_eq!(buf, data);
-            if &buf[0..5] == &data[..] {
+            /*if &buf[0..5] == &data[..] {
                 info!("UART test passed");
             } else {
                 info!("UART test failed");
-            }
+            }*/
         } else {
             info!("UART test failed");
-        }*/
+        }
 
         usart.deinit();
         info!("UART test deinit() done");
