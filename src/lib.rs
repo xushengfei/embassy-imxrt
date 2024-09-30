@@ -20,8 +20,11 @@ pub mod pwm;
 pub mod rng;
 #[cfg(feature = "time-driver")]
 mod time_driver;
-pub mod uart;
-pub mod uart_setting;
+//pub mod uart;
+//pub mod uart3;
+pub mod uart4;
+//pub mod uart_setting;
+//pub mod uart_setting3;
 pub mod wwdt;
 
 // Reexports
