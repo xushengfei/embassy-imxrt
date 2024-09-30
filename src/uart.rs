@@ -27,10 +27,10 @@ pub use pac::usart0::ctl::Cc;
 pub use pac::usart0::fifocfg::Enablerx;
 pub use pac::usart0::fifocfg::Enabletx;
 
-///Assumptions
-/// - This code implements very basic functionality of the UART.- blocking reading/ writing a single buffer of data
-///  TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
-///  TODO: Add flow control
+/// Assumptions
+/// This code implements very basic functionality of the UART.- blocking reading/ writing a single buffer of data
+/// TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
+/// TODO: Add flow control
 ///
 
 /// Pin function number.
