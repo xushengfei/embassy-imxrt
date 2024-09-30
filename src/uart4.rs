@@ -4,12 +4,7 @@
 #![macro_use]
 
 use crate::iopctl::*;
-//use crate::uart_setting::Flexcomm;
-//use crate::uart_setting::FlexcommFunc;
-//use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral};
 use mimxrt685s_pac as pac;
-//use mimxrt685s_pac::usart0::brg;
-//use pac::usart0::RegisterBlock;
 
 use crate::iopctl::IopctlPin as Pin;
 use crate::PeripheralRef;
@@ -33,14 +28,9 @@ pub use pac::usart0::fifocfg::Enablerx;
 pub use pac::usart0::fifocfg::Enabletx;
 
 ///Assumptions
-/// - This is a basic test code to verify a very basic functionality of the UART.- reading/ writing a single buffer of data
-/// Flexcomm 0 will be hard coded for now. Plus clock.
-/// Using the flexcomm 0 base address for uart. i.e using Usart0 only. This is by default mapped to 0x40106000 (Non-secure).
-/// TODO: Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
-/// IOCTL for the uart pins will be hard coded.
-/// Add the hardcoded part will be added in uart_setting.rs file for easy separation. This is a temp file which will be refactored out once flexcomm, clocks, gpios are fully implemented
-/// Adding more customizable, generic code will be the next step
-/// Also features like DMA, async data transfer, etc will be added later.
+/// - This code implements very basic functionality of the UART.- blocking reading/ writing a single buffer of data
+/// TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
+/// TODO: Add flow control
 ///
 
 /// Pin function number.
@@ -97,10 +87,6 @@ pub struct Uart<'a, const FC: usize, T: UartAny<FC>, Tx: UartPin<FC>, Rx: UartPi
     bus: crate::flexcomm::UsartBus<'a, T>,
     _tx: PeripheralRef<'a, Tx>,
     _rx: PeripheralRef<'a, Rx>,
-    //pub gen_config: GeneralConfig,
-    //pub mcu_spec_config: UartMcuSpecificConfig,
-    //pub flexcomm_freq: u32,
-    //pub fc: FlexcommFunc,
 }
 
 /// UART general config
@@ -157,9 +143,6 @@ impl Default for UartMcuSpecificConfig {
 }
 
 /// Generic status enum to return the status of the uart read/write operations
-/// Todo: In the vendor file fsl_common.h, there is an enum defined enum _status_groups{},
-/// that can be used to define the status of all the peripherals in a standard way.
-/// Since that is missing in the pac, I am defining a temp status
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum GenericStatus {
@@ -267,7 +250,6 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             //Smaller values of OSR can make the sampling position within a data bit less accurate and may
             //potentially cause more noise errors or incorrect data.
             for osrval in (8..=0xF).rev() {
-                // let brgval = (((source_clock_hz * 10u32) / ((osrval + 1u32) * baudrate_bps)) - 5u32) / 10u32;
                 let brgval = (source_clock_hz / ((osrval + 1u32) * baudrate_bps)) - 1u32;
                 if brgval > 0xFFFFu32 {
                     continue;
@@ -309,15 +291,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         bus.usart()
             .fifocfg()
             .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
-        /*self.reg()
-        .fifocfg()
-        .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());*/
 
-        /*if self.reg().fifocfg().read().enabletx().bit_is_clear() {
-            info!("Error: TX FIFO is not enabled");
-        } else {
-            info!("Info: TX FIFO is enabled");
-        }*/
         if bus.usart().fifocfg().read().enabletx().bit_is_clear() {
             info!("Error: TX FIFO is not enabled");
         } else {
@@ -325,7 +299,6 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         }
 
         // clear FIFO error
-        //self.reg().fifostat().write(|w| w.txerr().set_bit());
         bus.usart().fifostat().write(|w| w.txerr().set_bit());
     }
 
@@ -334,15 +307,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         bus.usart()
             .fifocfg()
             .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
-        /*self.reg()
-        .fifocfg()
-        .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());*/
 
-        /*if self.reg().fifocfg().read().enablerx().bit_is_clear() {
-            info!("Error: RX FIFO is not enabled");
-        } else {
-            info!("Info: RX FIFO is enabled");
-        }*/
         if bus.usart().fifocfg().read().enablerx().bit_is_clear() {
             info!("Error: RX FIFO is not enabled");
         } else {
@@ -350,7 +315,6 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         }
 
         // clear FIFO error
-        //self.reg().fifostat().write(|w| w.rxerr().set_bit());
         bus.usart().fifostat().write(|w| w.rxerr().set_bit());
     }
 
@@ -360,71 +324,54 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
 
         // setting the uart data len
         if gen_config.data_bits == Datalen::Bit8 {
-            //self.reg().cfg().write(|w| w.datalen().bit_8());
             bus.usart().cfg().modify(|_, w| w.datalen().bit_8());
         } else if gen_config.data_bits == Datalen::Bit7 {
-            //self.reg().cfg().write(|w| w.datalen().bit_7());
             bus.usart().cfg().modify(|_, w| w.datalen().bit_7());
         } else if gen_config.data_bits == Datalen::Bit9 {
-            //self.reg().cfg().write(|w| w.datalen().bit_9());
             bus.usart().cfg().modify(|_, w| w.datalen().bit_9());
         }
 
         //setting the uart stop bits
         if gen_config.stop_bits == Stoplen::Bit1 {
-            //self.reg().cfg().write(|w| w.stoplen().bit_1());
             bus.usart().cfg().modify(|_, w| w.stoplen().bit_1());
         } else if gen_config.stop_bits == Stoplen::Bits2 {
-            //self.reg().cfg().write(|w| w.stoplen().bits_2());
             bus.usart().cfg().modify(|_, w| w.stoplen().bits_2());
         }
 
         //setting the uart parity
         if gen_config.parity == Parity::NoParity {
-            //self.reg().cfg().write(|w| w.paritysel().no_parity());
             bus.usart().cfg().modify(|_, w| w.paritysel().no_parity());
         } else if gen_config.parity == Parity::EvenParity {
-            //self.reg().cfg().write(|w| w.paritysel().even_parity());
             bus.usart().cfg().modify(|_, w| w.paritysel().even_parity());
         } else if gen_config.parity == Parity::OddParity {
-            //self.reg().cfg().write(|w| w.paritysel().odd_parity());
             bus.usart().cfg().modify(|_, w| w.paritysel().odd_parity());
         }
 
         // setting mcu specific uart config
         if uart_mcu_spec_config.loopback_mode == Loop::Normal {
-            //self.reg().cfg().write(|w| w.loop_().normal());
             bus.usart().cfg().modify(|_, w| w.loop_().normal());
         } else if uart_mcu_spec_config.loopback_mode == Loop::Loopback {
-            //self.reg().cfg().write(|w| w.loop_().loopback());
             bus.usart().cfg().modify(|_, w| w.loop_().loopback());
         }
 
         if uart_mcu_spec_config.operation == Syncen::AsynchronousMode {
-            //self.reg().cfg().write(|w| w.syncen().asynchronous_mode());
             bus.usart().cfg().modify(|_, w| w.syncen().asynchronous_mode());
         } else if uart_mcu_spec_config.operation == Syncen::SynchronousMode {
-            //self.reg().cfg().write(|w| w.syncen().synchronous_mode());
             bus.usart().cfg().modify(|_, w| w.syncen().synchronous_mode());
 
             if uart_mcu_spec_config.sync_mode_master_select == Syncmst::Master {
-                //self.reg().cfg().write(|w| w.syncmst().master());
                 bus.usart().cfg().modify(|_, w| w.syncmst().master());
             } else if uart_mcu_spec_config.sync_mode_master_select == Syncmst::Slave {
-                //self.reg().cfg().write(|w| w.syncmst().slave());
                 bus.usart().cfg().modify(|_, w| w.syncmst().slave());
             }
         }
 
         if uart_mcu_spec_config.clock_polarity == Clkpol::RisingEdge {
-            //self.reg().cfg().write(|w| w.clkpol().rising_edge());
             bus.usart().cfg().modify(|_, w| w.clkpol().rising_edge());
         } else if uart_mcu_spec_config.clock_polarity == Clkpol::FallingEdge {
-            //self.reg().cfg().write(|w| w.clkpol().falling_edge());
             bus.usart().cfg().modify(|_, w| w.clkpol().falling_edge());
         }
 
-        //Note: Some weird behaviour .Do not enable the uart. config and fifo tx will work correctly!
         bus.usart().cfg().modify(|_, w| w.enable().enabled());
     }
 
@@ -567,10 +514,42 @@ macro_rules! impl_uart_pin {
     };
 }
 
+// Flexcomm0 Uart TX/Rx
+impl_uart_pin!(PIO0_1, F1, 0); //Tx
+impl_uart_pin!(PIO0_2, F1, 0); //Rx
+impl_uart_pin!(PIO3_1, F5, 0); //Tx
+impl_uart_pin!(PIO3_2, F5, 0); //Rx
+
 // Flexcomm1 Uart TX/Rx
 impl_uart_pin!(PIO0_8, F1, 1); //Tx
 impl_uart_pin!(PIO0_9, F1, 1); //Rx
+impl_uart_pin!(PIO7_26, F1, 1); //Tx
+impl_uart_pin!(PIO7_27, F1, 1); //Rx
 
 // Flexcomm2 Uart Tx/Rx
 impl_uart_pin!(PIO0_15, F1, 2); //Tx
 impl_uart_pin!(PIO0_16, F1, 2); //Rx
+impl_uart_pin!(PIO7_30, F5, 2); //Tx
+impl_uart_pin!(PIO7_31, F5, 2); //Rx
+
+// Flexcomm3 Uart Tx/Rx
+impl_uart_pin!(PIO0_22, F1, 3); //Tx
+impl_uart_pin!(PIO0_23, F1, 3); //Rx
+
+// Flexcomm4 Uart Tx/Rx
+impl_uart_pin!(PIO0_29, F1, 4); //Tx
+impl_uart_pin!(PIO0_30, F1, 4); //Rx
+
+// Flexcomm5 Uart Tx/Rx
+impl_uart_pin!(PIO1_4, F1, 5); //Tx
+impl_uart_pin!(PIO1_5, F1, 5); //Rx
+impl_uart_pin!(PIO3_16, F5, 5); //Tx
+impl_uart_pin!(PIO3_17, F5, 5); //Rx
+
+// Flexcomm6 Uart Tx/Rx
+impl_uart_pin!(PIO3_26, F1, 6); //Tx
+impl_uart_pin!(PIO3_27, F1, 6); //Rx
+
+// Flexcomm7 Uart Tx/Rx
+impl_uart_pin!(PIO4_1, F1, 7); //Tx
+impl_uart_pin!(PIO4_2, F1, 7); //Rx
