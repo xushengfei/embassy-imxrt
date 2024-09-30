@@ -29,8 +29,8 @@ pub use pac::usart0::fifocfg::Enabletx;
 
 ///Assumptions
 /// - This code implements very basic functionality of the UART.- blocking reading/ writing a single buffer of data
-/// TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
-/// TODO: Add flow control
+///  TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
+///  TODO: Add flow control
 ///
 
 /// Pin function number.
@@ -243,7 +243,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             if bus.usart().cfg().read().syncmst().is_master() {
                 // Calculate the BRG value
                 let mut brgval = source_clock_hz / baudrate_bps;
-                brgval = brgval - 1u32;
+                brgval -= 1u32;
                 unsafe { bus.usart().brg().write(|w| w.brgval().bits(brgval as u16)) };
             }
         } else {
@@ -294,8 +294,6 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
 
         if bus.usart().fifocfg().read().enabletx().bit_is_clear() {
             info!("Error: TX FIFO is not enabled");
-        } else {
-            info!("Info: TX FIFO is enabled");
         }
 
         // clear FIFO error
@@ -310,8 +308,6 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
 
         if bus.usart().fifocfg().read().enablerx().bit_is_clear() {
             info!("Error: RX FIFO is not enabled");
-        } else {
-            info!("Info: RX FIFO is enabled");
         }
 
         // clear FIFO error
@@ -470,7 +466,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             }
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// Writes to the TX register using a blocking method.
@@ -493,7 +489,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             // Wait to finish transfer
             while bus.usart().stat().read().txidle().bit_is_clear() {}
         }
-        return Ok(());
+        Ok(())
     }
 }
 
