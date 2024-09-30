@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
         info!("UART test start");
 
         // Validating read on FC1
-        /*let mut usart = uart4::Uart::new(
+        let usart = Uart::new(
             p.FLEXCOMM1,
             p.PIO0_8,
             p.PIO0_9,
@@ -35,10 +35,12 @@ async fn main(_spawner: Spawner) {
             info!("UART test read_blocking() done");
         } else {
             info!("UART test read_blocking() failed");
-        }*/
+        }
+
+        let _ = usart.deinit();
 
         // Validating write on FC2
-        let mut usart = uart4::Uart::new(
+        let usart = Uart::new(
             p.FLEXCOMM2,
             p.PIO0_15,
             p.PIO0_16,
@@ -47,7 +49,7 @@ async fn main(_spawner: Spawner) {
         )
         .unwrap();
 
-        let mut data = [53, 120, 121, 122, 54];
+        let mut data = [55, 110, 111, 112, 56];
         let result = usart.write_blocking(&mut data, 5);
         if result.is_ok() {
             info!("UART test write_blocking() done");

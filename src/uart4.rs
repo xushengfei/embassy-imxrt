@@ -3,17 +3,13 @@
 
 #![macro_use]
 
-use core::marker::PhantomData;
-
 use crate::iopctl::*;
-use crate::pac::usart0;
-use crate::peripherals;
-use crate::uart_setting::Flexcomm;
-use crate::uart_setting::FlexcommFunc;
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral};
+//use crate::uart_setting::Flexcomm;
+//use crate::uart_setting::FlexcommFunc;
+//use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral};
 use mimxrt685s_pac as pac;
-use mimxrt685s_pac::usart0::brg;
-use pac::usart0::RegisterBlock;
+//use mimxrt685s_pac::usart0::brg;
+//use pac::usart0::RegisterBlock;
 
 use crate::iopctl::IopctlPin as Pin;
 use crate::PeripheralRef;
@@ -101,8 +97,8 @@ pub struct Uart<'a, const FC: usize, T: UartAny<FC>, Tx: UartPin<FC>, Rx: UartPi
     bus: crate::flexcomm::UsartBus<'a, T>,
     _tx: PeripheralRef<'a, Tx>,
     _rx: PeripheralRef<'a, Rx>,
-    //pub genConfig: GeneralConfig,
-    //pub mcuSpConfig: UartMcuSpecificConfig,
+    //pub gen_config: GeneralConfig,
+    //pub mcu_spec_config: UartMcuSpecificConfig,
     //pub flexcomm_freq: u32,
     //pub fc: FlexcommFunc,
 }
@@ -110,10 +106,13 @@ pub struct Uart<'a, const FC: usize, T: UartAny<FC>, Tx: UartPin<FC>, Rx: UartPi
 /// UART general config
 #[derive(Clone, Copy)]
 pub struct GeneralConfig {
-    /// ADC voltage reference
+    /// Baudrate of the Uart
     pub baudrate: Baudrate,
+    /// data length
     pub data_bits: Datalen,
+    /// Parity
     pub parity: Parity,
+    /// Stop bits
     pub stop_bits: Stoplen,
 }
 
@@ -132,6 +131,7 @@ impl Default for GeneralConfig {
 /// UART MCU_specific config
 #[derive(Clone, Copy)]
 pub struct UartMcuSpecificConfig {
+    /// Polarity of the clock
     pub clock_polarity: Clkpol,
     /// Sync/ Async operation selection
     pub operation: Syncen,
@@ -139,6 +139,7 @@ pub struct UartMcuSpecificConfig {
     pub sync_mode_master_select: Syncmst,
     /// USART continuous Clock generation enable in synchronous master mode.
     pub continuous_clock: Cc,
+    /// Normal/ loopback mode
     pub loopback_mode: Loop,
 }
 
@@ -165,19 +166,25 @@ pub enum GenericStatus {
     /// propagating a lower level flexcomm error
     Flex(crate::flexcomm::Error),
 
-    // Generic status
+    /// Generic status
+    /// Success
     Success,
+    /// Failure
     Fail,
-    ReadOnly,
-    OutOfRange,
+    /// Invalid argument
     InvalidArgument,
-    Timeout,
-    NoTransferInProgress,
+
+    /// Uart baud rate cannot be supported with the given clock
     UsartBaudrateNotSupported,
+    /// Read error
     UsartRxError,
+    /// Buffer overflow
     UsartRxRingBufferOverrun,
+    /// Noise error in Rx
     UsartNoiseError,
+    /// Framing error in Rx
     UsartFramingError,
+    /// Parity error in Rx
     UsartParityError,
 }
 /// shorthand for -> Result<T>
@@ -198,8 +205,8 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         fc: T,
         tx: Tx,
         rx: Rx,
-        generalConfig: GeneralConfig,
-        mcuSpConfig: UartMcuSpecificConfig,
+        general_config: GeneralConfig,
+        mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -209,19 +216,19 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         tx.as_txrx();
         rx.as_txrx();
 
-        let mut this = Self {
+        let this = Self {
             bus,
             _tx: tx.into_ref(),
             _rx: rx.into_ref(),
         };
 
-        let result = this.set_uart_baudrate(&generalConfig);
+        let result = this.set_uart_baudrate(&general_config);
         if result != GenericStatus::Success {
             return Err(result);
         }
         this.set_uart_tx_fifo();
         this.set_uart_rx_fifo();
-        this.set_uart_config(&generalConfig, &mcuSpConfig);
+        this.set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(this)
     }
@@ -233,18 +240,15 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         0xf42400
     }
 
-    fn set_uart_baudrate(&self, genConfig: &GeneralConfig) -> GenericStatus {
+    fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> GenericStatus {
         let bus = &self.bus;
-        let baudrate_bps = genConfig.baudrate;
+        let baudrate_bps = gen_config.baudrate;
         let source_clock_hz = self.get_fc_freq(); // TODO: replace this with the call to flexcomm_getClkFreq()
 
         let mut best_diff: u32 = 0xFFFFFFFF;
         let mut best_osrval: u32 = 0xF;
         let mut best_brgval: u32 = 0xFFFFFFFF;
-        let mut osrval: u32 = 0;
-        let mut brgval: u32 = 0;
-        let mut diff: u32 = 0;
-        let mut baudrate: u32 = 0;
+        let mut diff: u32;
 
         if baudrate_bps == 0 || source_clock_hz == 0 {
             return GenericStatus::InvalidArgument;
@@ -255,21 +259,21 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             // Master
             if bus.usart().cfg().read().syncmst().is_master() {
                 // Calculate the BRG value
-                brgval = source_clock_hz / baudrate_bps;
+                let mut brgval = source_clock_hz / baudrate_bps;
                 brgval = brgval - 1u32;
                 unsafe { bus.usart().brg().write(|w| w.brgval().bits(brgval as u16)) };
             }
         } else {
             //Smaller values of OSR can make the sampling position within a data bit less accurate and may
             //potentially cause more noise errors or incorrect data.
-            for osrval in (8..=best_osrval).rev() {
-                // brgval = (((source_clock_hz * 10u32) / ((osrval + 1u32) * baudrate_bps)) - 5u32) / 10u32;
-                brgval = (source_clock_hz / ((osrval + 1u32) * baudrate_bps)) - 1u32;
+            for osrval in (8..=0xF).rev() {
+                // let brgval = (((source_clock_hz * 10u32) / ((osrval + 1u32) * baudrate_bps)) - 5u32) / 10u32;
+                let brgval = (source_clock_hz / ((osrval + 1u32) * baudrate_bps)) - 1u32;
                 if brgval > 0xFFFFu32 {
                     continue;
                 }
                 // Calculate the baud rate based on the BRG value
-                baudrate = source_clock_hz / ((osrval + 1u32) * (brgval + 1u32));
+                let baudrate = source_clock_hz / ((osrval + 1u32) * (brgval + 1u32));
 
                 // Calculate the difference between the current baud rate and the desired baud rate
                 if baudrate > baudrate_bps {
@@ -288,8 +292,6 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
 
             // Value over range
             if best_brgval > 0xFFFFu32 {
-                best_osrval = 0;
-                best_brgval = 0;
                 return GenericStatus::UsartBaudrateNotSupported;
             }
 
@@ -352,72 +354,72 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         bus.usart().fifostat().write(|w| w.rxerr().set_bit());
     }
 
-    fn set_uart_config(&self, genConfig: &GeneralConfig, uartMcuSpConfig: &UartMcuSpecificConfig) {
+    fn set_uart_config(&self, gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
         let bus = &self.bus;
         bus.usart().cfg().write(|w| w.enable().disabled());
 
         // setting the uart data len
-        if genConfig.data_bits == Datalen::Bit8 {
+        if gen_config.data_bits == Datalen::Bit8 {
             //self.reg().cfg().write(|w| w.datalen().bit_8());
             bus.usart().cfg().modify(|_, w| w.datalen().bit_8());
-        } else if genConfig.data_bits == Datalen::Bit7 {
+        } else if gen_config.data_bits == Datalen::Bit7 {
             //self.reg().cfg().write(|w| w.datalen().bit_7());
             bus.usart().cfg().modify(|_, w| w.datalen().bit_7());
-        } else if genConfig.data_bits == Datalen::Bit9 {
+        } else if gen_config.data_bits == Datalen::Bit9 {
             //self.reg().cfg().write(|w| w.datalen().bit_9());
             bus.usart().cfg().modify(|_, w| w.datalen().bit_9());
         }
 
         //setting the uart stop bits
-        if genConfig.stop_bits == Stoplen::Bit1 {
+        if gen_config.stop_bits == Stoplen::Bit1 {
             //self.reg().cfg().write(|w| w.stoplen().bit_1());
             bus.usart().cfg().modify(|_, w| w.stoplen().bit_1());
-        } else if genConfig.stop_bits == Stoplen::Bits2 {
+        } else if gen_config.stop_bits == Stoplen::Bits2 {
             //self.reg().cfg().write(|w| w.stoplen().bits_2());
             bus.usart().cfg().modify(|_, w| w.stoplen().bits_2());
         }
 
         //setting the uart parity
-        if genConfig.parity == Parity::NoParity {
+        if gen_config.parity == Parity::NoParity {
             //self.reg().cfg().write(|w| w.paritysel().no_parity());
             bus.usart().cfg().modify(|_, w| w.paritysel().no_parity());
-        } else if genConfig.parity == Parity::EvenParity {
+        } else if gen_config.parity == Parity::EvenParity {
             //self.reg().cfg().write(|w| w.paritysel().even_parity());
             bus.usart().cfg().modify(|_, w| w.paritysel().even_parity());
-        } else if genConfig.parity == Parity::OddParity {
+        } else if gen_config.parity == Parity::OddParity {
             //self.reg().cfg().write(|w| w.paritysel().odd_parity());
             bus.usart().cfg().modify(|_, w| w.paritysel().odd_parity());
         }
 
         // setting mcu specific uart config
-        if uartMcuSpConfig.loopback_mode == Loop::Normal {
+        if uart_mcu_spec_config.loopback_mode == Loop::Normal {
             //self.reg().cfg().write(|w| w.loop_().normal());
             bus.usart().cfg().modify(|_, w| w.loop_().normal());
-        } else if uartMcuSpConfig.loopback_mode == Loop::Loopback {
+        } else if uart_mcu_spec_config.loopback_mode == Loop::Loopback {
             //self.reg().cfg().write(|w| w.loop_().loopback());
             bus.usart().cfg().modify(|_, w| w.loop_().loopback());
         }
 
-        if uartMcuSpConfig.operation == Syncen::AsynchronousMode {
+        if uart_mcu_spec_config.operation == Syncen::AsynchronousMode {
             //self.reg().cfg().write(|w| w.syncen().asynchronous_mode());
             bus.usart().cfg().modify(|_, w| w.syncen().asynchronous_mode());
-        } else if uartMcuSpConfig.operation == Syncen::SynchronousMode {
+        } else if uart_mcu_spec_config.operation == Syncen::SynchronousMode {
             //self.reg().cfg().write(|w| w.syncen().synchronous_mode());
             bus.usart().cfg().modify(|_, w| w.syncen().synchronous_mode());
 
-            if uartMcuSpConfig.sync_mode_master_select == Syncmst::Master {
+            if uart_mcu_spec_config.sync_mode_master_select == Syncmst::Master {
                 //self.reg().cfg().write(|w| w.syncmst().master());
                 bus.usart().cfg().modify(|_, w| w.syncmst().master());
-            } else if uartMcuSpConfig.sync_mode_master_select == Syncmst::Slave {
+            } else if uart_mcu_spec_config.sync_mode_master_select == Syncmst::Slave {
                 //self.reg().cfg().write(|w| w.syncmst().slave());
                 bus.usart().cfg().modify(|_, w| w.syncmst().slave());
             }
         }
 
-        if uartMcuSpConfig.clock_polarity == Clkpol::RisingEdge {
+        if uart_mcu_spec_config.clock_polarity == Clkpol::RisingEdge {
             //self.reg().cfg().write(|w| w.clkpol().rising_edge());
             bus.usart().cfg().modify(|_, w| w.clkpol().rising_edge());
-        } else if uartMcuSpConfig.clock_polarity == Clkpol::FallingEdge {
+        } else if uart_mcu_spec_config.clock_polarity == Clkpol::FallingEdge {
             //self.reg().cfg().write(|w| w.clkpol().falling_edge());
             bus.usart().cfg().modify(|_, w| w.clkpol().falling_edge());
         }
@@ -538,7 +540,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             for i in 0..len {
                 // Loop until txFIFO get some space for new data
                 while bus.usart().fifostat().read().txnotfull().bit_is_clear() {}
-                let mut x = buf[i as usize];
+                let x = buf[i as usize];
                 bus.usart().fifowr().write(|w| unsafe { w.txdata().bits(x as u16) });
             }
             // Wait to finish transfer
@@ -566,9 +568,9 @@ macro_rules! impl_uart_pin {
 }
 
 // Flexcomm1 Uart TX/Rx
-impl_uart_pin!(PIO0_8, F1, 1);
-impl_uart_pin!(PIO0_9, F1, 1);
+impl_uart_pin!(PIO0_8, F1, 1); //Tx
+impl_uart_pin!(PIO0_9, F1, 1); //Rx
 
 // Flexcomm2 Uart Tx/Rx
-impl_uart_pin!(PIO0_15, F1, 2);
-impl_uart_pin!(PIO0_16, F1, 2);
+impl_uart_pin!(PIO0_15, F1, 2); //Tx
+impl_uart_pin!(PIO0_16, F1, 2); //Rx
