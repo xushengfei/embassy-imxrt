@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::uart4::{self, Uart};
+use embassy_imxrt::uart::{self, Uart};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -19,8 +19,8 @@ async fn main(_spawner: Spawner) {
             p.FLEXCOMM1,
             p.PIO0_8,
             p.PIO0_9,
-            uart4::GeneralConfig::default(),
-            uart4::UartMcuSpecificConfig::default(),
+            uart::GeneralConfig::default(),
+            uart::UartMcuSpecificConfig::default(),
         )
         .unwrap();
 
@@ -44,12 +44,12 @@ async fn main(_spawner: Spawner) {
             p.FLEXCOMM2,
             p.PIO0_15,
             p.PIO0_16,
-            uart4::GeneralConfig::default(),
-            uart4::UartMcuSpecificConfig::default(),
+            uart::GeneralConfig::default(),
+            uart::UartMcuSpecificConfig::default(),
         )
         .unwrap();
 
-        let mut data = [55, 110, 111, 112, 56];
+        let mut data = [57, 114, 115, 116, 58];
         let result = usart.write_blocking(&mut data, 5);
         if result.is_ok() {
             info!("UART test write_blocking() done");
