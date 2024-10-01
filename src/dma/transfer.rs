@@ -19,7 +19,7 @@ pub struct TransferOptions {
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            width: Width::Bit8,
+            width: Width::Bit32,
             priority: Priority::Priority0,
         }
     }
@@ -97,7 +97,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         request: Request,
         peri_addr: *const u8, // TODO
         buf: &'d mut [u8],    // TODO
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         Self::new_read_raw(channel, request, peri_addr, buf, options)
     }
@@ -108,7 +108,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         request: Request,
         peri_addr: *const u8,
         buf: *mut [u8],
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         Self::new_inner(
             channel,
@@ -127,7 +127,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         request: Request,
         buf: &'d [u8],
         peri_addr: *mut u8,
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         Self::new_write_raw(channel, request, buf, peri_addr, options)
     }
@@ -138,7 +138,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         request: Request,
         buf: *const [u8],   // TODO
         peri_addr: *mut u8, // TODO
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         Self::new_inner(
             channel,
@@ -157,7 +157,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         request: Request,
         src_buf: &'d [u8],
         dst_buf: &'d mut [u8],
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         Self::new_write_mem_raw(channel, request, src_buf, dst_buf, options)
     }
@@ -168,7 +168,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
         request: Request,
         src_buf: *const [u8], // TODO
         dst_buf: *mut [u8],   // TODO
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         Self::new_inner(
             channel,
@@ -188,21 +188,28 @@ impl<'d, T: Instance> Transfer<'d, T> {
         src_buf: *const u32,
         dst_buf: *mut u32,
         mem_len: usize,
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Self {
         // 1. configure_channel
-        match channel.configure_channel(channel.number, dir, src_buf, dst_buf, mem_len, options) {
+        match channel.configure_channel(
+            T::get_channel_number().unwrap(),
+            dir,
+            src_buf,
+            dst_buf,
+            mem_len,
+            options,
+        ) {
             Ok(v) => v,
             Err(_e) => info!("failed to configure DMA channel"),
         };
         // 2. enable_channel
-        match channel.enable_channel(channel.number) {
+        match channel.enable_channel(T::get_channel_number().unwrap()) {
             Ok(v) => v,
             Err(_e) => info!("failed to enable DMA channel"),
         };
 
         // 3. trigger_channel
-        match channel.trigger_channel(channel.number) {
+        match channel.trigger_channel(T::get_channel_number().unwrap()) {
             Ok(v) => v,
             Err(_e) => info!("failed to trigger DMA channel"),
         };
