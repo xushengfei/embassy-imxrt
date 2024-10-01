@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
 
     // Reserve DMA channels
     let mut ch1 = Dma::reserve_channel(p.DMA0_CH0);
-    let mut ch2 = Dma::reserve_channel(p.DMA0_CH5);
+    let mut ch2 = Dma::reserve_channel(p.DMA0_CH31);
 
     // Default transfer width is 32 bits
     let mut options = TransferOptions::default();

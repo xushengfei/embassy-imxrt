@@ -13,6 +13,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 // TODO:
 //  - add support for DMA1
 
+const DMA_CHANNEL_COUNT: usize = 33;
+
 /// DMA channel descriptor
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -27,7 +29,7 @@ struct ChannelDescriptor {
 #[repr(align(1024))]
 #[derive(Copy, Clone, Debug)]
 struct DescriptorBlock {
-    list: [ChannelDescriptor; 33],
+    list: [ChannelDescriptor; DMA_CHANNEL_COUNT],
 }
 
 /// DMA channel descriptor list
@@ -37,23 +39,22 @@ static mut DESCRIPTORS: DescriptorBlock = DescriptorBlock {
         src_data_end_addr: 0,
         dst_data_end_addr: 0,
         nxt_desc_link_addr: 0,
-    }; 33],
+    }; DMA_CHANNEL_COUNT],
 };
 
-/// Error information type
+/// DMA errors
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// configuration requested is not supported
+    /// Configuration requested is not supported
     UnsupportedConfiguration,
 }
 
 #[allow(clippy::declare_interior_mutable_const)]
 const DMA_WAKER: AtomicWaker = AtomicWaker::new();
-const CHANNEL_COUNT: usize = 32;
 
 // One waker per channel
-static DMA_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [DMA_WAKER; CHANNEL_COUNT];
+static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [DMA_WAKER; DMA_CHANNEL_COUNT];
 
 #[interrupt]
 #[allow(non_snake_case)]
@@ -64,21 +65,22 @@ fn DMA0() {
 fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
     let reg = unsafe { crate::pac::Dma0::steal() };
 
-    info!("DMA0 Interrupt!");
-
     // Error interrupt pending?
     if reg.intstat().read().activeerrint().bit() {
+        info!("DMA error interrupt!");
         // TODO
     }
 
-    // Interrupt pending?
+    // DMA transfer completion interrupt pending?
     if reg.intstat().read().activeint().bit() {
-        for (channel, waker) in wakers.iter().enumerate() {
-            // Go through all the channels to check which ones contributed to the interrupt
-            if reg.inta0().read().bits() & (1 << channel) != 0 {
+        let ia = reg.inta0().read().bits();
+        // Loop through interrupt bitfield, excluding trailing and leading zeros looking for interrupt source(s)
+        for channel in ia.trailing_zeros()..(32 - ia.leading_zeros()) {
+            if ia & (1 << channel) != 0 {
+                info!("DMA interrupt on channel {}!", channel);
                 // Clear the interrupt for this channel
                 reg.inta0().write(|w| unsafe { w.ia().bits(1 << channel) });
-                waker.wake();
+                wakers[channel as usize].wake();
             }
         }
     }
