@@ -460,7 +460,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
                     read_status = true;
                 }
 
-                if read_status == true {
+                if read_status {
                     // read the data from the rxFifo
                     buf[i as usize] = bus.usart().fiford().read().rxdata().bits() as u8;
                 } else {
