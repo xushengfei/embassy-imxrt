@@ -28,7 +28,7 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
         &'d mut self,
         peri_addr: *mut u8, // TODO
         buf: &'d mut [u8],  // TODO
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Transfer<'d, T> {
         Transfer::new_read(self.channel.borrow_mut(), self.request, peri_addr, buf, options)
         // TODO
@@ -39,7 +39,7 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
         &'d mut self,
         buf: &'d [u8], // TODO
         peri_addr: *mut u8,
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Transfer<'d, T> {
         Transfer::new_write(self.channel.borrow_mut(), self.request, buf, peri_addr, options)
         // TODO
@@ -50,7 +50,7 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
         &'d mut self,
         src_buf: &'d [u8],     // TODO
         dst_buf: &'d mut [u8], // TODO
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Transfer<'d, T> {
         Transfer::new_write_mem(self.channel.borrow_mut(), self.request, src_buf, dst_buf, options)
         // TODO
@@ -59,10 +59,8 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
 
 /// DMA channel
 pub struct Channel<'d, T: Instance> {
-    /// DMA controller
-    pub controller: PeripheralRef<'d, T>,
-    /// DMA channel number
-    pub number: usize,
+    /// DMA channel peripheral reference
+    pub inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Channel<'d, T> {
@@ -74,7 +72,7 @@ impl<'d, T: Instance> Channel<'d, T> {
         srcbase: *const u32,
         dstbase: *mut u32,
         mem_len: usize,
-        options: TransferOptions,
+        options: &TransferOptions,
     ) -> Result<(), Error> {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
@@ -133,7 +131,7 @@ impl<'d, T: Instance> Channel<'d, T> {
     }
 
     /// Is the specified DMA channel active?
-    pub fn is_channel_active(&mut self, channel: u8) -> Result<bool, Error> {
+    pub fn is_channel_active(&mut self, channel: usize) -> Result<bool, Error> {
         Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
 }
