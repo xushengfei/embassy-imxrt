@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
         )
         .unwrap();
 
-        let mut data = [57, 114, 115, 116, 58];
+        let mut data = [69, 70, 71, 72, 73];
         let result = usart.write_blocking(&mut data, 5);
         if result.is_ok() {
             info!("UART test write_blocking() done");

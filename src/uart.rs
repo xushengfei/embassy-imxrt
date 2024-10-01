@@ -7,7 +7,6 @@ use crate::iopctl::*;
 use mimxrt685s_pac as pac;
 
 use crate::iopctl::IopctlPin as Pin;
-use crate::PeripheralRef;
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::usart0::cfg::Datalen;
@@ -66,27 +65,25 @@ impl<T: Pin> sealed::Sealed for T {}
 
 /// Uart
 #[allow(private_bounds)]
-pub trait UartAny<const FC: usize>: crate::flexcomm::UsartPeripheral {}
-impl UartAny<0> for crate::peripherals::FLEXCOMM0 {}
-impl UartAny<1> for crate::peripherals::FLEXCOMM1 {}
-impl UartAny<2> for crate::peripherals::FLEXCOMM2 {}
-impl UartAny<3> for crate::peripherals::FLEXCOMM3 {}
-impl UartAny<4> for crate::peripherals::FLEXCOMM4 {}
-impl UartAny<5> for crate::peripherals::FLEXCOMM5 {}
-impl UartAny<6> for crate::peripherals::FLEXCOMM6 {}
-impl UartAny<7> for crate::peripherals::FLEXCOMM7 {}
+pub trait Instance: crate::flexcomm::UsartPeripheral {}
+impl Instance for crate::peripherals::FLEXCOMM0 {}
+impl Instance for crate::peripherals::FLEXCOMM1 {}
+impl Instance for crate::peripherals::FLEXCOMM2 {}
+impl Instance for crate::peripherals::FLEXCOMM3 {}
+impl Instance for crate::peripherals::FLEXCOMM4 {}
+impl Instance for crate::peripherals::FLEXCOMM5 {}
+impl Instance for crate::peripherals::FLEXCOMM6 {}
+impl Instance for crate::peripherals::FLEXCOMM7 {}
 
 /// io configuration trait for configuration
-pub trait UartPin<const FC: usize>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait UartPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for Uart Tx/Rx  usage
     fn as_txrx(&self);
 }
 
 /// Uart struct to hold the uart configuration
-pub struct Uart<'a, const FC: usize, T: UartAny<FC>, Tx: UartPin<FC>, Rx: UartPin<FC>> {
-    bus: crate::flexcomm::UsartBus<'a, T>,
-    _tx: PeripheralRef<'a, Tx>,
-    _rx: PeripheralRef<'a, Rx>,
+pub struct Uart<'a, FC: Instance> {
+    bus: crate::flexcomm::UsartBus<'a, FC>,
 }
 
 /// UART general config
@@ -142,23 +139,10 @@ impl Default for UartMcuSpecificConfig {
     }
 }
 
-/// Generic status enum to return the status of the uart read/write operations
+/// Specific information regarding transfer errors
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum GenericStatus {
-    /// propagating a lower level flexcomm error
-    Flex(crate::flexcomm::Error),
-
-    /// Generic status
-    /// Success
-    Success,
-    /// Failure
-    Fail,
-    /// Invalid argument
-    InvalidArgument,
-
-    /// Uart baud rate cannot be supported with the given clock
-    UsartBaudrateNotSupported,
+pub enum TransferError {
     /// Read error
     UsartRxError,
     /// Buffer overflow
@@ -170,24 +154,47 @@ pub enum GenericStatus {
     /// Parity error in Rx
     UsartParityError,
 }
+
+/// Uart Errors
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// propagating a lower level flexcomm error
+    Flex(crate::flexcomm::Error),
+
+    /// Failure
+    Fail,
+    /// Invalid argument
+    InvalidArgument,
+
+    /// Uart baud rate cannot be supported with the given clock
+    UsartBaudrateNotSupported,
+
+    /// Transaction failure errors
+    Transfer(TransferError),
+}
 /// shorthand for -> Result<T>
-pub type Result<T> = core::result::Result<T, GenericStatus>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 // implementing from allows ? operator from flexcomm::Result<T>
-impl From<crate::flexcomm::Error> for GenericStatus {
+impl From<crate::flexcomm::Error> for Error {
     fn from(value: crate::flexcomm::Error) -> Self {
-        GenericStatus::Flex(value)
+        Error::Flex(value)
     }
 }
 
-impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: UartPin<FC, P = Rx>>
-    Uart<'a, FC, T, Tx, Rx>
-{
+impl From<TransferError> for Error {
+    fn from(value: TransferError) -> Self {
+        Error::Transfer(value)
+    }
+}
+
+impl<'a, FC: Instance> Uart<'a, FC> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     pub fn new(
-        fc: T,
-        tx: Tx,
-        rx: Rx,
+        fc: impl Instance<P = FC> + 'a,
+        tx: impl UartPin<FC>,
+        rx: impl UartPin<FC>,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
@@ -199,16 +206,10 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         tx.as_txrx();
         rx.as_txrx();
 
-        let this = Self {
-            bus,
-            _tx: tx.into_ref(),
-            _rx: rx.into_ref(),
-        };
+        let this = Self { bus };
 
-        let result = this.set_uart_baudrate(&general_config);
-        if result != GenericStatus::Success {
-            return Err(result);
-        }
+        this.set_uart_baudrate(&general_config)?;
+
         this.set_uart_tx_fifo();
         this.set_uart_rx_fifo();
         this.set_uart_config(&general_config, &mcu_spec_config);
@@ -223,7 +224,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         0xf42400
     }
 
-    fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> GenericStatus {
+    fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> Result<()> {
         let bus = &self.bus;
         let baudrate_bps = gen_config.baudrate;
         let source_clock_hz = self.get_fc_freq(); // TODO: replace this with the call to flexcomm_getClkFreq()
@@ -234,7 +235,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         let mut diff: u32;
 
         if baudrate_bps == 0 || source_clock_hz == 0 {
-            return GenericStatus::InvalidArgument;
+            return Err(Error::InvalidArgument);
         }
 
         //If synchronous master mode is enabled, only configure the BRG value.
@@ -274,7 +275,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
 
             // Value over range
             if best_brgval > 0xFFFFu32 {
-                return GenericStatus::UsartBaudrateNotSupported;
+                return Err(Error::UsartBaudrateNotSupported);
             }
 
             unsafe {
@@ -283,7 +284,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
             }
         }
 
-        GenericStatus::Success
+        Ok(())
     }
 
     fn set_uart_tx_fifo(&self) {
@@ -412,12 +413,12 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
     pub fn read_blocking(&self, buf: &mut [u8], len: u32) -> Result<()> {
         let bus = &self.bus;
         if len > 8 {
-            return Err(GenericStatus::InvalidArgument);
+            return Err(Error::InvalidArgument);
         }
 
         // Check if rxFifo is not enabled
         if bus.usart().fifocfg().read().enablerx().is_disabled() {
-            return Err(GenericStatus::Fail);
+            return Err(Error::Fail);
         } else {
             // rxfifo is enabled
             for i in 0..len {
@@ -429,12 +430,13 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
                 if bus.usart().fifostat().read().rxerr().bit_is_set() {
                     bus.usart().fifocfg().modify(|_, w| w.emptyrx().set_bit());
                     bus.usart().fifostat().modify(|_, w| w.rxerr().set_bit());
-                    return Err(GenericStatus::UsartRxError);
+                    return Err(Error::Transfer(TransferError::UsartRxError));
                 }
 
                 // Save the receive status flag to check later.
                 let rx_status = bus.usart().stat().read().bits();
-                let mut generic_status = GenericStatus::Success;
+                let mut read_status = false; // false implies failure
+                let mut generic_status = Error::Fail;
 
                 // clear all status flags
 
@@ -444,20 +446,21 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
                 if rx_status & (1 << 14) != 0 {
                     //writing to it will clear the status since it is W1C
                     bus.usart().stat().modify(|_, w| w.parityerrint().set_bit());
-                    generic_status = GenericStatus::UsartParityError;
-                }
-                if rx_status & (1 << 13) != 0 {
+                    generic_status = Error::Transfer(TransferError::UsartParityError);
+                } else if rx_status & (1 << 13) != 0 {
                     //writing to it will clear the status since it is W1C
                     bus.usart().stat().modify(|_, w| w.framerrint().set_bit());
-                    generic_status = GenericStatus::UsartFramingError;
-                }
-                if rx_status & (1 << 15) != 0 {
+                    generic_status = Error::Transfer(TransferError::UsartFramingError);
+                } else if rx_status & (1 << 15) != 0 {
                     //writing to it will clear the status since it is W1C
                     bus.usart().stat().modify(|_, w| w.rxnoiseint().set_bit());
-                    generic_status = GenericStatus::UsartNoiseError;
+                    generic_status = Error::Transfer(TransferError::UsartNoiseError);
+                } else {
+                    // No error, proceed with read
+                    read_status = true;
                 }
 
-                if generic_status == GenericStatus::Success {
+                if read_status == true {
                     // read the data from the rxFifo
                     buf[i as usize] = bus.usart().fiford().read().rxdata().bits() as u8;
                 } else {
@@ -478,7 +481,7 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
         let bus = &self.bus;
         // Check whether txFIFO is enabled
         if bus.usart().fifocfg().read().enabletx().is_disabled() {
-            return Err(GenericStatus::Fail);
+            return Err(Error::Fail);
         } else {
             for i in 0..len {
                 // Loop until txFIFO get some space for new data
@@ -494,8 +497,8 @@ impl<'a, const FC: usize, T: UartAny<FC, P = T>, Tx: UartPin<FC, P = Tx>, Rx: Ua
 }
 
 macro_rules! impl_uart_pin {
-    ($piom_n:ident, $fn:ident, $fcn:expr) => {
-        impl UartPin<$fcn> for crate::peripherals::$piom_n {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl UartPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_txrx(&self) {
                 // UM11147 table 299 pg 262+
                 self.set_function(crate::iopctl::Function::$fn);
@@ -511,41 +514,41 @@ macro_rules! impl_uart_pin {
 }
 
 // Flexcomm0 Uart TX/Rx
-impl_uart_pin!(PIO0_1, F1, 0); //Tx
-impl_uart_pin!(PIO0_2, F1, 0); //Rx
-impl_uart_pin!(PIO3_1, F5, 0); //Tx
-impl_uart_pin!(PIO3_2, F5, 0); //Rx
+impl_uart_pin!(PIO0_1, F1, FLEXCOMM0); //Tx
+impl_uart_pin!(PIO0_2, F1, FLEXCOMM0); //Rx
+impl_uart_pin!(PIO3_1, F5, FLEXCOMM0); //Tx
+impl_uart_pin!(PIO3_2, F5, FLEXCOMM0); //Rx
 
 // Flexcomm1 Uart TX/Rx
-impl_uart_pin!(PIO0_8, F1, 1); //Tx
-impl_uart_pin!(PIO0_9, F1, 1); //Rx
-impl_uart_pin!(PIO7_26, F1, 1); //Tx
-impl_uart_pin!(PIO7_27, F1, 1); //Rx
+impl_uart_pin!(PIO0_8, F1, FLEXCOMM1); //Tx
+impl_uart_pin!(PIO0_9, F1, FLEXCOMM1); //Rx
+impl_uart_pin!(PIO7_26, F1, FLEXCOMM1); //Tx
+impl_uart_pin!(PIO7_27, F1, FLEXCOMM1); //Rx
 
 // Flexcomm2 Uart Tx/Rx
-impl_uart_pin!(PIO0_15, F1, 2); //Tx
-impl_uart_pin!(PIO0_16, F1, 2); //Rx
-impl_uart_pin!(PIO7_30, F5, 2); //Tx
-impl_uart_pin!(PIO7_31, F5, 2); //Rx
+impl_uart_pin!(PIO0_15, F1, FLEXCOMM2); //Tx
+impl_uart_pin!(PIO0_16, F1, FLEXCOMM2); //Rx
+impl_uart_pin!(PIO7_30, F5, FLEXCOMM2); //Tx
+impl_uart_pin!(PIO7_31, F5, FLEXCOMM2); //Rx
 
 // Flexcomm3 Uart Tx/Rx
-impl_uart_pin!(PIO0_22, F1, 3); //Tx
-impl_uart_pin!(PIO0_23, F1, 3); //Rx
+impl_uart_pin!(PIO0_22, F1, FLEXCOMM3); //Tx
+impl_uart_pin!(PIO0_23, F1, FLEXCOMM3); //Rx
 
 // Flexcomm4 Uart Tx/Rx
-impl_uart_pin!(PIO0_29, F1, 4); //Tx
-impl_uart_pin!(PIO0_30, F1, 4); //Rx
+impl_uart_pin!(PIO0_29, F1, FLEXCOMM4); //Tx
+impl_uart_pin!(PIO0_30, F1, FLEXCOMM4); //Rx
 
 // Flexcomm5 Uart Tx/Rx
-impl_uart_pin!(PIO1_4, F1, 5); //Tx
-impl_uart_pin!(PIO1_5, F1, 5); //Rx
-impl_uart_pin!(PIO3_16, F5, 5); //Tx
-impl_uart_pin!(PIO3_17, F5, 5); //Rx
+impl_uart_pin!(PIO1_4, F1, FLEXCOMM5); //Tx
+impl_uart_pin!(PIO1_5, F1, FLEXCOMM5); //Rx
+impl_uart_pin!(PIO3_16, F5, FLEXCOMM5); //Tx
+impl_uart_pin!(PIO3_17, F5, FLEXCOMM5); //Rx
 
 // Flexcomm6 Uart Tx/Rx
-impl_uart_pin!(PIO3_26, F1, 6); //Tx
-impl_uart_pin!(PIO3_27, F1, 6); //Rx
+impl_uart_pin!(PIO3_26, F1, FLEXCOMM6); //Tx
+impl_uart_pin!(PIO3_27, F1, FLEXCOMM6); //Rx
 
 // Flexcomm7 Uart Tx/Rx
-impl_uart_pin!(PIO4_1, F1, 7); //Tx
-impl_uart_pin!(PIO4_2, F1, 7); //Rx
+impl_uart_pin!(PIO4_1, F1, FLEXCOMM7); //Tx
+impl_uart_pin!(PIO4_2, F1, FLEXCOMM7); //Rx
