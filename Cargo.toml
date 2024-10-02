@@ -24,7 +24,7 @@ default = ["rt"]
 rt = ["mimxrt685s-pac/rt"]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "mimxrt685s-pac/defmt"]
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time"]
 ## Enable custom embassy time-driver implementation, using 1kHz RTC
@@ -54,7 +54,7 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-mimxrt685s-pac = { version = "*" }
+mimxrt685s-pac = { version = "0.1.5" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
