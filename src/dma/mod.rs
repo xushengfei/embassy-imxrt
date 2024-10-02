@@ -4,7 +4,6 @@ pub mod channel;
 pub mod transfer;
 
 use crate::dma::channel::{Channel, ChannelAndRequest, Request};
-use crate::peripherals::DMA0;
 use crate::{interrupt, peripherals, Peripheral};
 use core::ptr;
 use embassy_hal_internal::{interrupt::InterruptExt, into_ref, PeripheralRef};
@@ -91,6 +90,7 @@ pub fn init() {
     let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
     let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+    let dmactl0 = unsafe { crate::pac::Dma0::steal() };
 
     // Enable the DMA controller clock
     clkctl1.pscctl1_set().write(|w| w.dmac0_clk_set().set_bit());
@@ -99,14 +99,14 @@ pub fn init() {
     rstctl1.prstctl1_clr().write(|w| w.dmac0_rst_clr().set_bit());
 
     // Enable DMA controller
-    DMA0::regs().ctrl().modify(|_, w| w.enable().set_bit());
+    dmactl0.ctrl().modify(|_, w| w.enable().set_bit());
 
     // Set channel descriptor SRAM base address
     // SAFETY: unsafe due to .bits usage and use of a mutable static (DESCRIPTORS.list)
     unsafe {
         // Descriptor base must be 1K aligned
         let descriptor_base = ptr::addr_of!(DESCRIPTORS.list) as u32;
-        DMA0::regs().srambase().write(|w| w.bits(descriptor_base));
+        dmactl0.srambase().write(|w| w.bits(descriptor_base));
     }
 
     // Ensure AHB priority it highest (M4 == DMAC0)
@@ -138,7 +138,7 @@ impl<'d, T: Instance> Dma<'d, T> {
 
 trait SealedInstance {
     fn regs() -> crate::pac::Dma0;
-    fn get_channel_number() -> Option<usize>;
+    fn get_channel_number() -> usize;
 }
 
 /// DMA instance trait
@@ -146,21 +146,6 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {
     /// Interrupt for this DMA instance
     type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-impl Instance for peripherals::DMA0 {
-    type Interrupt = crate::interrupt::typelevel::DMA0;
-}
-
-impl SealedInstance for peripherals::DMA0 {
-    fn regs() -> crate::pac::Dma0 {
-        // SAFETY: safe from single executor
-        unsafe { crate::pac::Dma0::steal() }
-    }
-
-    fn get_channel_number() -> Option<usize> {
-        None
-    }
 }
 
 macro_rules! dma_channel_instance {
@@ -174,8 +159,8 @@ macro_rules! dma_channel_instance {
                 // SAFETY: safe from single executor
                 unsafe { crate::pac::Dma0::steal() }
             }
-            fn get_channel_number() -> Option<usize> {
-                Some($number)
+            fn get_channel_number() -> usize {
+                $number
             }
         }
     };

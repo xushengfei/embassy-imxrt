@@ -67,7 +67,6 @@ impl<'d, T: Instance> Channel<'d, T> {
     /// Ready the specified DMA channel for triggering
     pub fn configure_channel(
         &mut self,
-        channel: usize,
         dir: Direction,
         srcbase: *const u32,
         dstbase: *mut u32,
@@ -76,6 +75,8 @@ impl<'d, T: Instance> Channel<'d, T> {
     ) -> Result<(), Error> {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
+
+        let channel = T::get_channel_number();
 
         // Configure descriptor
         unsafe {
@@ -118,20 +119,23 @@ impl<'d, T: Instance> Channel<'d, T> {
     }
 
     /// Enable the specified DMA channel (must be configured)
-    pub fn enable_channel(&mut self, channel: usize) -> Result<(), Error> {
+    pub fn enable_channel(&mut self) -> Result<(), Error> {
+        let channel = T::get_channel_number();
         T::regs()
             .enableset0()
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
         Ok(())
     }
     /// Trigger the specified DMA channel
-    pub fn trigger_channel(&mut self, channel: usize) -> Result<(), Error> {
+    pub fn trigger_channel(&mut self) -> Result<(), Error> {
+        let channel = T::get_channel_number();
         T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
         Ok(())
     }
 
     /// Is the specified DMA channel active?
-    pub fn is_channel_active(&mut self, channel: usize) -> Result<bool, Error> {
+    pub fn is_channel_active(&mut self) -> Result<bool, Error> {
+        let channel = T::get_channel_number();
         Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
 }
