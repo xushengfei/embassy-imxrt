@@ -15,7 +15,7 @@ pub mod gpio;
 pub mod iopctl;
 pub mod pwm;
 #[cfg(feature = "time-driver")]
-mod time_driver;
+pub mod time_driver;
 pub mod wwdt;
 
 // Reexports
