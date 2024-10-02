@@ -191,25 +191,18 @@ impl<'d, T: Instance> Transfer<'d, T> {
         options: &TransferOptions,
     ) -> Self {
         // Configure the DMA channel descriptor and registers
-        match channel.configure_channel(
-            T::get_channel_number().unwrap(),
-            dir,
-            src_buf,
-            dst_buf,
-            mem_len,
-            options,
-        ) {
+        match channel.configure_channel(dir, src_buf, dst_buf, mem_len, options) {
             Ok(v) => v,
             Err(_e) => info!("failed to configure DMA channel number",),
         };
         // Enable the channel
-        match channel.enable_channel(T::get_channel_number().unwrap()) {
+        match channel.enable_channel() {
             Ok(v) => v,
             Err(_e) => info!("failed to enable DMA channel number",),
         };
 
         // Generate a software channel trigger to start the transfer
-        match channel.trigger_channel(T::get_channel_number().unwrap()) {
+        match channel.trigger_channel() {
             Ok(v) => v,
             Err(_e) => info!("failed to trigger DMA channel number",),
         };
