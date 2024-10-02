@@ -19,7 +19,7 @@ pub mod iopctl;
 pub mod pwm;
 pub mod rng;
 #[cfg(feature = "time-driver")]
-mod time_driver;
+pub mod time_driver;
 pub mod wwdt;
 
 // Reexports

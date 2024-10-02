@@ -1,8 +1,8 @@
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
-
 use critical_section::CriticalSection;
+use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
@@ -268,6 +268,199 @@ impl Driver for TimerDriver {
 
             true
         })
+    }
+}
+
+/// Represents a date and time.
+#[derive(Format)]
+pub struct Datetime {
+    /// The year component of the date.
+    pub year: u32,
+    /// The month component of the date (1-12).
+    pub month: u8,
+    /// The day component of the date (1-31).
+    pub day: u8,
+    /// The hour component of the time (0-23).
+    pub hour: u8,
+    /// The minute component of the time (0-59).
+    pub minute: u8,
+    /// The second component of the time (0-59).
+    pub second: u8,
+}
+
+/// Represents a real-time clock datetime.
+pub struct RtcDatetime {
+    /// The datetime value.
+    pub datetime: Datetime,
+}
+
+impl RtcDatetime {
+    /// Create a new `RtcDatetime` instance.
+    pub fn is_valid_datetime(&self, time: &Datetime) -> bool {
+        //let time: Datetime = time;
+        // Validate month
+        if time.month < 1 || time.month > 12 {
+            return false;
+        }
+
+        // Validate day
+        if time.day < 1 {
+            return false;
+        }
+
+        match time.month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => {
+                if time.day > 31 {
+                    return false;
+                }
+            }
+            4 | 6 | 9 | 11 => {
+                if time.day > 30 {
+                    return false;
+                }
+            }
+            2 => {
+                if self.is_leap_year(time.year) {
+                    if time.day > 29 {
+                        return false;
+                    }
+                } else if time.day > 28 {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+
+        // Validate hour
+        if time.hour > 23 {
+            return false;
+        }
+
+        // Validate minute
+        if time.minute > 59 {
+            return false;
+        }
+
+        // Validate second
+        if time.second > 59 {
+            return false;
+        }
+
+        true
+    }
+
+    /// Check if a year is a leap year.
+    fn is_leap_year(&self, year: u32) -> bool {
+        (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    }
+
+    /// Convert a datetime to seconds since 1970-01-01 00:00:00.
+    pub fn convert_datetime_to_secs(&self) -> u32 {
+        let mut days: u32 = 0;
+        let mut year = self.datetime.year;
+        let mut month = self.datetime.month;
+        let day: u32 = self.datetime.day as u32;
+
+        // Calculate days from 1970 to the current year
+        while year > 1970 {
+            days += 365;
+            if self.is_leap_year(year) {
+                days += 1;
+            }
+            year -= 1;
+        }
+
+        // Calculate days from January to the current month
+        let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30];
+        while month > 1 {
+            days += days_in_month[month as usize];
+            if month == 2 && self.is_leap_year(self.datetime.year) {
+                days += 1;
+            }
+            month -= 1;
+        }
+
+        // Calculate days from the first day of the month to the current day
+        days += day - 1;
+
+        // Calculate seconds from the first day of the month to the current day
+        let secs = self.datetime.second as u32 + self.datetime.minute as u32 * 60 + self.datetime.hour as u32 * 3600;
+
+        days * 86400 + secs
+    }
+
+    /// Convert seconds since 1970-01-01 00:00:00 to a datetime.
+    fn convert_secs_to_datetime(&self, secs: u32) -> Datetime {
+        let mut days = secs / 86400;
+        let mut secs = secs % 86400;
+
+        let mut year = 1970;
+        let mut month = 1;
+        let mut day = 1;
+
+        // Calculate year
+        while days >= 365 {
+            if self.is_leap_year(year) {
+                if days >= 366 {
+                    days -= 366;
+                } else {
+                    break;
+                }
+            } else {
+                days -= 365;
+            }
+            year += 1;
+        }
+
+        // Calculate month
+        let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30];
+        while days >= days_in_month[month as usize] {
+            if month == 2 && self.is_leap_year(year) {
+                if days >= 29 {
+                    days -= 29;
+                } else {
+                    break;
+                }
+            } else {
+                days -= days_in_month[month as usize];
+            }
+            month += 1;
+        }
+
+        // Calculate day
+        day += days;
+
+        // Calculate hour, minute, and second
+        let hour = secs / 3600;
+        secs %= 3600;
+        let minute = secs / 60;
+        let second = secs % 60;
+
+        Datetime {
+            year,
+            month,
+            day: day.try_into().unwrap(),
+            hour: hour.try_into().unwrap(),
+            minute: minute.try_into().unwrap(),
+            second: second.try_into().unwrap(),
+        }
+    }
+
+    /// Set the datetime.
+    pub fn set_datetime(&self) {
+        if !self.is_valid_datetime(&self.datetime) {
+            return;
+        }
+        let r = rtc();
+        let secs = self.convert_datetime_to_secs();
+        r.count().write(|w| unsafe { w.bits(secs) });
+    }
+
+    /// Get the datetime.
+    pub fn get_datetime(&self) -> Datetime {
+        let r = rtc();
+        let secs = r.count().read().bits();
+        self.convert_secs_to_datetime(secs)
     }
 }
 
