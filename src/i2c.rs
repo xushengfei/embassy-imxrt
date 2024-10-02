@@ -229,8 +229,8 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
     fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
         let i2cregs = self.bus.i2c();
 
-        // cannot start if not in IDLE state
-        if !i2cregs.stat().read().mststate().is_idle() {
+        // cannot start if the the bus is already busy
+        if i2cregs.stat().read().mstpending().is_in_progress() {
             return Err(TransferError::OtherBusError.into());
         }
 
@@ -358,7 +358,7 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
             self.poll_start = Instant::now();
         }
 
-        while self.bus.i2c().stat().read().mstpending().bit_is_clear() {
+        while self.bus.i2c().stat().read().mstpending().is_in_progress() {
             self.check_timeout()?;
         }
 
