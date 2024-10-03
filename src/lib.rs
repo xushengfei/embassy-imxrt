@@ -390,7 +390,10 @@ pub fn init(config: config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
 
     unsafe {
-        clocks::init(config.clocks);
+        if let Err(e) = clocks::init(config.clocks) {
+            error!("unable to initialize Clocks for reason: {:?}", e);
+            // Panic here?
+        }
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
         // dma::init();
