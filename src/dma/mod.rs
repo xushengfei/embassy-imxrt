@@ -6,7 +6,7 @@ pub mod transfer;
 use crate::dma::channel::{Channel, ChannelAndRequest, Request};
 use crate::{interrupt, peripherals, Peripheral};
 use core::ptr;
-use embassy_hal_internal::{interrupt::InterruptExt, into_ref, PeripheralRef};
+use embassy_hal_internal::{interrupt::InterruptExt, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 // TODO:
@@ -129,8 +129,9 @@ impl<'d, T: Instance> Dma<'d, T> {
     /// Reserve DMA channel
     pub fn reserve_channel(channel: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d, T> {
         let request: Request = 0; // TODO
-        into_ref!(channel);
-        let channel = Channel { inner: channel };
+        let channel = Channel {
+            inner: channel.into_ref(),
+        };
 
         ChannelAndRequest { channel, request }
     }
