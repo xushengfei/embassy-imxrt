@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::{transfer::TransferOptions, transfer::Width, Dma};
+use embassy_imxrt::dma::{transfer::TransferOptions, Dma};
 use {defmt_rtt as _, panic_probe as _};
 
 static SRC_ARRAY1: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -17,15 +17,14 @@ async fn main(_spawner: Spawner) {
     info!("DMA memory-to-memory transfers");
 
     // Reserve DMA channels
-    let mut ch1 = Dma::reserve_channel(p.DMA0_CH0);
-    let mut ch2 = Dma::reserve_channel(p.DMA0_CH31);
-
-    // Default transfer width is 32 bits
-    let mut options = TransferOptions::default();
-    options.width = Width::Bit8;
+    let ch = Dma::reserve_channel(p.DMA0_CH0);
 
     // SAFETY: use of a mutable static is unsafe
-    ch1.write_mem(&SRC_ARRAY1[..], unsafe { &mut DST_ARRAY[..] }, &options);
+    ch.write_mem(
+        &SRC_ARRAY1[..],
+        unsafe { &mut DST_ARRAY[..] },
+        TransferOptions::default(),
+    );
 
     //while ch.is_channel_active(0).unwrap() {}
     embassy_imxrt_examples::delay(5_000);
@@ -38,7 +37,11 @@ async fn main(_spawner: Spawner) {
         }
     }
     // SAFETY: use of a mutable static is unsafe
-    ch2.write_mem(&SRC_ARRAY2[..], unsafe { &mut DST_ARRAY[..] }, &options);
+    ch.write_mem(
+        &SRC_ARRAY2[..],
+        unsafe { &mut DST_ARRAY[..] },
+        TransferOptions::default(),
+    );
 
     //while ch.is_channel_active(0).unwrap() {}
     embassy_imxrt_examples::delay(10_000);

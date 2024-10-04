@@ -1,5 +1,4 @@
 //! DMA channel
-use core::borrow::BorrowMut;
 
 use super::Error;
 use super::Instance;
@@ -25,34 +24,34 @@ pub struct ChannelAndRequest<'d, T: Instance> {
 impl<'d, T: Instance> ChannelAndRequest<'d, T> {
     /// Issues channel read request
     pub fn read(
-        &'d mut self,
+        &'d self,
         peri_addr: *mut u8, // TODO
         buf: &'d mut [u8],  // TODO
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Transfer<'d, T> {
-        Transfer::new_read(self.channel.borrow_mut(), self.request, peri_addr, buf, options)
+        Transfer::new_read(&self.channel, self.request, peri_addr, buf, options)
         // TODO
     }
 
     /// Issues channel write request
     pub fn write(
-        &'d mut self,
+        &'d self,
         buf: &'d [u8], // TODO
         peri_addr: *mut u8,
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Transfer<'d, T> {
-        Transfer::new_write(self.channel.borrow_mut(), self.request, buf, peri_addr, options)
+        Transfer::new_write(&self.channel, self.request, buf, peri_addr, options)
         // TODO
     }
 
     /// Issues channel write to memory (memory-to-memory) request
     pub fn write_mem(
-        &'d mut self,
+        &'d self,
         src_buf: &'d [u8],     // TODO
         dst_buf: &'d mut [u8], // TODO
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Transfer<'d, T> {
-        Transfer::new_write_mem(self.channel.borrow_mut(), self.request, src_buf, dst_buf, options)
+        Transfer::new_write_mem(&self.channel, self.request, src_buf, dst_buf, options)
         // TODO
     }
 }
@@ -66,12 +65,12 @@ pub struct Channel<'d, T: Instance> {
 impl<'d, T: Instance> Channel<'d, T> {
     /// Ready the specified DMA channel for triggering
     pub fn configure_channel(
-        &mut self,
+        &self,
         dir: Direction,
         srcbase: *const u32,
         dstbase: *mut u32,
         mem_len: usize,
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Result<(), Error> {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
@@ -119,7 +118,7 @@ impl<'d, T: Instance> Channel<'d, T> {
     }
 
     /// Enable the specified DMA channel (must be configured)
-    pub fn enable_channel(&mut self) -> Result<(), Error> {
+    pub fn enable_channel(&self) -> Result<(), Error> {
         let channel = T::get_channel_number();
         T::regs()
             .enableset0()
@@ -127,14 +126,14 @@ impl<'d, T: Instance> Channel<'d, T> {
         Ok(())
     }
     /// Trigger the specified DMA channel
-    pub fn trigger_channel(&mut self) -> Result<(), Error> {
+    pub fn trigger_channel(&self) -> Result<(), Error> {
         let channel = T::get_channel_number();
         T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
         Ok(())
     }
 
     /// Is the specified DMA channel active?
-    pub fn is_channel_active(&mut self) -> Result<bool, Error> {
+    pub fn is_channel_active(&self) -> Result<bool, Error> {
         let channel = T::get_channel_number();
         Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
