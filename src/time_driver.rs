@@ -2,7 +2,6 @@ use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 use critical_section::CriticalSection;
-use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
@@ -272,7 +271,7 @@ impl Driver for TimerDriver {
 }
 
 /// Represents a date and time.
-#[derive(Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Datetime {
     /// The year component of the date.
     pub year: u32,
@@ -290,63 +289,92 @@ pub struct Datetime {
 
 /// Represents a real-time clock datetime.
 pub struct RtcDatetime {
-    /// The datetime value.
-    pub datetime: Datetime,
+    rtc: &'static pac::rtc::RegisterBlock,
 }
 
+#[derive(PartialEq)]
+/// Represents the result of a datetime validation.
+pub enum DatetimeResult {
+    /// The datetime is valid.
+    ValidDatetime,
+    /// The year is invalid.
+    InvalidYear,
+    /// The month is invalid.
+    InvalidMonth,
+    /// The day is invalid.
+    InvalidDay,
+    /// The hour is invalid.
+    InvalidHour,
+    /// The minute is invalid.
+    InvalidMinute,
+    /// The second is invalid.
+    InvalidSecond,
+}
+
+/// Default implementation for `RtcDatetime`.
+impl Default for RtcDatetime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Implementation for `RtcDatetime`.
 impl RtcDatetime {
     /// Create a new `RtcDatetime` instance.
-    pub fn is_valid_datetime(&self, time: &Datetime) -> bool {
-        //let time: Datetime = time;
+    pub fn new() -> Self {
+        Self { rtc: rtc() }
+    }
+    /// check valid datetime.
+    pub fn is_valid_datetime(&self, time: &Datetime) -> DatetimeResult {
         // Validate month
         if time.month < 1 || time.month > 12 {
-            return false;
+            return DatetimeResult::InvalidMonth;
         }
 
         // Validate day
         if time.day < 1 {
-            return false;
+            return DatetimeResult::InvalidDay;
         }
 
         match time.month {
             1 | 3 | 5 | 7 | 8 | 10 | 12 => {
                 if time.day > 31 {
-                    return false;
+                    return DatetimeResult::InvalidDay;
                 }
             }
             4 | 6 | 9 | 11 => {
                 if time.day > 30 {
-                    return false;
+                    return DatetimeResult::InvalidDay;
                 }
             }
             2 => {
                 if self.is_leap_year(time.year) {
                     if time.day > 29 {
-                        return false;
+                        return DatetimeResult::InvalidDay;
                     }
                 } else if time.day > 28 {
-                    return false;
+                    return DatetimeResult::InvalidDay;
                 }
             }
-            _ => return false,
+            _ => return DatetimeResult::InvalidDay,
         }
 
         // Validate hour
         if time.hour > 23 {
-            return false;
+            return DatetimeResult::InvalidHour;
         }
 
         // Validate minute
         if time.minute > 59 {
-            return false;
+            return DatetimeResult::InvalidMinute;
         }
 
         // Validate second
         if time.second > 59 {
-            return false;
+            return DatetimeResult::InvalidSecond;
         }
 
-        true
+        DatetimeResult::ValidDatetime
     }
 
     /// Check if a year is a leap year.
@@ -355,11 +383,11 @@ impl RtcDatetime {
     }
 
     /// Convert a datetime to seconds since 1970-01-01 00:00:00.
-    pub fn convert_datetime_to_secs(&self) -> u32 {
+    pub fn convert_datetime_to_secs(&self, datetime: &Datetime) -> u32 {
         let mut days: u32 = 0;
-        let mut year = self.datetime.year;
-        let mut month = self.datetime.month;
-        let day: u32 = self.datetime.day as u32;
+        let mut year = datetime.year;
+        let mut month = datetime.month;
+        let day: u32 = datetime.day as u32;
 
         // Calculate days from 1970 to the current year
         while year > 1970 {
@@ -374,7 +402,7 @@ impl RtcDatetime {
         let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30];
         while month > 1 {
             days += days_in_month[month as usize];
-            if month == 2 && self.is_leap_year(self.datetime.year) {
+            if month == 2 && self.is_leap_year(datetime.year) {
                 days += 1;
             }
             month -= 1;
@@ -384,7 +412,7 @@ impl RtcDatetime {
         days += day - 1;
 
         // Calculate seconds from the first day of the month to the current day
-        let secs = self.datetime.second as u32 + self.datetime.minute as u32 * 60 + self.datetime.hour as u32 * 3600;
+        let secs = datetime.second as u32 + datetime.minute as u32 * 60 + datetime.hour as u32 * 3600;
 
         days * 86400 + secs
     }
@@ -396,7 +424,7 @@ impl RtcDatetime {
 
         let mut year = 1970;
         let mut month = 1;
-        let mut day = 1;
+        let mut day = 0;
 
         // Calculate year
         while days >= 365 {
@@ -439,7 +467,7 @@ impl RtcDatetime {
         Datetime {
             year,
             month,
-            day: day.try_into().unwrap(),
+            day: day as u8,
             hour: hour.try_into().unwrap(),
             minute: minute.try_into().unwrap(),
             second: second.try_into().unwrap(),
@@ -447,19 +475,19 @@ impl RtcDatetime {
     }
 
     /// Set the datetime.
-    pub fn set_datetime(&self) {
-        if !self.is_valid_datetime(&self.datetime) {
-            return;
+    pub fn set_datetime(&self, datetime: &Datetime) -> DatetimeResult {
+        let ret = self.is_valid_datetime(datetime);
+        if ret != DatetimeResult::ValidDatetime {
+            return ret;
         }
-        let r = rtc();
-        let secs = self.convert_datetime_to_secs();
-        r.count().write(|w| unsafe { w.bits(secs) });
+        let secs = self.convert_datetime_to_secs(datetime);
+        self.rtc.count().write(|w| unsafe { w.bits(secs) });
+        DatetimeResult::ValidDatetime
     }
 
     /// Get the datetime.
     pub fn get_datetime(&self) -> Datetime {
-        let r = rtc();
-        let secs = r.count().read().bits();
+        let secs = self.rtc.count().read().bits();
         self.convert_secs_to_datetime(secs)
     }
 }
