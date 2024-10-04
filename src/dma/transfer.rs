@@ -19,7 +19,7 @@ pub struct TransferOptions {
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            width: Width::Bit32,
+            width: Width::Bit8,
             priority: Priority::Priority0,
         }
     }
@@ -92,22 +92,22 @@ pub struct Transfer<'d, T: Instance> {
 impl<'d, T: Instance> Transfer<'d, T> {
     /// Reads from a peripheral register into a memory buffer using DMA
     pub fn new_read(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         request: Request,
         peri_addr: *const u8, // TODO
         buf: &'d mut [u8],    // TODO
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         Self::new_read_raw(channel, request, peri_addr, buf, options)
     }
 
     /// Reads from a peripheral register into a memory buffer using DMA (raw pointers)
     pub fn new_read_raw(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         request: Request,
         peri_addr: *const u8,
         buf: *mut [u8],
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         Self::new_inner(
             channel,
@@ -122,29 +122,29 @@ impl<'d, T: Instance> Transfer<'d, T> {
 
     /// Writes a memory buffer into a peripheral register using DMA
     pub fn new_write(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         request: Request,
         buf: &'d [u8],
         peri_addr: *mut u8,
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         Self::new_write_raw(channel, request, buf, peri_addr, options)
     }
 
     /// Writes a memory buffer into a peripheral register using DMA (raw pointers)
     pub fn new_write_raw(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         request: Request,
         buf: *const [u8],   // TODO
         peri_addr: *mut u8, // TODO
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         Self::new_inner(
             channel,
             request,
             Direction::MemoryToPeripheral,
-            peri_addr as *mut u32,
             buf as *const u8 as *mut u32, // TODO
+            peri_addr as *mut u32,
             buf.len(),
             options,
         )
@@ -152,22 +152,22 @@ impl<'d, T: Instance> Transfer<'d, T> {
 
     /// Writes a memory buffer into another memory buffer using DMA
     pub fn new_write_mem(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         request: Request,
         src_buf: &'d [u8],
         dst_buf: &'d mut [u8],
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         Self::new_write_mem_raw(channel, request, src_buf, dst_buf, options)
     }
 
     /// Writes a memory buffer into another memory buffer using DMA (raw pointers)
     pub fn new_write_mem_raw(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         request: Request,
         src_buf: *const [u8], // TODO
         dst_buf: *mut [u8],   // TODO
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         Self::new_inner(
             channel,
@@ -182,13 +182,13 @@ impl<'d, T: Instance> Transfer<'d, T> {
 
     /// Configures the channel for the read/write DMA transfer
     fn new_inner(
-        channel: &'d mut Channel<'d, T>,
+        channel: &'d Channel<'d, T>,
         _request: Request,
         dir: Direction,
         src_buf: *const u32,
         dst_buf: *mut u32,
         mem_len: usize,
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         // Configure the DMA channel descriptor and registers
         match channel.configure_channel(dir, src_buf, dst_buf, mem_len, options) {
