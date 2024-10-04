@@ -486,9 +486,13 @@ impl RtcDatetime {
     }
 
     /// Get the datetime.
-    pub fn get_datetime(&self) -> Datetime {
+    pub fn get_datetime(&self) -> (Datetime, DatetimeResult) {
         let secs = self.rtc.count().read().bits();
-        self.convert_secs_to_datetime(secs)
+        let datetime = self.convert_secs_to_datetime(secs);
+        let res = self.is_valid_datetime(&datetime);
+        {
+            (datetime, res)
+        }
     }
 }
 
