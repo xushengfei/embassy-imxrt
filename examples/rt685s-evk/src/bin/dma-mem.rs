@@ -3,51 +3,83 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::{transfer::TransferOptions, transfer::Width, Dma};
+use embassy_imxrt::dma::{transfer::TransferOptions, Dma};
+use embassy_imxrt::rng;
+use embassy_imxrt::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
-static SRC_ARRAY1: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-static SRC_ARRAY2: [u8; 10] = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
-static mut DST_ARRAY: [u8; 10] = [0; 10];
+bind_interrupts!(struct Irqs {
+    RNG => rng::InterruptHandler<peripherals::RNG>;
+});
+
+macro_rules! test_dma_channel {
+    ($peripherals: expr, $rng: expr, $instance: ident, $number: expr) => {
+        let ch = Dma::reserve_channel($peripherals.$instance);
+        let mut srcbuf = [0u8; 10];
+        let mut dstbuf = [1u8; 10];
+
+        // Test the same channel multiple times.
+        for idx in 1..4 {
+            unwrap!($rng.async_fill_bytes(&mut srcbuf).await);
+            srcbuf[0] = idx;
+            srcbuf[1] = $number;
+
+            ch.write_to_memory(&srcbuf[..], &mut dstbuf[..], TransferOptions::default())
+                .await;
+
+            if srcbuf == dstbuf {
+                info!(
+                    "DMA transfer {} on channel {} completed successfully: {:02x}",
+                    idx,
+                    $number,
+                    dstbuf.iter().as_slice()
+                );
+            } else {
+                info!("DMA transfer {} on channel {} failed!", idx, $number);
+            }
+        }
+    };
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
+    let mut rng = rng::Rng::new(p.RNG, Irqs);
 
-    info!("DMA memory-to-memory transfers");
+    info!("Test memory-to-memory DMA transfers");
 
-    // Reserve DMA channels
-    let mut ch1 = Dma::reserve_channel(p.DMA0_CH0);
-    let mut ch2 = Dma::reserve_channel(p.DMA0_CH31);
+    test_dma_channel!(p, rng, DMA0_CH0, 0);
+    test_dma_channel!(p, rng, DMA0_CH1, 1);
+    test_dma_channel!(p, rng, DMA0_CH2, 2);
+    test_dma_channel!(p, rng, DMA0_CH3, 3);
+    test_dma_channel!(p, rng, DMA0_CH4, 4);
+    test_dma_channel!(p, rng, DMA0_CH5, 5);
+    test_dma_channel!(p, rng, DMA0_CH6, 6);
+    test_dma_channel!(p, rng, DMA0_CH7, 7);
+    test_dma_channel!(p, rng, DMA0_CH8, 8);
+    test_dma_channel!(p, rng, DMA0_CH9, 9);
+    test_dma_channel!(p, rng, DMA0_CH10, 10);
+    test_dma_channel!(p, rng, DMA0_CH11, 11);
+    test_dma_channel!(p, rng, DMA0_CH12, 12);
+    test_dma_channel!(p, rng, DMA0_CH13, 13);
+    test_dma_channel!(p, rng, DMA0_CH14, 14);
+    test_dma_channel!(p, rng, DMA0_CH15, 15);
+    test_dma_channel!(p, rng, DMA0_CH16, 16);
+    test_dma_channel!(p, rng, DMA0_CH17, 17);
+    test_dma_channel!(p, rng, DMA0_CH18, 18);
+    test_dma_channel!(p, rng, DMA0_CH19, 19);
+    test_dma_channel!(p, rng, DMA0_CH20, 20);
+    test_dma_channel!(p, rng, DMA0_CH21, 21);
+    test_dma_channel!(p, rng, DMA0_CH22, 22);
+    test_dma_channel!(p, rng, DMA0_CH23, 23);
+    test_dma_channel!(p, rng, DMA0_CH24, 24);
+    test_dma_channel!(p, rng, DMA0_CH25, 25);
+    test_dma_channel!(p, rng, DMA0_CH26, 26);
+    test_dma_channel!(p, rng, DMA0_CH27, 27);
+    test_dma_channel!(p, rng, DMA0_CH28, 28);
+    test_dma_channel!(p, rng, DMA0_CH29, 29);
+    test_dma_channel!(p, rng, DMA0_CH30, 30);
+    test_dma_channel!(p, rng, DMA0_CH31, 31);
 
-    // Default transfer width is 32 bits
-    let mut options = TransferOptions::default();
-    options.width = Width::Bit8;
-
-    // SAFETY: use of a mutable static is unsafe
-    ch1.write_mem(&SRC_ARRAY1[..], unsafe { &mut DST_ARRAY[..] }, &options);
-
-    //while ch.is_channel_active(0).unwrap() {}
-    embassy_imxrt_examples::delay(5_000);
-
-    unsafe {
-        if SRC_ARRAY1 == DST_ARRAY {
-            info!("DMA transfer #1 completed successfully")
-        } else {
-            info!("DMA transfer #1 failed")
-        }
-    }
-    // SAFETY: use of a mutable static is unsafe
-    ch2.write_mem(&SRC_ARRAY2[..], unsafe { &mut DST_ARRAY[..] }, &options);
-
-    //while ch.is_channel_active(0).unwrap() {}
-    embassy_imxrt_examples::delay(10_000);
-
-    unsafe {
-        if SRC_ARRAY2 == DST_ARRAY {
-            info!("DMA transfer #2 completed successfully")
-        } else {
-            info!("DMA transfer #2 failed")
-        }
-    }
+    info!("DMA transfer tests completed");
 }

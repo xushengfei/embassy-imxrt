@@ -1,20 +1,22 @@
-//! DMA channel
-use core::borrow::BorrowMut;
+//! DMA channel & request
 
 use super::Error;
 use super::Instance;
 use super::DESCRIPTORS;
+use super::DMA_WAKERS;
+
+use core::future::poll_fn;
+use core::task::Poll;
 
 use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 use embassy_hal_internal::PeripheralRef;
 
+use embassy_sync::waitqueue::AtomicWaker;
+
 /// DMA request identifier
 pub type Request = u8;
 
-/// Convenience wrapper, contains a DMA controller, channel number and a request number.
-///
-/// Commonly used in peripheral drivers that own DMA channels.
-///
+/// Convenience wrapper, contains a DMA channel and a request
 pub struct ChannelAndRequest<'d, T: Instance> {
     /// DMA channel
     pub channel: Channel<'d, T>,
@@ -23,37 +25,74 @@ pub struct ChannelAndRequest<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> ChannelAndRequest<'d, T> {
-    /// Issues channel read request
-    pub fn read(
-        &'d mut self,
-        peri_addr: *mut u8, // TODO
-        buf: &'d mut [u8],  // TODO
-        options: &TransferOptions,
+    /// Reads from a peripheral into a memory buffer
+    pub async fn read_from_peripheral(
+        &'d self,
+        peri_addr: *const u8,
+        buf: &'d mut [u8],
+        options: TransferOptions,
     ) -> Transfer<'d, T> {
-        Transfer::new_read(self.channel.borrow_mut(), self.request, peri_addr, buf, options)
-        // TODO
+        let transfer = Transfer::new_read(&self.channel, self.request, peri_addr, buf, options);
+        self.poll_transfer_complete().await;
+        transfer
     }
 
-    /// Issues channel write request
-    pub fn write(
-        &'d mut self,
-        buf: &'d [u8], // TODO
+    /// Writes from a memory buffer to a peripheral
+    pub async fn write_to_peripheral(
+        &'d self,
+        buf: &'d [u8],
         peri_addr: *mut u8,
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Transfer<'d, T> {
-        Transfer::new_write(self.channel.borrow_mut(), self.request, buf, peri_addr, options)
-        // TODO
+        let transfer = Transfer::new_write(&self.channel, self.request, buf, peri_addr, options);
+        self.poll_transfer_complete().await;
+        transfer
     }
 
-    /// Issues channel write to memory (memory-to-memory) request
-    pub fn write_mem(
-        &'d mut self,
-        src_buf: &'d [u8],     // TODO
-        dst_buf: &'d mut [u8], // TODO
-        options: &TransferOptions,
+    /// Writes from a memory buffer to another memory buffer
+    pub async fn write_to_memory(
+        &'d self,
+        src_buf: &'d [u8],
+        dst_buf: &'d mut [u8],
+        options: TransferOptions,
     ) -> Transfer<'d, T> {
-        Transfer::new_write_mem(self.channel.borrow_mut(), self.request, src_buf, dst_buf, options)
-        // TODO
+        let transfer = Transfer::new_write_mem(&self.channel, self.request, src_buf, dst_buf, options);
+        self.poll_transfer_complete().await;
+        transfer
+    }
+
+    /// Return a reference to the channel's waker
+    pub fn get_waker() -> &'d AtomicWaker {
+        &DMA_WAKERS[T::get_channel_number()]
+    }
+
+    async fn poll_transfer_complete(&'d self) {
+        poll_fn(|cx| {
+            // TODO - handle transfer failure
+
+            let channel = T::get_channel_number();
+
+            // Has the transfer already completed?  If so the channel interrupt will be disabled (masked)
+            if T::regs().intenset0().read().inten().bits() & (1 << channel) == 0 {
+                // Enable the interrupt on this channel
+                // SAFETY: unsafe due to .bits usage
+                T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
+                return Poll::Ready(());
+            }
+
+            DMA_WAKERS[channel].register(cx.waker());
+
+            // Has the transfer completed now?  If so the channel interrupt will be disabled (masked)
+            if T::regs().intenset0().read().inten().bits() & (1 << channel) == 0 {
+                // Enable the interrupt on this channel
+                // SAFETY: unsafe due to .bits usage
+                T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
     }
 }
 
@@ -64,31 +103,43 @@ pub struct Channel<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Channel<'d, T> {
-    /// Ready the specified DMA channel for triggering
+    /// Prepare the DMA channel for the transfer
     pub fn configure_channel(
-        &mut self,
+        &self,
         dir: Direction,
         srcbase: *const u32,
         dstbase: *mut u32,
         mem_len: usize,
-        options: &TransferOptions,
+        options: TransferOptions,
     ) -> Result<(), Error> {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
-
         let channel = T::get_channel_number();
 
-        // Configure descriptor
+        // Configure the channel descriptor
+        // NOTE: the DMA controller expects the memory buffer end address but peripheral address is actual
         unsafe {
             DESCRIPTORS.list[channel].reserved = 0;
-            DESCRIPTORS.list[channel].src_data_end_addr = srcbase as u32 + (xfercount * xferwidth) as u32;
-            DESCRIPTORS.list[channel].dst_data_end_addr = dstbase as u32 + (xfercount * xferwidth) as u32;
+            if dir == Direction::MemoryToPeripheral {
+                DESCRIPTORS.list[channel].dst_data_end_addr = dstbase as u32;
+            } else {
+                DESCRIPTORS.list[channel].dst_data_end_addr = dstbase as u32 + (xfercount * xferwidth) as u32;
+            }
+            if dir == Direction::PeripheralToMemory {
+                DESCRIPTORS.list[channel].src_data_end_addr = srcbase as u32;
+            } else {
+                DESCRIPTORS.list[channel].src_data_end_addr = srcbase as u32 + (xfercount * xferwidth) as u32;
+            }
             DESCRIPTORS.list[channel].nxt_desc_link_addr = 0;
         }
 
-        // Configure for memory-to-memory, no HW trigger, high priority
+        // Configure for transfer type, no hardware triggering (we'll trigger via software), high priority
         T::regs().channel(channel).cfg().modify(|_, w| unsafe {
-            w.periphreqen().clear_bit();
+            if dir == Direction::MemoryToMemory {
+                w.periphreqen().clear_bit();
+            } else {
+                w.periphreqen().set_bit();
+            }
             w.hwtrigen().clear_bit();
             w.chpriority().bits(0)
         });
@@ -118,24 +169,18 @@ impl<'d, T: Instance> Channel<'d, T> {
         Ok(())
     }
 
-    /// Enable the specified DMA channel (must be configured)
-    pub fn enable_channel(&mut self) -> Result<(), Error> {
+    /// Enable the DMA channel (only after configuring)
+    pub fn enable_channel(&self) -> Result<(), Error> {
         let channel = T::get_channel_number();
         T::regs()
             .enableset0()
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
         Ok(())
     }
-    /// Trigger the specified DMA channel
-    pub fn trigger_channel(&mut self) -> Result<(), Error> {
+    /// Trigger the DMA channel
+    pub fn trigger_channel(&self) -> Result<(), Error> {
         let channel = T::get_channel_number();
         T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
         Ok(())
-    }
-
-    /// Is the specified DMA channel active?
-    pub fn is_channel_active(&mut self) -> Result<bool, Error> {
-        let channel = T::get_channel_number();
-        Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
 }
