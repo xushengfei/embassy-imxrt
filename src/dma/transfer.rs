@@ -82,11 +82,9 @@ pub enum Direction {
 }
 
 /// DMA transfer
-// TODO - handle different word sizes
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Transfer<'d, T: Instance> {
-    /// DMA channel
-    pub _channel: &'d Channel<'d, T>, // TODO
+    _inner: &'d Channel<'d, T>,
 }
 
 impl<'d, T: Instance> Transfer<'d, T> {
@@ -94,8 +92,8 @@ impl<'d, T: Instance> Transfer<'d, T> {
     pub fn new_read(
         channel: &'d Channel<'d, T>,
         request: Request,
-        peri_addr: *const u8, // TODO
-        buf: &'d mut [u8],    // TODO
+        peri_addr: *const u8,
+        buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Self {
         Self::new_read_raw(channel, request, peri_addr, buf, options)
@@ -109,12 +107,12 @@ impl<'d, T: Instance> Transfer<'d, T> {
         buf: *mut [u8],
         options: TransferOptions,
     ) -> Self {
-        Self::new_inner(
+        Self::new_inner_transfer(
             channel,
             request,
             Direction::PeripheralToMemory,
             peri_addr as *const u32,
-            buf as *mut u8 as *mut u32, // TODO
+            buf as *mut u32,
             buf.len(),
             options,
         )
@@ -135,15 +133,15 @@ impl<'d, T: Instance> Transfer<'d, T> {
     pub fn new_write_raw(
         channel: &'d Channel<'d, T>,
         request: Request,
-        buf: *const [u8],   // TODO
-        peri_addr: *mut u8, // TODO
+        buf: *const [u8],
+        peri_addr: *mut u8,
         options: TransferOptions,
     ) -> Self {
-        Self::new_inner(
+        Self::new_inner_transfer(
             channel,
             request,
             Direction::MemoryToPeripheral,
-            buf as *const u8 as *mut u32, // TODO
+            buf as *mut u32,
             peri_addr as *mut u32,
             buf.len(),
             options,
@@ -165,23 +163,23 @@ impl<'d, T: Instance> Transfer<'d, T> {
     pub fn new_write_mem_raw(
         channel: &'d Channel<'d, T>,
         request: Request,
-        src_buf: *const [u8], // TODO
-        dst_buf: *mut [u8],   // TODO
+        src_buf: *const [u8],
+        dst_buf: *mut [u8],
         options: TransferOptions,
     ) -> Self {
-        Self::new_inner(
+        Self::new_inner_transfer(
             channel,
             request,
             Direction::MemoryToMemory,
-            src_buf as *const u32, // TODO
+            src_buf as *const u32,
             dst_buf as *mut u32,
             src_buf.len(),
             options,
         )
     }
 
-    /// Configures the channel for the read/write DMA transfer
-    fn new_inner(
+    /// Configures the channel and initiates the DMA transfer
+    fn new_inner_transfer(
         channel: &'d Channel<'d, T>,
         _request: Request,
         dir: Direction,
@@ -193,20 +191,20 @@ impl<'d, T: Instance> Transfer<'d, T> {
         // Configure the DMA channel descriptor and registers
         match channel.configure_channel(dir, src_buf, dst_buf, mem_len, options) {
             Ok(v) => v,
-            Err(_e) => info!("failed to configure DMA channel number",),
+            Err(_e) => error!("failed to configure DMA channel",),
         };
         // Enable the channel
         match channel.enable_channel() {
             Ok(v) => v,
-            Err(_e) => info!("failed to enable DMA channel number",),
+            Err(_e) => error!("failed to enable DMA channel",),
         };
 
         // Generate a software channel trigger to start the transfer
         match channel.trigger_channel() {
             Ok(v) => v,
-            Err(_e) => info!("failed to trigger DMA channel number",),
+            Err(_e) => error!("failed to trigger DMA channel",),
         };
 
-        Self { _channel: channel }
+        Self { _inner: channel }
     }
 }
