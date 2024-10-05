@@ -7,6 +7,8 @@ use crate::dma::channel::{Channel, ChannelAndRequest, Request};
 use crate::{interrupt, peripherals, Peripheral};
 use core::ptr;
 use embassy_hal_internal::{interrupt::InterruptExt, PeripheralRef};
+
+#[cfg(feature = "rt")]
 use embassy_sync::waitqueue::AtomicWaker;
 
 // TODO:
@@ -52,18 +54,22 @@ pub enum Error {
     UnsupportedConfiguration,
 }
 
+#[cfg(feature = "rt")]
 #[allow(clippy::declare_interior_mutable_const)]
 const DMA_WAKER: AtomicWaker = AtomicWaker::new();
 
+#[cfg(feature = "rt")]
 // One waker per channel
 static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [DMA_WAKER; DMA_CHANNEL_COUNT];
 
+#[cfg(feature = "rt")]
 #[interrupt]
 #[allow(non_snake_case)]
 fn DMA0() {
     dma0_irq_handler(&DMA_WAKERS);
 }
 
+#[cfg(feature = "rt")]
 fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
     let reg = unsafe { crate::pac::Dma0::steal() };
 
