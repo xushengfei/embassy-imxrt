@@ -1,4 +1,4 @@
-//! DMA channel
+//! DMA channel & request
 
 use super::Error;
 use super::Instance;
@@ -10,10 +10,7 @@ use embassy_hal_internal::PeripheralRef;
 /// DMA request identifier
 pub type Request = u8;
 
-/// Convenience wrapper, contains a DMA controller, channel number and a request number.
-///
-/// Commonly used in peripheral drivers that own DMA channels.
-///
+/// Convenience wrapper, contains a DMA channel and a request
 pub struct ChannelAndRequest<'d, T: Instance> {
     /// DMA channel
     pub channel: Channel<'d, T>,
@@ -22,37 +19,19 @@ pub struct ChannelAndRequest<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> ChannelAndRequest<'d, T> {
-    /// Issues channel read request
-    pub fn read(
-        &'d self,
-        peri_addr: *mut u8, // TODO
-        buf: &'d mut [u8],  // TODO
-        options: TransferOptions,
-    ) -> Transfer<'d, T> {
+    /// Reads from a peripheral into a memory buffer
+    pub fn read(&'d self, peri_addr: *const u8, buf: &'d mut [u8], options: TransferOptions) -> Transfer<'d, T> {
         Transfer::new_read(&self.channel, self.request, peri_addr, buf, options)
-        // TODO
     }
 
-    /// Issues channel write request
-    pub fn write(
-        &'d self,
-        buf: &'d [u8], // TODO
-        peri_addr: *mut u8,
-        options: TransferOptions,
-    ) -> Transfer<'d, T> {
+    /// Writes from a memory buffer to a peripheral
+    pub fn write(&'d self, buf: &'d [u8], peri_addr: *mut u8, options: TransferOptions) -> Transfer<'d, T> {
         Transfer::new_write(&self.channel, self.request, buf, peri_addr, options)
-        // TODO
     }
 
-    /// Issues channel write to memory (memory-to-memory) request
-    pub fn write_mem(
-        &'d self,
-        src_buf: &'d [u8],     // TODO
-        dst_buf: &'d mut [u8], // TODO
-        options: TransferOptions,
-    ) -> Transfer<'d, T> {
+    /// Writes from a memory buffer to another memory buffer
+    pub fn write_mem(&'d self, src_buf: &'d [u8], dst_buf: &'d mut [u8], options: TransferOptions) -> Transfer<'d, T> {
         Transfer::new_write_mem(&self.channel, self.request, src_buf, dst_buf, options)
-        // TODO
     }
 }
 
@@ -63,7 +42,7 @@ pub struct Channel<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Channel<'d, T> {
-    /// Ready the specified DMA channel for triggering
+    /// Prepare the DMA channel for the transfer
     pub fn configure_channel(
         &self,
         dir: Direction,
@@ -74,10 +53,10 @@ impl<'d, T: Instance> Channel<'d, T> {
     ) -> Result<(), Error> {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
-
         let channel = T::get_channel_number();
 
-        // Configure descriptor
+        // Configure the channel descriptor
+        // NOTE: the DMA controller expects the memory buffer end address but peripheral address is actual
         unsafe {
             DESCRIPTORS.list[channel].reserved = 0;
             if dir == Direction::MemoryToPeripheral {
@@ -93,7 +72,7 @@ impl<'d, T: Instance> Channel<'d, T> {
             DESCRIPTORS.list[channel].nxt_desc_link_addr = 0;
         }
 
-        // Configure for memory-to-memory, no HW trigger, high priority
+        // Configure for transfer type, no hardware triggering (we'll trigger via software), high priority
         T::regs().channel(channel).cfg().modify(|_, w| unsafe {
             if dir == Direction::MemoryToMemory {
                 w.periphreqen().clear_bit();
@@ -129,7 +108,7 @@ impl<'d, T: Instance> Channel<'d, T> {
         Ok(())
     }
 
-    /// Enable the specified DMA channel (must be configured)
+    /// Enable the DMA channel (only after configuring)
     pub fn enable_channel(&self) -> Result<(), Error> {
         let channel = T::get_channel_number();
         T::regs()
@@ -137,16 +116,10 @@ impl<'d, T: Instance> Channel<'d, T> {
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
         Ok(())
     }
-    /// Trigger the specified DMA channel
+    /// Trigger the DMA channel
     pub fn trigger_channel(&self) -> Result<(), Error> {
         let channel = T::get_channel_number();
         T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
         Ok(())
-    }
-
-    /// Is the specified DMA channel active?
-    pub fn is_channel_active(&self) -> Result<bool, Error> {
-        let channel = T::get_channel_number();
-        Ok(T::regs().active0().read().act().bits() & (1 << channel) != 0)
     }
 }

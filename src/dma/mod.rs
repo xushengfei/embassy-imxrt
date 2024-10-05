@@ -10,7 +10,10 @@ use embassy_hal_internal::{interrupt::InterruptExt, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 // TODO:
-//  - add support for DMA1
+//
+//  - add support for DMA1 (requires PAC update)
+//  - support other transfer data widths (8-bit only)
+//  - locking on common dma register configuration
 
 const DMA_CHANNEL_COUNT: usize = 33;
 
@@ -58,26 +61,35 @@ static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [DMA_WAKER; DMA_CHANNEL_CO
 #[interrupt]
 #[allow(non_snake_case)]
 fn DMA0() {
-    irq_handler(&DMA_WAKERS);
+    dma0_irq_handler(&DMA_WAKERS);
 }
 
-fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
+fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
     let reg = unsafe { crate::pac::Dma0::steal() };
 
-    // Error interrupt pending?
+    // Is an error interrupt pending?
     if reg.intstat().read().activeerrint().bit() {
-        info!("DMA error interrupt!");
-        // TODO
+        let err = reg.errint0().read().bits();
+        // Loop through interrupt bitfield, excluding trailing and leading zeros looking for interrupt source(s)
+        for channel in err.trailing_zeros()..(32 - err.leading_zeros()) {
+            if err & (1 << channel) != 0 {
+                error!("DMA error interrupt on channel {}!", channel);
+                // Clear the interrupt for this channel
+                // SAFETY: unsafe due to .bits usage
+                reg.errint0().write(|w| unsafe { w.err().bits(1 << channel) });
+                wakers[channel as usize].wake();
+            }
+        }
     }
 
-    // DMA transfer completion interrupt pending?
+    // Is a transfer complete interrupt pending?
     if reg.intstat().read().activeint().bit() {
         let ia = reg.inta0().read().bits();
         // Loop through interrupt bitfield, excluding trailing and leading zeros looking for interrupt source(s)
         for channel in ia.trailing_zeros()..(32 - ia.leading_zeros()) {
             if ia & (1 << channel) != 0 {
-                info!("DMA interrupt on channel {}!", channel);
                 // Clear the interrupt for this channel
+                // SAFETY: unsafe due to .bits usage
                 reg.inta0().write(|w| unsafe { w.ia().bits(1 << channel) });
                 wakers[channel as usize].wake();
             }
@@ -85,8 +97,9 @@ fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
     }
 }
 
-/// Initialize the DMA controller
+/// Initialize DMA controllers (DMA0 only, for now)
 pub fn init() {
+    // SAFETY: init should only be called once during HAL initialization
     let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
     let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
@@ -110,11 +123,12 @@ pub fn init() {
     }
 
     // Ensure AHB priority it highest (M4 == DMAC0)
-    // SAFETY: unsafe only due to .bits usage
+    // SAFETY: unsafe due to .bits usage
     sysctl0.ahbmatrixprior().modify(|_, w| unsafe { w.m4().bits(0) });
 
     // Enable DMA interrupts on DMA0
     interrupt::DMA0.unpend();
+    // SAFETY: enabling the dma0 controller interrupt is an unsafe call
     unsafe {
         interrupt::DMA0.enable();
     }
@@ -126,9 +140,9 @@ pub struct Dma<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Dma<'d, T> {
-    /// Reserve DMA channel
+    /// Reserves a DMA channel for exclusive use
     pub fn reserve_channel(channel: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d, T> {
-        let request: Request = 0; // TODO
+        let request: Request = 0; //
         let channel = Channel {
             inner: channel.into_ref(),
         };
@@ -150,15 +164,15 @@ pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {
 }
 
 macro_rules! dma_channel_instance {
-    ($instance: ident, $controller: expr, $number: expr) => {
+    ($instance: ident, $controller: ident, $interrupt: ident, $number: expr) => {
         impl Instance for peripherals::$instance {
-            type Interrupt = crate::interrupt::typelevel::DMA0;
+            type Interrupt = crate::interrupt::typelevel::$interrupt;
         }
 
         impl SealedInstance for peripherals::$instance {
-            fn regs() -> crate::pac::Dma0 {
+            fn regs() -> crate::pac::$controller {
                 // SAFETY: safe from single executor
-                unsafe { crate::pac::Dma0::steal() }
+                unsafe { crate::pac::$controller::steal() }
             }
             fn get_channel_number() -> usize {
                 $number
@@ -167,36 +181,36 @@ macro_rules! dma_channel_instance {
     };
 }
 
-dma_channel_instance!(DMA0_CH0, crate::pac::Dma0, 0);
-dma_channel_instance!(DMA0_CH1, crate::pac::Dma0, 1);
-dma_channel_instance!(DMA0_CH2, crate::pac::Dma0, 2);
-dma_channel_instance!(DMA0_CH3, crate::pac::Dma0, 3);
-dma_channel_instance!(DMA0_CH4, crate::pac::Dma0, 4);
-dma_channel_instance!(DMA0_CH5, crate::pac::Dma0, 5);
-dma_channel_instance!(DMA0_CH6, crate::pac::Dma0, 6);
-dma_channel_instance!(DMA0_CH7, crate::pac::Dma0, 7);
-dma_channel_instance!(DMA0_CH8, crate::pac::Dma0, 8);
-dma_channel_instance!(DMA0_CH9, crate::pac::Dma0, 9);
-dma_channel_instance!(DMA0_CH10, crate::pac::Dma0, 10);
-dma_channel_instance!(DMA0_CH11, crate::pac::Dma0, 11);
-dma_channel_instance!(DMA0_CH12, crate::pac::Dma0, 12);
-dma_channel_instance!(DMA0_CH13, crate::pac::Dma0, 13);
-dma_channel_instance!(DMA0_CH14, crate::pac::Dma0, 14);
-dma_channel_instance!(DMA0_CH15, crate::pac::Dma0, 15);
-dma_channel_instance!(DMA0_CH16, crate::pac::Dma0, 16);
-dma_channel_instance!(DMA0_CH17, crate::pac::Dma0, 17);
-dma_channel_instance!(DMA0_CH18, crate::pac::Dma0, 18);
-dma_channel_instance!(DMA0_CH19, crate::pac::Dma0, 19);
-dma_channel_instance!(DMA0_CH20, crate::pac::Dma0, 20);
-dma_channel_instance!(DMA0_CH21, crate::pac::Dma0, 21);
-dma_channel_instance!(DMA0_CH22, crate::pac::Dma0, 22);
-dma_channel_instance!(DMA0_CH23, crate::pac::Dma0, 23);
-dma_channel_instance!(DMA0_CH24, crate::pac::Dma0, 24);
-dma_channel_instance!(DMA0_CH25, crate::pac::Dma0, 25);
-dma_channel_instance!(DMA0_CH26, crate::pac::Dma0, 26);
-dma_channel_instance!(DMA0_CH27, crate::pac::Dma0, 27);
-dma_channel_instance!(DMA0_CH28, crate::pac::Dma0, 28);
-dma_channel_instance!(DMA0_CH29, crate::pac::Dma0, 29);
-dma_channel_instance!(DMA0_CH30, crate::pac::Dma0, 30);
-dma_channel_instance!(DMA0_CH31, crate::pac::Dma0, 31);
-dma_channel_instance!(DMA0_CH32, crate::pac::Dma0, 32);
+dma_channel_instance!(DMA0_CH0, Dma0, DMA0, 0);
+dma_channel_instance!(DMA0_CH1, Dma0, DMA0, 1);
+dma_channel_instance!(DMA0_CH2, Dma0, DMA0, 2);
+dma_channel_instance!(DMA0_CH3, Dma0, DMA0, 3);
+dma_channel_instance!(DMA0_CH4, Dma0, DMA0, 4);
+dma_channel_instance!(DMA0_CH5, Dma0, DMA0, 5);
+dma_channel_instance!(DMA0_CH6, Dma0, DMA0, 6);
+dma_channel_instance!(DMA0_CH7, Dma0, DMA0, 7);
+dma_channel_instance!(DMA0_CH8, Dma0, DMA0, 8);
+dma_channel_instance!(DMA0_CH9, Dma0, DMA0, 9);
+dma_channel_instance!(DMA0_CH10, Dma0, DMA0, 10);
+dma_channel_instance!(DMA0_CH11, Dma0, DMA0, 11);
+dma_channel_instance!(DMA0_CH12, Dma0, DMA0, 12);
+dma_channel_instance!(DMA0_CH13, Dma0, DMA0, 13);
+dma_channel_instance!(DMA0_CH14, Dma0, DMA0, 14);
+dma_channel_instance!(DMA0_CH15, Dma0, DMA0, 15);
+dma_channel_instance!(DMA0_CH16, Dma0, DMA0, 16);
+dma_channel_instance!(DMA0_CH17, Dma0, DMA0, 17);
+dma_channel_instance!(DMA0_CH18, Dma0, DMA0, 18);
+dma_channel_instance!(DMA0_CH19, Dma0, DMA0, 19);
+dma_channel_instance!(DMA0_CH20, Dma0, DMA0, 20);
+dma_channel_instance!(DMA0_CH21, Dma0, DMA0, 21);
+dma_channel_instance!(DMA0_CH22, Dma0, DMA0, 22);
+dma_channel_instance!(DMA0_CH23, Dma0, DMA0, 23);
+dma_channel_instance!(DMA0_CH24, Dma0, DMA0, 24);
+dma_channel_instance!(DMA0_CH25, Dma0, DMA0, 25);
+dma_channel_instance!(DMA0_CH26, Dma0, DMA0, 26);
+dma_channel_instance!(DMA0_CH27, Dma0, DMA0, 27);
+dma_channel_instance!(DMA0_CH28, Dma0, DMA0, 28);
+dma_channel_instance!(DMA0_CH29, Dma0, DMA0, 29);
+dma_channel_instance!(DMA0_CH30, Dma0, DMA0, 30);
+dma_channel_instance!(DMA0_CH31, Dma0, DMA0, 31);
+dma_channel_instance!(DMA0_CH32, Dma0, DMA0, 32);
