@@ -1,7 +1,12 @@
 //! Implements I2C function support over flexcomm + gpios
 
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
+
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use sealed::Sealed;
 
 use crate::iopctl::IopctlPin as Pin;
 
@@ -131,17 +136,33 @@ pub trait SdaPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     fn as_sda(&self, pull: crate::iopctl::Pull);
 }
 
+/// Driver mode.
+#[allow(private_bounds)]
+pub trait Mode: Sealed {}
+
+/// Blocking mode.
+pub struct Blocking;
+impl Sealed for Blocking {}
+impl Mode for Blocking {}
+
+/// Async mode.
+pub struct Async;
+impl Sealed for Async {}
+impl Mode for Async {}
+
 /// use FCn as I2C Master controller
-pub struct I2cMaster<'a, FC: Instance> {
+pub struct I2cMaster<'a, FC: Instance, M: Mode> {
     bus: crate::flexcomm::I2cBus<'a, FC>,
     timeout: TimeoutSettings,
+    _phantom: PhantomData<M>,
     #[cfg(feature = "time")]
     poll_start: Instant,
 }
 
 /// use FCn as I2C Slave controller
-pub struct I2cSlave<'a, FC: Instance> {
+pub struct I2cSlave<'a, FC: Instance, M: Mode> {
     bus: crate::flexcomm::I2cBus<'a, FC>,
+    _phantom: PhantomData<M>,
 }
 
 /// configuration struct for i2c master timeout control
@@ -154,9 +175,8 @@ pub struct TimeoutSettings {
     pub sw_timeout: Duration,
 }
 
-impl<'a, FC: Instance> I2cMaster<'a, FC> {
-    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new(
+impl<'a, FC: Instance, M: Mode> I2cMaster<'a, FC, M> {
+    fn new_inner(
         fc: impl Instance<P = FC> + 'a,
         scl: impl SclPin<FC> + 'a,
         sda: impl SdaPin<FC> + 'a,
@@ -171,7 +191,7 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
         sda.as_sda(pull);
         scl.as_scl(pull);
 
-        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new(fc, clock)?;
+        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
 
@@ -215,12 +235,57 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
                 unsafe { w.bits(0) });
 
         bus.i2c().cfg().write(|w| w.msten().set_bit());
-        let mut this = Self {
+
+        Ok(Self {
             bus,
             timeout,
+            _phantom: PhantomData,
             #[cfg(feature = "time")]
             poll_start: Instant::now(),
-        };
+        })
+    }
+
+    fn check_for_bus_errors(&self) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        if i2cregs.stat().read().mstarbloss().is_arbitration_loss() {
+            Err(TransferError::ArbitrationLoss.into())
+        } else if i2cregs.stat().read().mstststperr().is_error() {
+            Err(TransferError::StartStopError.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_timeout(&mut self) -> Result<()> {
+        let stat = self.bus.i2c().stat().read();
+        if self.timeout.hw_timeout && (stat.scltimeout().bit_is_set() || stat.eventtimeout().is_even_timeout()) {
+            Err(TransferError::Timeout.into())
+        } else {
+            #[cfg(feature = "time")]
+            {
+                if Instant::now() - self.poll_start >= self.timeout.sw_timeout {
+                    return Err(TransferError::Timeout.into());
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
+impl<'a, FC: Instance> I2cMaster<'a, FC, Blocking> {
+    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
+    pub fn new_blocking(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC> + 'a,
+        sda: impl SdaPin<FC> + 'a,
+        // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
+        pull: crate::iopctl::Pull,
+        speed: Speed,
+        timeout: TimeoutSettings,
+    ) -> Result<Self> {
+        let mut this = Self::new_inner(fc, scl, sda, pull, speed, timeout)?;
         this.poll_ready()?;
 
         Ok(this)
@@ -258,18 +323,6 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
         }
 
         self.check_for_bus_errors()
-    }
-
-    fn check_for_bus_errors(&self) -> Result<()> {
-        let i2cregs = self.bus.i2c();
-
-        if i2cregs.stat().read().mstarbloss().is_arbitration_loss() {
-            Err(TransferError::ArbitrationLoss.into())
-        } else if i2cregs.stat().read().mstststperr().is_error() {
-            Err(TransferError::StartStopError.into())
-        } else {
-            Ok(())
-        }
     }
 
     fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
@@ -336,22 +389,6 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
         }
     }
 
-    fn check_timeout(&mut self) -> Result<()> {
-        let stat = self.bus.i2c().stat().read();
-        if self.timeout.hw_timeout && (stat.scltimeout().bit_is_set() || stat.eventtimeout().is_even_timeout()) {
-            Err(TransferError::Timeout.into())
-        } else {
-            #[cfg(feature = "time")]
-            {
-                if Instant::now() - self.poll_start >= self.timeout.sw_timeout {
-                    return Err(TransferError::Timeout.into());
-                }
-            }
-
-            Ok(())
-        }
-    }
-
     fn poll_ready(&mut self) -> Result<()> {
         #[cfg(feature = "time")]
         {
@@ -361,6 +398,160 @@ impl<'a, FC: Instance> I2cMaster<'a, FC> {
         while self.bus.i2c().stat().read().mstpending().is_in_progress() {
             self.check_timeout()?;
         }
+
+        Ok(())
+    }
+}
+
+impl<'a, FC: Instance> I2cMaster<'a, FC, Async> {
+    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
+    pub async fn new_async(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC> + 'a,
+        sda: impl SdaPin<FC> + 'a,
+        // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
+        pull: crate::iopctl::Pull,
+        speed: Speed,
+        timeout: TimeoutSettings,
+    ) -> Result<Self> {
+        let mut this = Self::new_inner(fc, scl, sda, pull, speed, timeout)?;
+        this.poll_ready().await?;
+
+        Ok(this)
+    }
+
+    async fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        // cannot start if not in IDLE state
+        if i2cregs.stat().read().mstpending().bit_is_clear() {
+            return Err(TransferError::OtherBusError.into());
+        }
+
+        i2cregs.mstdat().write(|w|
+            // SAFETY: only unsafe due to .bits usage
+            unsafe { w.data().bits(address << 1 | if is_read {0x01} else {0x00}) });
+
+        i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+        self.poll_ready().await?;
+
+        if i2cregs.stat().read().mststate().is_nack_address() {
+            // STOP bit to complete the attempted transfer
+            self.stop().await?;
+
+            return Err(TransferError::AddressNack.into());
+        }
+
+        if is_read && !i2cregs.stat().read().mststate().is_receive_ready() {
+            return Err(TransferError::ReadFail.into());
+        }
+
+        if !is_read && !i2cregs.stat().read().mststate().is_transmit_ready() {
+            return Err(TransferError::WriteFail.into());
+        }
+
+        self.check_for_bus_errors()
+    }
+
+    async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, true).await?;
+
+        let read_len = read.len();
+
+        for (i, r) in read.iter_mut().enumerate() {
+            self.poll_ready().await?;
+
+            // check transmission continuity
+            if !i2cregs.stat().read().mststate().is_receive_ready() {
+                return Err(TransferError::ReadFail.into());
+            }
+
+            self.check_for_bus_errors()?;
+
+            *r = i2cregs.mstdat().read().data().bits();
+
+            // continue after ACK until last byte
+            if i < read_len - 1 {
+                i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
+        // Procedure from 24.3.1.1 pg 545
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, false).await?;
+
+        for byte in write.iter() {
+            i2cregs.mstdat().write(|w|
+                // SAFETY: unsafe only due to .bits usage
+                unsafe { w.data().bits(*byte) });
+
+            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+
+            self.poll_ready().await?;
+            self.check_for_bus_errors()?;
+        }
+
+        Ok(())
+    }
+
+    async fn stop(&mut self) -> Result<()> {
+        // Procedure from 24.3.1.1 pg 545
+        let i2cregs = self.bus.i2c();
+
+        i2cregs.mstctl().write(|w| w.mststop().set_bit());
+        self.poll_ready().await?;
+        self.check_for_bus_errors()?;
+
+        // ensure return to idle state for bus (no stuck SCL/SDA lines)
+        if i2cregs.stat().read().mststate().is_idle() {
+            Ok(())
+        } else {
+            Err(TransferError::OtherBusError.into())
+        }
+    }
+
+    async fn poll_ready(&mut self) -> Result<()> {
+        #[cfg(feature = "time")]
+        {
+            self.poll_start = Instant::now();
+        }
+
+        self.bus.i2c().intenset().write(|w| {
+            w.mstpendingen()
+                .set_bit()
+                .mstarblossen()
+                .set_bit()
+                .mstststperren()
+                .set_bit()
+        });
+
+        // Wait for fifo watermark interrupt.
+        poll_fn(|cx| {
+            let i2c = self.bus.i2c();
+            self.bus.waker().register(cx.waker());
+
+            //check for readyness
+            if i2c.stat().read().mstpending().bit_is_set()
+                || i2c.stat().read().mstarbloss().is_arbitration_loss()
+                || i2c.stat().read().mstststperr().is_error()
+                || self.check_timeout().is_err()
+            {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        self.check_timeout()?;
 
         Ok(())
     }
@@ -391,12 +582,12 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'a, FC: Instance> I2cMasterBlockingErrorType for I2cMaster<'a, FC> {
+impl<'a, FC: Instance, M: Mode> I2cMasterBlockingErrorType for I2cMaster<'a, FC, M> {
     type Error = Error;
 }
 
 // implement generic i2c interface for peripheral master type
-impl<'a, FC: Instance> I2cMasterBlocking for I2cMaster<'a, FC> {
+impl<'a, FC: Instance> I2cMasterBlocking for I2cMaster<'a, FC, Blocking> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read)?;
         self.stop()
@@ -435,6 +626,50 @@ impl<'a, FC: Instance> I2cMasterBlocking for I2cMaster<'a, FC> {
     }
 }
 
+// re-export embedded-hal I2c trait
+pub use embedded_hal_async::i2c::{ErrorType as I2cMasterAsyncErrorType, I2c as I2cMasterAsync};
+
+impl<'a, FC: Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress>
+    for I2cMaster<'a, FC, Async>
+{
+    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+        self.read_no_stop(address, read).await?;
+        self.stop().await
+    }
+
+    async fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
+        self.write_no_stop(address, write).await?;
+        self.stop().await
+    }
+
+    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+        self.write_no_stop(address, write).await?;
+        self.read_no_stop(address, read).await?;
+        self.stop().await
+    }
+
+    async fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
+        let needs_stop = !operations.is_empty();
+
+        for op in operations {
+            match op {
+                embedded_hal_1::i2c::Operation::Read(read) => {
+                    self.read_no_stop(address, read).await?;
+                }
+                embedded_hal_1::i2c::Operation::Write(write) => {
+                    self.write_no_stop(address, write).await?;
+                }
+            }
+        }
+
+        if needs_stop {
+            self.stop().await?;
+        }
+
+        Ok(())
+    }
+}
+
 /// interface trait for generalized I2C slave interactions
 pub trait I2cSlaveBlocking {
     /// block until the address is pinged (expect no payload)
@@ -447,7 +682,7 @@ pub trait I2cSlaveBlocking {
     fn write(&self, write: &[u8]) -> Result<()>;
 }
 
-impl<'a, FC: Instance> I2cSlave<'a, FC> {
+impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     pub fn new(
         fc: impl Instance<P = FC> + 'a,
@@ -463,7 +698,7 @@ impl<'a, FC: Instance> I2cSlave<'a, FC> {
         sda.as_sda(pull);
         scl.as_scl(pull);
 
-        let bus = crate::flexcomm::I2cBus::new(fc, clock)?;
+        let bus = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
         let i2c = bus.i2c();
@@ -492,7 +727,10 @@ impl<'a, FC: Instance> I2cSlave<'a, FC> {
         // SLVEN = 1, per UM11147 24.3.2.1
         i2c.cfg().write(|w| w.slven().enabled());
 
-        Ok(Self { bus })
+        Ok(Self {
+            bus,
+            _phantom: PhantomData,
+        })
     }
 
     fn poll(&self) -> Result<()> {
@@ -504,7 +742,7 @@ impl<'a, FC: Instance> I2cSlave<'a, FC> {
     }
 }
 
-impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC> {
+impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC, Blocking> {
     fn block_until_addressed(&self) -> Result<()> {
         self.poll()?;
 
