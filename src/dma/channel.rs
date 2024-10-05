@@ -80,14 +80,26 @@ impl<'d, T: Instance> Channel<'d, T> {
         // Configure descriptor
         unsafe {
             DESCRIPTORS.list[channel].reserved = 0;
-            DESCRIPTORS.list[channel].src_data_end_addr = srcbase as u32 + (xfercount * xferwidth) as u32;
-            DESCRIPTORS.list[channel].dst_data_end_addr = dstbase as u32 + (xfercount * xferwidth) as u32;
+            if dir == Direction::MemoryToPeripheral {
+                DESCRIPTORS.list[channel].dst_data_end_addr = dstbase as u32;
+            } else {
+                DESCRIPTORS.list[channel].dst_data_end_addr = dstbase as u32 + (xfercount * xferwidth) as u32;
+            }
+            if dir == Direction::PeripheralToMemory {
+                DESCRIPTORS.list[channel].src_data_end_addr = srcbase as u32;
+            } else {
+                DESCRIPTORS.list[channel].src_data_end_addr = srcbase as u32 + (xfercount * xferwidth) as u32;
+            }
             DESCRIPTORS.list[channel].nxt_desc_link_addr = 0;
         }
 
         // Configure for memory-to-memory, no HW trigger, high priority
         T::regs().channel(channel).cfg().modify(|_, w| unsafe {
-            w.periphreqen().clear_bit();
+            if dir == Direction::MemoryToMemory {
+                w.periphreqen().clear_bit();
+            } else {
+                w.periphreqen().set_bit();
+            }
             w.hwtrigen().clear_bit();
             w.chpriority().bits(0)
         });
