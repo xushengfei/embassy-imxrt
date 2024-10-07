@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let ret = r.set_datetime(&datetime);
     info!("RTC set time: {:?}", datetime);
     // check if the set is valid
-    assert!(ret == DatetimeResult::ValidDatetime);
+    assert!(ret.is_ok());
 
     info!("Wait fo 20 seconds");
     //wait for 20 seconds
@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
 
     // get the datetime set and compare
     let (time, result) = r.get_datetime();
-    assert!(result == DatetimeResult::ValidDatetime);
+    assert!(result.is_ok());
     info!("RTC get time: {:?}", time);
 
     embassy_imxrt_examples::delay(50000);

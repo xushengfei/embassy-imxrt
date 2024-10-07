@@ -280,9 +280,7 @@ pub struct RtcDatetime {
 
 #[derive(PartialEq)]
 /// Represents the result of a datetime validation.
-pub enum DatetimeResult {
-    /// The datetime is valid.
-    ValidDatetime,
+pub enum Error {
     /// The year is invalid.
     InvalidYear,
     /// The month is invalid.
@@ -311,56 +309,60 @@ impl RtcDatetime {
         Self { rtc: rtc() }
     }
     /// check valid datetime.
-    pub fn is_valid_datetime(&self, time: &Datetime) -> DatetimeResult {
+    pub fn is_valid_datetime(&self, time: &Datetime) -> Result<(), Error> {
+        // Validate year
+        if time.year < 1970 {
+            return Err(Error::InvalidYear);
+        }
+
         // Validate month
         if time.month < 1 || time.month > 12 {
-            return DatetimeResult::InvalidMonth;
+            return Err(Error::InvalidMonth);
         }
 
         // Validate day
         if time.day < 1 {
-            return DatetimeResult::InvalidDay;
+            return Err(Error::InvalidDay);
         }
 
         match time.month {
             1 | 3 | 5 | 7 | 8 | 10 | 12 => {
                 if time.day > 31 {
-                    return DatetimeResult::InvalidDay;
+                    return Err(Error::InvalidDay);
                 }
             }
             4 | 6 | 9 | 11 => {
                 if time.day > 30 {
-                    return DatetimeResult::InvalidDay;
+                    return Err(Error::InvalidDay);
                 }
             }
             2 => {
                 if self.is_leap_year(time.year) {
                     if time.day > 29 {
-                        return DatetimeResult::InvalidDay;
+                        return Err(Error::InvalidDay);
                     }
                 } else if time.day > 28 {
-                    return DatetimeResult::InvalidDay;
+                    return Err(Error::InvalidDay);
                 }
             }
-            _ => return DatetimeResult::InvalidDay,
+            _ => return Err(Error::InvalidDay),
         }
 
         // Validate hour
         if time.hour > 23 {
-            return DatetimeResult::InvalidHour;
+            return Err(Error::InvalidHour);
         }
 
         // Validate minute
         if time.minute > 59 {
-            return DatetimeResult::InvalidMinute;
+            return Err(Error::InvalidMinute);
         }
 
         // Validate second
         if time.second > 59 {
-            return DatetimeResult::InvalidSecond;
+            return Err(Error::InvalidSecond);
         }
-
-        DatetimeResult::ValidDatetime
+        Ok(())
     }
 
     /// Check if a year is a leap year.
@@ -461,18 +463,18 @@ impl RtcDatetime {
     }
 
     /// Set the datetime.
-    pub fn set_datetime(&self, datetime: &Datetime) -> DatetimeResult {
+    pub fn set_datetime(&self, datetime: &Datetime) -> Result<(), Error> {
         let ret = self.is_valid_datetime(datetime);
-        if ret != DatetimeResult::ValidDatetime {
+        if ret.is_err() {
             return ret;
         }
         let secs = self.convert_datetime_to_secs(datetime);
         self.rtc.count().write(|w| unsafe { w.bits(secs) });
-        DatetimeResult::ValidDatetime
+        Ok(())
     }
 
     /// Get the datetime.
-    pub fn get_datetime(&self) -> (Datetime, DatetimeResult) {
+    pub fn get_datetime(&self) -> (Datetime, Result<(), Error>) {
         let secs = self.rtc.count().read().bits();
         let datetime = self.convert_secs_to_datetime(secs);
         let res = self.is_valid_datetime(&datetime);
