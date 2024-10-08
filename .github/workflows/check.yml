@@ -8,25 +8,29 @@
 # - msrv: check that the msrv specified in the crate is correct
 permissions:
   contents: read
+
 # This configuration allows maintainers of this repo to create a branch and pull request based on
 # the new branch. Restricting the push trigger to the main branch ensures that the PR only gets
 # built once.
 on:
+
   push:
     branches: [main]
   pull_request:
+
 # If new code is pushed to a PR branch, then cancel in progress workflows for that PR. Ensures that
 # we don't waste CI time, and returns results quicker https://github.com/jonhoo/rust-ci-conf/pull/5
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
-name: check
-jobs:
 
+name: check
+
+jobs:
   commit_list:
     runs-on: ubuntu-latest
-    steps:
 
+    steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -55,19 +59,23 @@ jobs:
     runs-on: ubuntu-latest
     name: nightly / fmt
     needs: commit_list
+
     strategy:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           ref: ${{ matrix.commit }}
+
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+
       - name: cargo fmt --check
         run: cargo fmt --check
 
@@ -75,25 +83,33 @@ jobs:
     runs-on: ubuntu-latest
     name: ${{ matrix.toolchain }} / clippy
     needs: commit_list
+
     permissions:
       contents: read
       checks: write
+
     strategy:
       fail-fast: false
       matrix:
         # Get early warning of new lints which are regularly introduced in beta channels.
         toolchain: [stable, beta]
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           ref: ${{ matrix.commit }}
+
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
+
+      - name: Add Credentials # Remove once repos are public
+        run: git config --global url."https://ignore:${{ secrets.ACCESS_TOKEN }}@github.com".insteadOf https://github.com
+
       - name: cargo clippy
         uses: giraffate/clippy-action@v1
         with:
@@ -128,19 +144,26 @@ jobs:
     runs-on: ubuntu-latest
     name: nightly / doc
     needs: commit_list
+
     strategy:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           ref: ${{ matrix.commit }}
+
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
+
+      - name: Add Credentials # Remove once repos are public
+        run: git config --global url."https://ignore:${{ secrets.ACCESS_TOKEN }}@github.com".insteadOf https://github.com
+
       - name: cargo doc
-        run: cargo doc --no-deps --all-features
+        run: cargo doc --no-deps -F mimxrt685s,rt,defmt,time,time-driver,unstable-pac
         env:
           RUSTDOCFLAGS: --cfg docsrs
 
@@ -150,23 +173,77 @@ jobs:
     runs-on: ubuntu-latest
     name: ubuntu / stable / features
     needs: commit_list
+
     strategy:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+        feature: [ "mimxrt633s", "mimxrt633s,rt" "mimxrt633s,defmt"
+        "mimxrt633s,time" "mimxrt633s,time-driver"
+        "mimxrt633s,unstable-pac" "mimxrt633s,rt,defmt"
+        "mimxrt633s,rt,time" "mimxrt633s,rt,time-driver"
+        "mimxrt633s,rt,unstable-pac" "mimxrt633s,defmt,time"
+        "mimxrt633s,defmt,time-driver" "mimxrt633s,defmt,unstable-pac"
+        "mimxrt633s,time,time-driver" "mimxrt633s,time,unstable-pac"
+        "mimxrt633s,time-driver,unstable-pac"
+        "mimxrt633s,rt,defmt,time" "mimxrt633s,rt,defmt,time-driver"
+        "mimxrt633s,rt,defmt,unstable-pac"
+        "mimxrt633s,rt,time,time-driver"
+        "mimxrt633s,rt,time,unstable-pac"
+        "mimxrt633s,rt,time-driver,unstable-pac"
+        "mimxrt633s,defmt,time,time-driver"
+        "mimxrt633s,defmt,time,unstable-pac"
+        "mimxrt633s,defmt,time-driver,unstable-pac"
+        "mimxrt633s,time,time-driver,unstable-pac"
+        "mimxrt633s,rt,defmt,time,time-driver"
+        "mimxrt633s,rt,defmt,time,unstable-pac"
+        "mimxrt633s,rt,defmt,time-driver,unstable-pac"
+        "mimxrt633s,rt,time,time-driver,unstable-pac"
+        "mimxrt633s,defmt,time,time-driver,unstable-pac"
+        "mimxrt633s,rt,defmt,time,time-driver,unstable-pac"
+        "mimxrt685s" "mimxrt685s,rt" "mimxrt685s,defmt"
+        "mimxrt685s,time" "mimxrt685s,time-driver"
+        "mimxrt685s,unstable-pac" "mimxrt685s,rt,defmt"
+        "mimxrt685s,rt,time" "mimxrt685s,rt,time-driver"
+        "mimxrt685s,rt,unstable-pac" "mimxrt685s,defmt,time"
+        "mimxrt685s,defmt,time-driver" "mimxrt685s,defmt,unstable-pac"
+        "mimxrt685s,time,time-driver" "mimxrt685s,time,unstable-pac"
+        "mimxrt685s,time-driver,unstable-pac"
+        "mimxrt685s,rt,defmt,time" "mimxrt685s,rt,defmt,time-driver"
+        "mimxrt685s,rt,defmt,unstable-pac"
+        "mimxrt685s,rt,time,time-driver"
+        "mimxrt685s,rt,time,unstable-pac"
+        "mimxrt685s,rt,time-driver,unstable-pac"
+        "mimxrt685s,defmt,time,time-driver"
+        "mimxrt685s,defmt,time,unstable-pac"
+        "mimxrt685s,defmt,time-driver,unstable-pac"
+        "mimxrt685s,time,time-driver,unstable-pac"
+        "mimxrt685s,rt,defmt,time,time-driver"
+        "mimxrt685s,rt,defmt,time,unstable-pac"
+        "mimxrt685s,rt,defmt,time-driver,unstable-pac"
+        "mimxrt685s,rt,time,time-driver,unstable-pac"
+        "mimxrt685s,defmt,time,time-driver,unstable-pac"
+        "mimxrt685s,rt,defmt,time,time-driver,unstable-pac" ]
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           ref: ${{ matrix.commit }}
+
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
+
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
+
       # intentionally no target specifier; see https://github.com/jonhoo/rust-ci-conf/pull/4
       # --feature-powerset runs for every combination of features
-      - name: cargo hack
-        run: cargo hack --feature-powerset check
+      - name: Add Credentials # Remove once repos are public
+        run: git config --global url."https://ignore:${{ secrets.ACCESS_TOKEN }}@github.com".insteadOf https://github.com
+
+      - name: cargo manual hack
+        run: cargo check -F ${{ matrix.feature }}
 
   deny:
     # cargo-deny checks licenses, advisories, sources, and bans for
@@ -174,17 +251,21 @@ jobs:
     runs-on: ubuntu-latest
     name: ubuntu / stable / deny
     needs: commit_list
+
     strategy:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           ref: ${{ matrix.commit }}
+
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
+
       - name: cargo install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -214,15 +295,23 @@ jobs:
                        #
                        # embassy-time requires 1.79 due to
                        # collapse_debuginfo
+
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
           ref: ${{ matrix.commit }}
+
       - name: Install ${{ matrix.msrv }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.msrv }}
+
+      - name: Add Credentials # Remove once repos are public
+        run: git config --global url."https://ignore:${{ secrets.ACCESS_TOKEN }}@github.com".insteadOf https://github.com
+
       - name: cargo +${{ matrix.msrv }} check
-        run: cargo check
+        run: |
+          cargo check -F mimxrt685s,rt,defmt,time,time-driver,unstable-pac
+          cargo check -F mimxrt633s,rt,defmt,time,time-driver,unstable-pac
