@@ -12,7 +12,7 @@ use paste::paste;
 use crate::dma::channel::Channel;
 use crate::dma::transfer::Transfer;
 use crate::gpio::{AnyPin, GpioPin as Pin};
-use crate::interrupts::interrupt::typelevel::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::pac::usart0::ctl::Cc;

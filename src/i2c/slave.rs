@@ -10,7 +10,7 @@ use super::{
     Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, SlaveDma, TransferError,
     I2C_WAKERS,
 };
-use crate::interrupts::interrupt::typelevel::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c0::stat::Slvstate;
 use crate::{dma, interrupt};
 
