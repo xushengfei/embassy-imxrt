@@ -69,23 +69,37 @@ fn GPIO_INTA() {
     irq_handler(&GPIO_WAKERS);
 }
 
+struct BitIter(u32);
+
+impl Iterator for BitIter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
+            }
+        }
+    }
+}
+
 #[cfg(feature = "rt")]
 fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
     let reg = unsafe { crate::pac::Gpio::steal() };
 
-    for (pin, waker) in wakers.iter().enumerate() {
-        let port = pin / 32;
-        let port_pin = pin % 32;
+    for port in 0..PORT_COUNT {
+        let stat = reg.intstata(port).read().bits();
 
-        // Go through all the pins to check which ones contributed to the interrupt
-        if reg.intstata(port).read().bits() & (1 << port_pin) != 0 {
+        for pin in BitIter(stat) {
             // Clear the interrupt from this pin
-            reg.intstata(port).write(|w| unsafe { w.status().bits(1 << port_pin) });
+            reg.intstata(port).write(|w| unsafe { w.status().bits(1 << pin) });
             // Disable interrupt from this pin
             reg.intena(port)
-                .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() & !(1 << port_pin)) });
+                .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() & !(1 << pin)) });
 
-            waker.wake();
+            wakers[port * 32 + pin as usize].wake();
         }
     }
 }
