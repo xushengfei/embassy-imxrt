@@ -24,10 +24,11 @@
 // ---
 // todo!()
 
+/// include pac definitions for instancing
+use crate::pac;
+
 /// include the traits that are implemented + exposed via this implementation
 use embassy_hal_internal::{Peripheral, PeripheralRef};
-/// include pac definitions for instancing
-use mimxrt685s_pac as pac; // TODO: generalize for other chipsets
 
 /// clock source indicator for selecting while powering on the SCTimer
 #[derive(Copy, Clone, Debug)]

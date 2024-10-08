@@ -20,15 +20,36 @@ features = ["defmt", "unstable-pac", "time-driver"]
 
 [features]
 default = ["rt"]
-## Enable the rt feature of [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
-rt = ["mimxrt685s-pac/rt"]
+## Enable the rt feature of
+## [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the
+## [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds
+## startup code and minimal runtime initialization.
+rt = [
+    "mimxrt685s-pac?/rt",
+    "mimxrt632s-pac?/rt",
+]
 
-## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
+## Enable [defmt support](https://docs.rs/defmt) and enables `defmt`
+## debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "mimxrt685s-pac/defmt"]
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time"]
 ## Enable custom embassy time-driver implementation, using 1kHz RTC
 time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000"]
+
+#! ### Chip selection features
+## MIMXRT685S
+mimxrt685s = ["mimxrt685s-pac", "_mimxrt685s"]
+mimxrt632s = ["mimxrt632s-pac", "_mimxrt632s"]
+
+## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
+unstable-pac = []
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+
+_mimxrt685s = []
+_mimxrt632s = []
 
 [dependencies]
 embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
@@ -54,8 +75,6 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-mimxrt685s-pac = { version = "0.1.5" }
-
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
 ] }
@@ -64,6 +83,10 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 
 document-features = "0.2.7"
+
+# PACs
+mimxrt685s-pac = { version = "0.1.5", optional = true }
+mimxrt632s-pac = { git = "https://github.com/pop-project/mimxrt632s-pac", optional = true }
 
 [dev-dependencies]
 embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
