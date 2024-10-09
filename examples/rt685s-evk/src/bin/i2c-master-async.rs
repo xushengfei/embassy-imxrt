@@ -3,7 +3,7 @@
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{self, I2cMasterBlocking};
+use embassy_imxrt::i2c::{self, I2cMasterAsync};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner) {
     let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Polarity::ActiveHigh);
 
     info!("i2c example - I2c::new");
-    let mut i2c = i2c::I2cMaster::new_blocking(
+    let mut i2c = i2c::I2cMaster::new_async(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
@@ -80,14 +80,15 @@ async fn main(_spawner: Spawner) {
             sw_timeout: embassy_time::Duration::from_millis(1000),
         },
     )
+    .await
     .unwrap();
 
-    // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
+    //Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
     info!("i2c example - ACC WHO_AM_I register check");
 
     let mut reg = [0u8; 1];
     reg[0] = 0xAA;
-    let result = i2c.write_read(0x1E, &[0x0D], &mut reg);
+    let result = i2c.write_read(0x1E, &[0x0D], &mut reg).await;
     if result.is_ok() {
         info!("i2c example - Read WHO_AM_I register: {:02X}", reg[0]);
     } else {

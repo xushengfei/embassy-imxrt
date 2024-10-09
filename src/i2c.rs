@@ -1,10 +1,14 @@
 //! Implements I2C function support over flexcomm + gpios
 
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
+
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use sealed::Sealed;
 
 use crate::iopctl::IopctlPin as Pin;
-use crate::PeripheralRef;
 
 /// Bus speed (nominal SCL, no clock stretching)
 pub enum Speed {
@@ -63,6 +67,12 @@ pub enum TransferError {
     WriteFail,
     /// I2C Address not ACK'd
     AddressNack,
+    /// Bus level arbitration loss
+    ArbitrationLoss,
+    /// Address + Start/Stop error
+    StartStopError,
+    /// state mismatch or other internal register unexpected state
+    OtherBusError,
 }
 
 /// Error information type
@@ -104,43 +114,55 @@ impl<T: Pin> sealed::Sealed for T {}
 
 /// shared functions between master and slave operation
 #[allow(private_bounds)]
-pub trait I2cAny<const FC: usize>: crate::flexcomm::I2cPeripheral {}
-impl I2cAny<0> for crate::peripherals::FLEXCOMM0 {}
-impl I2cAny<1> for crate::peripherals::FLEXCOMM1 {}
-impl I2cAny<2> for crate::peripherals::FLEXCOMM2 {}
-impl I2cAny<3> for crate::peripherals::FLEXCOMM3 {}
-impl I2cAny<4> for crate::peripherals::FLEXCOMM4 {}
-impl I2cAny<5> for crate::peripherals::FLEXCOMM5 {}
-impl I2cAny<6> for crate::peripherals::FLEXCOMM6 {}
-impl I2cAny<7> for crate::peripherals::FLEXCOMM7 {}
+pub trait Instance: crate::flexcomm::I2cPeripheral {}
+impl Instance for crate::peripherals::FLEXCOMM0 {}
+impl Instance for crate::peripherals::FLEXCOMM1 {}
+impl Instance for crate::peripherals::FLEXCOMM2 {}
+impl Instance for crate::peripherals::FLEXCOMM3 {}
+impl Instance for crate::peripherals::FLEXCOMM4 {}
+impl Instance for crate::peripherals::FLEXCOMM5 {}
+impl Instance for crate::peripherals::FLEXCOMM6 {}
+impl Instance for crate::peripherals::FLEXCOMM7 {}
 
 /// io configuration trait for easier configuration
-pub trait SclPin<const FC: usize>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for SCL usage
     fn as_scl(&self, pull: crate::iopctl::Pull);
 }
 
 /// io configuration trait for easier configuration
-pub trait SdaPin<const FC: usize>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SdaPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for SDA usage
     fn as_sda(&self, pull: crate::iopctl::Pull);
 }
 
+/// Driver mode.
+#[allow(private_bounds)]
+pub trait Mode: Sealed {}
+
+/// Blocking mode.
+pub struct Blocking;
+impl Sealed for Blocking {}
+impl Mode for Blocking {}
+
+/// Async mode.
+pub struct Async;
+impl Sealed for Async {}
+impl Mode for Async {}
+
 /// use FCn as I2C Master controller
-pub struct I2cMaster<'a, const FC: usize, T: I2cAny<FC>, SCL: SclPin<FC>, SDA: SdaPin<FC>> {
-    bus: crate::flexcomm::I2cBus<'a, T>,
-    _scl: PeripheralRef<'a, SCL>,
-    _sda: PeripheralRef<'a, SDA>,
+pub struct I2cMaster<'a, FC: Instance, M: Mode> {
+    bus: crate::flexcomm::I2cBus<'a, FC>,
     timeout: TimeoutSettings,
+    _phantom: PhantomData<M>,
     #[cfg(feature = "time")]
     poll_start: Instant,
 }
 
 /// use FCn as I2C Slave controller
-pub struct I2cSlave<'a, const FC: usize, T: I2cAny<FC>, SCL: SclPin<FC>, SDA: SdaPin<FC>> {
-    bus: crate::flexcomm::I2cBus<'a, T>,
-    _scl: PeripheralRef<'a, SCL>,
-    _sda: PeripheralRef<'a, SDA>,
+pub struct I2cSlave<'a, FC: Instance, M: Mode> {
+    bus: crate::flexcomm::I2cBus<'a, FC>,
+    _phantom: PhantomData<M>,
 }
 
 /// configuration struct for i2c master timeout control
@@ -153,14 +175,11 @@ pub struct TimeoutSettings {
     pub sw_timeout: Duration,
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>>
-    I2cMaster<'a, FC, T, SCL, SDA>
-{
-    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new(
-        fc: T,
-        scl: SCL,
-        sda: SDA,
+impl<'a, FC: Instance, M: Mode> I2cMaster<'a, FC, M> {
+    fn new_inner(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC> + 'a,
+        sda: impl SdaPin<FC> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         speed: Speed,
@@ -172,7 +191,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         sda.as_sda(pull);
         scl.as_scl(pull);
 
-        let bus = crate::flexcomm::I2cBus::new(fc, clock)?;
+        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
 
@@ -216,65 +235,26 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
                 unsafe { w.bits(0) });
 
         bus.i2c().cfg().write(|w| w.msten().set_bit());
-        let mut this = Self {
+
+        Ok(Self {
             bus,
-            _scl: scl.into_ref(),
-            _sda: sda.into_ref(),
             timeout,
+            _phantom: PhantomData,
             #[cfg(feature = "time")]
             poll_start: Instant::now(),
-        };
-        this.poll_ready()?;
-
-        Ok(this)
+        })
     }
 
-    fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+    fn check_for_bus_errors(&self) -> Result<()> {
         let i2cregs = self.bus.i2c();
 
-        i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1 | 0x01) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        for r in read {
-            while i2cregs.stat().read().mstpending().bit_is_clear() {}
-            *r = (i2cregs.mstdat().read().bits() & 0xFF) as u8;
+        if i2cregs.stat().read().mstarbloss().is_arbitration_loss() {
+            Err(TransferError::ArbitrationLoss.into())
+        } else if i2cregs.stat().read().mstststperr().is_error() {
+            Err(TransferError::StartStopError.into())
+        } else {
+            Ok(())
         }
-
-        Ok(())
-    }
-
-    fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        // Procedure from 24.3.1.1 pg 545
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-        // SAFETY: unsafe only due to .bits usage
-        unsafe { w.data().bits(address << 1) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        for byte in write.iter() {
-            i2cregs.mstdat().write(|w|
-            // SAFETY: unsafe only due to .bits usage
-            unsafe { w.data().bits(*byte) });
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-            self.poll_ready()?;
-        }
-
-        Ok(())
-    }
-
-    fn stop(&mut self) -> Result<()> {
-        // Procedure from 24.3.1.1 pg 545
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
     }
 
     fn check_timeout(&mut self) -> Result<()> {
@@ -292,6 +272,122 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
             Ok(())
         }
     }
+}
+
+impl<'a, FC: Instance> I2cMaster<'a, FC, Blocking> {
+    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
+    pub fn new_blocking(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC> + 'a,
+        sda: impl SdaPin<FC> + 'a,
+        // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
+        pull: crate::iopctl::Pull,
+        speed: Speed,
+        timeout: TimeoutSettings,
+    ) -> Result<Self> {
+        let mut this = Self::new_inner(fc, scl, sda, pull, speed, timeout)?;
+        this.poll_ready()?;
+
+        Ok(this)
+    }
+
+    fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        // cannot start if the the bus is already busy
+        if i2cregs.stat().read().mstpending().is_in_progress() {
+            return Err(TransferError::OtherBusError.into());
+        }
+
+        i2cregs.mstdat().write(|w|
+            // SAFETY: only unsafe due to .bits usage
+            unsafe { w.data().bits(address << 1 | if is_read {0x01} else {0x00}) });
+
+        i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+        self.poll_ready()?;
+
+        if i2cregs.stat().read().mststate().is_nack_address() {
+            // STOP bit to complete the attempted transfer
+            self.stop()?;
+
+            return Err(TransferError::AddressNack.into());
+        }
+
+        if is_read && !i2cregs.stat().read().mststate().is_receive_ready() {
+            return Err(TransferError::ReadFail.into());
+        }
+
+        if !is_read && !i2cregs.stat().read().mststate().is_transmit_ready() {
+            return Err(TransferError::WriteFail.into());
+        }
+
+        self.check_for_bus_errors()
+    }
+
+    fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, true)?;
+
+        let read_len = read.len();
+
+        for (i, r) in read.iter_mut().enumerate() {
+            self.poll_ready()?;
+
+            // check transmission continuity
+            if !i2cregs.stat().read().mststate().is_receive_ready() {
+                return Err(TransferError::ReadFail.into());
+            }
+
+            self.check_for_bus_errors()?;
+
+            *r = i2cregs.mstdat().read().data().bits();
+
+            // continue after ACK until last byte
+            if i < read_len - 1 {
+                i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
+        // Procedure from 24.3.1.1 pg 545
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, false)?;
+
+        for byte in write.iter() {
+            i2cregs.mstdat().write(|w|
+                // SAFETY: unsafe only due to .bits usage
+                unsafe { w.data().bits(*byte) });
+
+            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+
+            self.poll_ready()?;
+            self.check_for_bus_errors()?;
+        }
+
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<()> {
+        // Procedure from 24.3.1.1 pg 545
+        let i2cregs = self.bus.i2c();
+
+        i2cregs.mstctl().write(|w| w.mststop().set_bit());
+        self.poll_ready()?;
+        self.check_for_bus_errors()?;
+
+        // ensure return to idle state for bus (no stuck SCL/SDA lines)
+        if i2cregs.stat().read().mststate().is_idle() {
+            Ok(())
+        } else {
+            Err(TransferError::OtherBusError.into())
+        }
+    }
 
     fn poll_ready(&mut self) -> Result<()> {
         #[cfg(feature = "time")]
@@ -299,9 +395,163 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
             self.poll_start = Instant::now();
         }
 
-        while self.bus.i2c().stat().read().mstpending().bit_is_clear() {
+        while self.bus.i2c().stat().read().mstpending().is_in_progress() {
             self.check_timeout()?;
         }
+
+        Ok(())
+    }
+}
+
+impl<'a, FC: Instance> I2cMaster<'a, FC, Async> {
+    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
+    pub async fn new_async(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC> + 'a,
+        sda: impl SdaPin<FC> + 'a,
+        // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
+        pull: crate::iopctl::Pull,
+        speed: Speed,
+        timeout: TimeoutSettings,
+    ) -> Result<Self> {
+        let mut this = Self::new_inner(fc, scl, sda, pull, speed, timeout)?;
+        this.poll_ready().await?;
+
+        Ok(this)
+    }
+
+    async fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        // cannot start if not in IDLE state
+        if i2cregs.stat().read().mstpending().bit_is_clear() {
+            return Err(TransferError::OtherBusError.into());
+        }
+
+        i2cregs.mstdat().write(|w|
+            // SAFETY: only unsafe due to .bits usage
+            unsafe { w.data().bits(address << 1 | if is_read {0x01} else {0x00}) });
+
+        i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+        self.poll_ready().await?;
+
+        if i2cregs.stat().read().mststate().is_nack_address() {
+            // STOP bit to complete the attempted transfer
+            self.stop().await?;
+
+            return Err(TransferError::AddressNack.into());
+        }
+
+        if is_read && !i2cregs.stat().read().mststate().is_receive_ready() {
+            return Err(TransferError::ReadFail.into());
+        }
+
+        if !is_read && !i2cregs.stat().read().mststate().is_transmit_ready() {
+            return Err(TransferError::WriteFail.into());
+        }
+
+        self.check_for_bus_errors()
+    }
+
+    async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, true).await?;
+
+        let read_len = read.len();
+
+        for (i, r) in read.iter_mut().enumerate() {
+            self.poll_ready().await?;
+
+            // check transmission continuity
+            if !i2cregs.stat().read().mststate().is_receive_ready() {
+                return Err(TransferError::ReadFail.into());
+            }
+
+            self.check_for_bus_errors()?;
+
+            *r = i2cregs.mstdat().read().data().bits();
+
+            // continue after ACK until last byte
+            if i < read_len - 1 {
+                i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
+        // Procedure from 24.3.1.1 pg 545
+        let i2cregs = self.bus.i2c();
+
+        self.start(address, false).await?;
+
+        for byte in write.iter() {
+            i2cregs.mstdat().write(|w|
+                // SAFETY: unsafe only due to .bits usage
+                unsafe { w.data().bits(*byte) });
+
+            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+
+            self.poll_ready().await?;
+            self.check_for_bus_errors()?;
+        }
+
+        Ok(())
+    }
+
+    async fn stop(&mut self) -> Result<()> {
+        // Procedure from 24.3.1.1 pg 545
+        let i2cregs = self.bus.i2c();
+
+        i2cregs.mstctl().write(|w| w.mststop().set_bit());
+        self.poll_ready().await?;
+        self.check_for_bus_errors()?;
+
+        // ensure return to idle state for bus (no stuck SCL/SDA lines)
+        if i2cregs.stat().read().mststate().is_idle() {
+            Ok(())
+        } else {
+            Err(TransferError::OtherBusError.into())
+        }
+    }
+
+    async fn poll_ready(&mut self) -> Result<()> {
+        #[cfg(feature = "time")]
+        {
+            self.poll_start = Instant::now();
+        }
+
+        self.bus.i2c().intenset().write(|w| {
+            w.mstpendingen()
+                .set_bit()
+                .mstarblossen()
+                .set_bit()
+                .mstststperren()
+                .set_bit()
+        });
+
+        // Wait for fifo watermark interrupt.
+        poll_fn(|cx| {
+            let i2c = self.bus.i2c();
+            self.bus.waker().register(cx.waker());
+
+            //check for readyness
+            if i2c.stat().read().mstpending().bit_is_set()
+                || i2c.stat().read().mstarbloss().is_arbitration_loss()
+                || i2c.stat().read().mstststperr().is_error()
+                || self.check_timeout().is_err()
+            {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        self.check_timeout()?;
 
         Ok(())
     }
@@ -324,119 +574,34 @@ impl embedded_hal_1::i2c::Error for Error {
                 TransferError::AddressNack => {
                     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
                 }
+                TransferError::ArbitrationLoss => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+                TransferError::StartStopError => embedded_hal_1::i2c::ErrorKind::Bus,
+                TransferError::OtherBusError => embedded_hal_1::i2c::ErrorKind::Bus,
             },
         }
     }
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>>
-    I2cMasterBlockingErrorType for I2cMaster<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance, M: Mode> I2cMasterBlockingErrorType for I2cMaster<'a, FC, M> {
     type Error = Error;
 }
 
 // implement generic i2c interface for peripheral master type
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>> I2cMasterBlocking
-    for I2cMaster<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cMasterBlocking for I2cMaster<'a, FC, Blocking> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        // Procedure from 24.3.1.2 pg 546
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1 | 0x01) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        for r in read {
-            self.poll_ready()?;
-            *r = (i2cregs.mstdat().read().bits() & 0xFF) as u8;
-        }
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
+        self.read_no_stop(address, read)?;
+        self.stop()
     }
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        // Procedure from 24.3.1.1 pg 545
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-        // SAFETY: unsafe only due to .bits usage
-        unsafe { w.data().bits(address << 1) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        for byte in write.iter() {
-            i2cregs.mstdat().write(|w|
-            // SAFETY: unsafe only due to .bits usage
-            unsafe { w.data().bits(*byte) });
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-            self.poll_ready()?;
-        }
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
+        self.write_no_stop(address, write)?;
+        self.stop()
     }
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
-        let i2cregs = self.bus.i2c();
-
-        i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1) });
-
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        if i2cregs.stat().read().mststate().is_nack_address() {
-            // STOP bit to complete the attempted transfer
-            i2cregs.mstctl().write(|w| w.mststop().set_bit());
-            self.poll_ready()?;
-
-            return Err(Error::Transfer(TransferError::AddressNack));
-        }
-
-        for byte in write.iter() {
-            i2cregs.mstdat().write(|w|
-            // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(*byte) });
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-            self.poll_ready()?;
-        }
-
-        i2cregs.mstdat().write(|w|
-        // SAFETY: only unsafe due to .bits usage
-        unsafe { w.data().bits((address << 1) | 1) });
-        i2cregs.mstctl().write(|w| w.mststart().set_bit());
-        self.poll_ready()?;
-
-        if i2cregs.stat().read().mststate().is_nack_address() {
-            // STOP bit to complete the attempted transfer
-            i2cregs.mstctl().write(|w| w.mststop().set_bit());
-            self.poll_ready()?;
-
-            return Err(TransferError::AddressNack.into());
-        }
-
-        for r in read {
-            self.poll_ready()?;
-
-            if i2cregs.stat().read().mststate().is_nack_data() {
-                return Err(TransferError::ReadFail.into());
-            }
-            *r = i2cregs.mstdat().read().data().bits();
-        }
-
-        i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready()?;
-
-        Ok(())
+        self.write_no_stop(address, write)?;
+        self.read_no_stop(address, read)?;
+        self.stop()
     }
 
     fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
@@ -461,6 +626,50 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
     }
 }
 
+// re-export embedded-hal I2c trait
+pub use embedded_hal_async::i2c::{ErrorType as I2cMasterAsyncErrorType, I2c as I2cMasterAsync};
+
+impl<'a, FC: Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress>
+    for I2cMaster<'a, FC, Async>
+{
+    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+        self.read_no_stop(address, read).await?;
+        self.stop().await
+    }
+
+    async fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
+        self.write_no_stop(address, write).await?;
+        self.stop().await
+    }
+
+    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+        self.write_no_stop(address, write).await?;
+        self.read_no_stop(address, read).await?;
+        self.stop().await
+    }
+
+    async fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
+        let needs_stop = !operations.is_empty();
+
+        for op in operations {
+            match op {
+                embedded_hal_1::i2c::Operation::Read(read) => {
+                    self.read_no_stop(address, read).await?;
+                }
+                embedded_hal_1::i2c::Operation::Write(write) => {
+                    self.write_no_stop(address, write).await?;
+                }
+            }
+        }
+
+        if needs_stop {
+            self.stop().await?;
+        }
+
+        Ok(())
+    }
+}
+
 /// interface trait for generalized I2C slave interactions
 pub trait I2cSlaveBlocking {
     /// block until the address is pinged (expect no payload)
@@ -473,14 +682,12 @@ pub trait I2cSlaveBlocking {
     fn write(&self, write: &[u8]) -> Result<()>;
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>>
-    I2cSlave<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     pub fn new(
-        fc: T,
-        scl: SCL,
-        sda: SDA,
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC>,
+        sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         address: Address,
@@ -491,7 +698,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
         sda.as_sda(pull);
         scl.as_scl(pull);
 
-        let bus = crate::flexcomm::I2cBus::new(fc, clock)?;
+        let bus = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
         let i2c = bus.i2c();
@@ -522,8 +729,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
 
         Ok(Self {
             bus,
-            _scl: scl.into_ref(),
-            _sda: sda.into_ref(),
+            _phantom: PhantomData,
         })
     }
 
@@ -536,9 +742,7 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
     }
 }
 
-impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: SdaPin<FC, P = SDA>> I2cSlaveBlocking
-    for I2cSlave<'a, FC, T, SCL, SDA>
-{
+impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC, Blocking> {
     fn block_until_addressed(&self) -> Result<()> {
         self.poll()?;
 
@@ -597,8 +801,8 @@ impl<'a, const FC: usize, T: I2cAny<FC, P = T>, SCL: SclPin<FC, P = SCL>, SDA: S
 
 // flexcomm <-> Pin function map
 macro_rules! impl_scl {
-    ($piom_n:ident, $fn:ident, $fcn:expr) => {
-        impl SclPin<$fcn> for crate::peripherals::$piom_n {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl SclPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_scl(&self, pull: crate::iopctl::Pull) {
                 // UM11147 table 299 pg 262+
                 self.set_pull(pull)
@@ -613,8 +817,8 @@ macro_rules! impl_scl {
     };
 }
 macro_rules! impl_sda {
-    ($piom_n:ident, $fn:ident, $fcn:expr) => {
-        impl SdaPin<$fcn> for crate::peripherals::$piom_n {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl SdaPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_sda(&self, pull: crate::iopctl::Pull) {
                 // UM11147 table 299 pg 262+
                 self.set_pull(pull)
@@ -630,67 +834,67 @@ macro_rules! impl_sda {
 }
 
 // Flexcomm0 GPIOs -
-impl_scl!(PIO0_1, F1, 0);
-impl_sda!(PIO0_2, F1, 0);
+impl_scl!(PIO0_1, F1, FLEXCOMM0);
+impl_sda!(PIO0_2, F1, FLEXCOMM0);
 
-impl_scl!(PIO3_1, F5, 0);
-impl_sda!(PIO3_2, F5, 0);
-impl_sda!(PIO3_3, F5, 0);
-impl_scl!(PIO3_4, F5, 0);
+impl_scl!(PIO3_1, F5, FLEXCOMM0);
+impl_sda!(PIO3_2, F5, FLEXCOMM0);
+impl_sda!(PIO3_3, F5, FLEXCOMM0);
+impl_scl!(PIO3_4, F5, FLEXCOMM0);
 
 // Flexcomm1 GPIOs -
-impl_scl!(PIO0_8, F1, 1);
-impl_sda!(PIO0_9, F1, 1);
-impl_sda!(PIO0_10, F1, 1);
-impl_scl!(PIO0_11, F1, 1);
+impl_scl!(PIO0_8, F1, FLEXCOMM1);
+impl_sda!(PIO0_9, F1, FLEXCOMM1);
+impl_sda!(PIO0_10, F1, FLEXCOMM1);
+impl_scl!(PIO0_11, F1, FLEXCOMM1);
 
-impl_scl!(PIO7_26, F1, 1);
-impl_sda!(PIO7_27, F1, 1);
-impl_sda!(PIO7_28, F1, 1);
-impl_scl!(PIO7_29, F1, 1);
+impl_scl!(PIO7_26, F1, FLEXCOMM1);
+impl_sda!(PIO7_27, F1, FLEXCOMM1);
+impl_sda!(PIO7_28, F1, FLEXCOMM1);
+impl_scl!(PIO7_29, F1, FLEXCOMM1);
 
 // Flexcomm2 GPIOs -
-impl_scl!(PIO0_15, F1, 2);
-impl_sda!(PIO0_16, F1, 2);
-impl_sda!(PIO0_17, F1, 2);
-impl_scl!(PIO0_18, F1, 2);
+impl_scl!(PIO0_15, F1, FLEXCOMM2);
+impl_sda!(PIO0_16, F1, FLEXCOMM2);
+impl_sda!(PIO0_17, F1, FLEXCOMM2);
+impl_scl!(PIO0_18, F1, FLEXCOMM2);
 
-impl_sda!(PIO4_8, F5, 2);
+impl_sda!(PIO4_8, F5, FLEXCOMM2);
 
-impl_scl!(PIO7_30, F5, 2);
-impl_sda!(PIO7_31, F5, 2);
+impl_scl!(PIO7_30, F5, FLEXCOMM2);
+impl_sda!(PIO7_31, F5, FLEXCOMM2);
 
 // Flexcomm3 GPIOs -
-impl_scl!(PIO0_22, F1, 3);
-impl_sda!(PIO0_23, F1, 3);
-impl_sda!(PIO0_24, F1, 3);
-impl_scl!(PIO0_25, F1, 3);
+impl_scl!(PIO0_22, F1, FLEXCOMM3);
+impl_sda!(PIO0_23, F1, FLEXCOMM3);
+impl_sda!(PIO0_24, F1, FLEXCOMM3);
+impl_scl!(PIO0_25, F1, FLEXCOMM3);
 
 // Flexcomm4 GPIOs -
-impl_scl!(PIO0_29, F1, 4);
-impl_sda!(PIO0_30, F1, 4);
-impl_sda!(PIO0_31, F1, 4);
-impl_scl!(PIO1_0, F1, 4);
+impl_scl!(PIO0_29, F1, FLEXCOMM4);
+impl_sda!(PIO0_30, F1, FLEXCOMM4);
+impl_sda!(PIO0_31, F1, FLEXCOMM4);
+impl_scl!(PIO1_0, F1, FLEXCOMM4);
 
 // Flexcomm5 GPIOs -
-impl_scl!(PIO1_4, F1, 5);
-impl_sda!(PIO1_5, F1, 5);
-impl_sda!(PIO1_6, F1, 5);
-impl_scl!(PIO1_7, F1, 5);
+impl_scl!(PIO1_4, F1, FLEXCOMM5);
+impl_sda!(PIO1_5, F1, FLEXCOMM5);
+impl_sda!(PIO1_6, F1, FLEXCOMM5);
+impl_scl!(PIO1_7, F1, FLEXCOMM5);
 
-impl_scl!(PIO3_16, F4, 5);
-impl_sda!(PIO3_17, F4, 5);
-impl_sda!(PIO3_18, F4, 5);
-impl_scl!(PIO3_22, F5, 5);
+impl_scl!(PIO3_16, F4, FLEXCOMM5);
+impl_sda!(PIO3_17, F4, FLEXCOMM5);
+impl_sda!(PIO3_18, F4, FLEXCOMM5);
+impl_scl!(PIO3_22, F5, FLEXCOMM5);
 
 // Flexcomm6 GPIOs -
-impl_scl!(PIO3_26, F1, 6);
-impl_sda!(PIO3_27, F1, 6);
-impl_sda!(PIO3_28, F1, 6);
-impl_scl!(PIO3_29, F1, 6);
+impl_scl!(PIO3_26, F1, FLEXCOMM6);
+impl_sda!(PIO3_27, F1, FLEXCOMM6);
+impl_sda!(PIO3_28, F1, FLEXCOMM6);
+impl_scl!(PIO3_29, F1, FLEXCOMM6);
 
 // Flexcomm7 GPIOs -
-impl_scl!(PIO4_1, F1, 7);
-impl_sda!(PIO4_2, F1, 7);
-impl_sda!(PIO4_3, F1, 7);
-impl_scl!(PIO4_4, F1, 7);
+impl_scl!(PIO4_1, F1, FLEXCOMM7);
+impl_sda!(PIO4_2, F1, FLEXCOMM7);
+impl_sda!(PIO4_3, F1, FLEXCOMM7);
+impl_scl!(PIO4_4, F1, FLEXCOMM7);
