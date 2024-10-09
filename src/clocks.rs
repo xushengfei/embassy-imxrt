@@ -3,6 +3,7 @@ use crate::pac;
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 #[cfg(feature = "defmt")]
 use defmt;
+use paste::paste;
 
 /// Clock configuration;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1518,37 +1519,72 @@ fn init_clock_hw(config: ClockConfig) -> Result<(), ClockError> {
 /// SAFETY: must be called exactly once at bootup
 pub(crate) unsafe fn init(config: ClockConfig) -> Result<(), ClockError> {
     init_clock_hw(config)?;
-    //peripheral_resets();
-    let cc1 = unsafe { pac::Clkctl1::steal() };
-    cc1.pscctl1().modify(|_r, w| w.crc_clk().disable_clock());
-    cc1.pscctl1().modify(|_r, w| w.crc_clk().enable_clock());
 
     // set VDDIO ranges 0-2
     set_pad_voltage_range();
     Ok(())
 }
 
-fn peripheral_resets() {
-    let cc1 = unsafe { pac::Clkctl1::steal() };
-    let rc1 = unsafe { pac::Rstctl1::steal() };
-    trace!("begin peripheral resets");
-    // peripheral resets
-    cc1.pscctl1_set().write(|w| w.hsgpio0_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio0_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio2_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio2_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio3_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio3_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio4_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio4_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio5_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio5_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio6_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio6_rst_clr().clr_reset());
-    cc1.pscctl1_set().write(|w| w.hsgpio7_clk_set().set_bit());
-    rc1.prstctl1_clr().write(|w| w.hsgpio7_rst_clr().clr_reset());
-    cc1.pscctl1().modify(|_r, w| w.crc_clk().disable_clock());
-    cc1.pscctl1().modify(|_r, w| w.crc_clk().enable_clock());
+///Trait to expose perph clocks
+trait SealedSysconPeripheral {
+    fn enable_and_reset_perph_clock();
+    fn disable_perph_clock();
 }
+
+/// Clock and Reset control for peripherals
+#[allow(private_bounds)]
+pub trait SysconPeripheral: SealedSysconPeripheral + 'static {}
+/// Enables and resets peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+pub fn enable_and_reset<T: SysconPeripheral>() {
+    T::enable_and_reset_perph_clock();
+}
+
+/// Disables peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+pub fn disable<T: SysconPeripheral>() {
+    T::disable_perph_clock();
+}
+macro_rules! impl_perph_clk {
+    ($port:ident) => {
+        impl SealedSysconPeripheral for crate::peripherals::$port {
+            fn enable_and_reset_perph_clock() {
+                // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
+                let cc1 = unsafe { pac::Clkctl1::steal() };
+                let rc1 = unsafe { pac::Rstctl1::steal() };
+
+                paste! {
+                    cc1.pscctl1().modify(|_r, w| w.[<$port:lower _clk>]().enable_clock());
+                    rc1.prstctl1().modify(|_r, w| w.[<$port:lower _rst>]().clear_reset());
+                }
+            }
+            fn disable_perph_clock() {
+                // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
+                let cc1 = unsafe { pac::Clkctl1::steal() };
+                let rc1 = unsafe { pac::Rstctl1::steal() };
+
+                paste! {
+                    rc1.prstctl1().modify(|_r, w| w.[<$port:lower _rst>]().set_reset());
+                    cc1.pscctl1().modify(|_r, w| w.[<$port:lower _clk>]().disable_clock());
+                }
+            }
+        }
+        impl SysconPeripheral for crate::peripherals::$port {}
+    };
+}
+
+impl_perph_clk!(HSGPIO0);
+impl_perph_clk!(HSGPIO1);
+impl_perph_clk!(HSGPIO2);
+impl_perph_clk!(HSGPIO3);
+impl_perph_clk!(HSGPIO4);
+impl_perph_clk!(HSGPIO5);
+impl_perph_clk!(HSGPIO6);
+impl_perph_clk!(HSGPIO7);
+impl_perph_clk!(CRC);

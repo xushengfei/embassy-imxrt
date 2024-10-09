@@ -2,6 +2,7 @@
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
+use crate::clocks::enable_and_reset;
 use crate::pac::CrcEngine;
 use crate::peripherals::CRC;
 use crate::Peripheral;
@@ -82,11 +83,8 @@ impl From<Polynomial> for u8 {
 impl<'d> Crc<'d> {
     /// Instantiates new CRC peripheral and initializes to default values.
     pub fn new(peripheral: impl Peripheral<P = CRC> + 'd, config: Config) -> Self {
-        let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
-        let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
-
-        clkctl1.pscctl1_set().write(|w| w.crc_clk_set().set_clock());
-        rstctl1.prstctl1_clr().write(|w| w.crc_rst_clr().clr_reset());
+        // enable CRC clock
+        enable_and_reset::<CRC>();
 
         into_ref!(peripheral);
 
