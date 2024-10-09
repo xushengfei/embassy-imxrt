@@ -1,6 +1,9 @@
 //! implements flexcomm interface wrapper for easier usage across modules
 
-use crate::{pac, Peripheral, PeripheralRef};
+use embassy_hal_internal::interrupt::InterruptExt;
+use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::{interrupt, pac, Peripheral, PeripheralRef};
 
 /// alias for fc0::Registers, as layout is the same across all FCn
 pub type FlexcommRegisters = pac::flexcomm0::RegisterBlock;
@@ -16,6 +19,10 @@ pub type I2sRegisters = pac::i2s0::RegisterBlock;
 
 /// alias for usart0::Registers, as layout is the same across all FCn
 pub type UsartRegisters = pac::usart0::RegisterBlock;
+
+const FC_COUNT: usize = 8;
+// One waker per FC
+static FC_WAKERS: [AtomicWaker; FC_COUNT] = [const { AtomicWaker::new() }; FC_COUNT];
 
 /// clock selection option
 #[derive(Copy, Clone, Debug)]
@@ -99,6 +106,12 @@ trait FlexcommLowLevel: sealed::Sealed + Peripheral {
 
     // attempt to configure bus to operating mode
     fn set_mode(mode: Mode) -> Result<()>;
+
+    // enable interrupt
+    unsafe fn enable_interrupt();
+
+    // fetch waker
+    fn waker() -> &'static AtomicWaker;
 }
 
 /// internal shared I2C peripheral operations
@@ -112,16 +125,31 @@ pub struct I2cBus<'p, F: I2cPeripheral> {
 }
 #[allow(private_bounds)]
 impl<'p, F: I2cPeripheral> I2cBus<'p, F> {
-    /// use Flexcomm fc as an I2c Bus
-    pub fn new(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+    /// use Flexcomm fc as a blocking I2c Bus
+    pub fn new_blocking(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::I2c)?;
+        Ok(Self { _fc: fc.into_ref() })
+    }
+
+    /// use Flexcomm fc as an async I2c Bus
+    pub fn new_async(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+        F::enable(clk);
+        F::set_mode(Mode::I2c)?;
+        // SAFETY: flexcomm interrupt should be managed through this
+        //         interface only
+        unsafe { F::enable_interrupt() };
         Ok(Self { _fc: fc.into_ref() })
     }
 
     /// retrieve active bus registers
     pub fn i2c(&self) -> &'static I2cRegisters {
         F::i2c()
+    }
+
+    /// return a waker
+    pub fn waker(&self) -> &'static AtomicWaker {
+        F::waker()
     }
 }
 
@@ -338,7 +366,42 @@ macro_rules! impl_flexcomm {
                     }
                 }
             }
+
+            unsafe fn enable_interrupt() {
+                interrupt::$ufc.unpend();
+                interrupt::$ufc.enable();
+            }
+
+            fn waker() -> &'static AtomicWaker {
+                &FC_WAKERS[$fcn]
+            }
         }
+
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        #[allow(non_snake_case)]
+        fn $ufc() {
+            let waker = &FC_WAKERS[$fcn];
+
+            // SAFETY: this will be the only accessor to this flexcomm's
+            //         i2c block
+            let i2c = unsafe { &*crate::pac::$i2c::ptr() };
+
+            if i2c.intstat().read().mstpending().bit_is_set() {
+                i2c.intenclr().write(|w| w.mstpendingclr().set_bit());
+            }
+
+            if i2c.intstat().read().mstarbloss().bit_is_set() {
+                i2c.intenclr().write(|w| w.mstarblossclr().set_bit());
+            }
+
+            if i2c.intstat().read().mstststperr().bit_is_set() {
+                i2c.intenclr().write(|w| w.mstststperrclr().set_bit());
+            }
+
+            waker.wake();
+        }
+
 
     };
 }
