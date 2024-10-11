@@ -88,15 +88,15 @@ fn irq_handler(port_wakers: &[Option<&PortWaker>]) {
 
         let stat = reg.intstata(port).read().bits();
         for pin in BitIter(stat) {
-            if let Some(waker) = port_waker.unwrap().get_waker(pin as usize) {
-                waker.wake();
-            }
-
             // Clear the interrupt from this pin
             reg.intstata(port).write(|w| unsafe { w.status().bits(1 << pin) });
             // Disable interrupt from this pin
             reg.intena(port)
                 .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() & !(1 << pin)) });
+
+            if let Some(waker) = port_waker.unwrap().get_waker(pin as usize) {
+                waker.wake();
+            }
         }
     }
 }
@@ -546,7 +546,7 @@ struct PortWaker {
 }
 
 impl PortWaker {
-    fn get_waker(&self, pin: usize) -> Option<&'static AtomicWaker> {
+    fn get_waker(&self, pin: usize) -> Option<&AtomicWaker> {
         self.wakers.get(pin - self.offset)
     }
 }
