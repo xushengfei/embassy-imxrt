@@ -13,17 +13,6 @@ use crate::{into_ref, Peripheral, PeripheralRef};
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
-#[allow(clippy::declare_interior_mutable_const)]
-const GPIO_WAKER: AtomicWaker = AtomicWaker::new();
-
-// This should be unique per IMXRT package
-const PORT_PIN_COUNT: usize = 32;
-const PORT_COUNT: usize = 8;
-
-// One waker per pin, this is more than all possible pins as some ports
-// have less than 32 pins.
-static GPIO_WAKERS: [AtomicWaker; PORT_PIN_COUNT * PORT_COUNT] = [GPIO_WAKER; PORT_PIN_COUNT * PORT_COUNT];
-
 /// Digital input or output level.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -86,10 +75,11 @@ impl Iterator for BitIter {
 }
 
 #[cfg(feature = "rt")]
-fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
+fn irq_handler(port_wakers: &[&PortWaker]) {
     let reg = unsafe { crate::pac::Gpio::steal() };
 
-    for port in 0..PORT_COUNT {
+    for port_waker in port_wakers {
+        let port = port_waker.port;
         let stat = reg.intstata(port).read().bits();
 
         for pin in BitIter(stat) {
@@ -99,7 +89,7 @@ fn irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
             reg.intena(port)
                 .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() & !(1 << pin)) });
 
-            wakers[port * 32 + pin as usize].wake();
+            port_waker.get_waker(pin as usize).wake();
         }
     }
 }
@@ -403,8 +393,18 @@ impl<'d> Future for InputFuture<'d> {
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // We need to register/re-register the waker for each poll because any
         // calls to wake will deregister the waker.
-        let waker = &GPIO_WAKERS[self.pin.pin_port()];
-        waker.register(cx.waker());
+        let mut registered = false;
+        for port_waker in GPIO_WAKERS {
+            if self.pin.pin_port() == port_waker.port {
+                port_waker.get_waker(self.pin.pin()).register(cx.waker());
+                registered = true;
+                break;
+            }
+        }
+
+        if !registered {
+            panic!("Failed to register pin waker");
+        }
 
         // Double check that the pin interrut has been disabled by IRQ handler
         if self.pin.block().intena(self.pin.port()).read().bits() & (1 << self.pin.pin()) == 0 {
@@ -526,7 +526,35 @@ macro_rules! impl_pin {
     };
 }
 
+/// Container for pin wakers
+struct PortWaker {
+    port: usize,
+    offset: usize,
+    wakers: &'static [AtomicWaker],
+}
+
+impl PortWaker {
+    fn get_waker(&self, pin: usize) -> &'static AtomicWaker {
+        &self.wakers[pin - self.offset]
+    }
+}
+
+macro_rules! define_port_waker {
+    ($name:ident, $port:expr, $start:expr, $end:expr) => {
+        mod $name {
+            static PIN_WAKERS: [super::AtomicWaker; $end - $start + 1] =
+                [const { super::AtomicWaker::new() }; $end - $start + 1];
+            pub static WAKER: super::PortWaker = super::PortWaker {
+                port: $port,
+                offset: $start,
+                wakers: &PIN_WAKERS,
+            };
+        }
+    };
+}
+
 // GPIO port 0
+define_port_waker!(port0_waker, 0, 0, 31);
 impl_pin!(PIO0_0, 0, 0);
 impl_pin!(PIO0_1, 0, 1);
 impl_pin!(PIO0_2, 0, 2);
@@ -561,6 +589,7 @@ impl_pin!(PIO0_30, 0, 30);
 impl_pin!(PIO0_31, 0, 31);
 
 // GPIO port 1
+define_port_waker!(port1_waker, 1, 0, 31);
 impl_pin!(PIO1_0, 1, 0);
 impl_pin!(PIO1_1, 1, 1);
 impl_pin!(PIO1_2, 1, 2);
@@ -595,6 +624,7 @@ impl_pin!(PIO1_30, 1, 30);
 impl_pin!(PIO1_31, 1, 31);
 
 // GPIO port 2
+define_port_waker!(port2_waker, 2, 0, 31);
 impl_pin!(PIO2_0, 2, 0);
 impl_pin!(PIO2_1, 2, 1);
 impl_pin!(PIO2_2, 2, 2);
@@ -629,6 +659,7 @@ impl_pin!(PIO2_30, 2, 30);
 impl_pin!(PIO2_31, 2, 31);
 
 // GPIO port 3
+define_port_waker!(port3_waker, 3, 0, 31);
 impl_pin!(PIO3_0, 3, 0);
 impl_pin!(PIO3_1, 3, 1);
 impl_pin!(PIO3_2, 3, 2);
@@ -663,6 +694,7 @@ impl_pin!(PIO3_30, 3, 30);
 impl_pin!(PIO3_31, 3, 31);
 
 // GPIO port 4
+define_port_waker!(port4_waker, 4, 0, 10);
 impl_pin!(PIO4_0, 4, 0);
 impl_pin!(PIO4_1, 4, 1);
 impl_pin!(PIO4_2, 4, 2);
@@ -676,6 +708,7 @@ impl_pin!(PIO4_9, 4, 9);
 impl_pin!(PIO4_10, 4, 10);
 
 // GPIO port 7
+define_port_waker!(port7_waker, 7, 24, 31);
 impl_pin!(PIO7_24, 7, 24);
 impl_pin!(PIO7_25, 7, 25);
 impl_pin!(PIO7_26, 7, 26);
@@ -684,6 +717,15 @@ impl_pin!(PIO7_28, 7, 28);
 impl_pin!(PIO7_29, 7, 29);
 impl_pin!(PIO7_30, 7, 30);
 impl_pin!(PIO7_31, 7, 31);
+
+static GPIO_WAKERS: [&PortWaker; 6] = [
+    &port0_waker::WAKER,
+    &port1_waker::WAKER,
+    &port2_waker::WAKER,
+    &port3_waker::WAKER,
+    &port4_waker::WAKER,
+    &port7_waker::WAKER,
+];
 
 impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
     type Error = Infallible;
