@@ -5,6 +5,16 @@ use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_imxrt::i2c::{self, I2cMasterAsync};
 
+const ACC_ADDR: u8 = 0x1E;
+
+const ACC_ID_REG: u8 = 0x0D;
+const ACC_CTRL_REG: u8 = 0x2A;
+const ACC_XYZ_DATA_CFG_REG: u8 = 0x0E;
+const ACC_STATUS_REG: u8 = 0x00;
+
+const ACC_ID: u8 = 0xC7;
+const ACC_STATUS_DATA_READY: u8 = 0xFF;
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     // Link to data sheet for accelerometer on the RT685S-EVK
@@ -83,16 +93,89 @@ async fn main(_spawner: Spawner) {
     .await
     .unwrap();
 
-    //Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
+    // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
     info!("i2c example - ACC WHO_AM_I register check");
-
     let mut reg = [0u8; 1];
     reg[0] = 0xAA;
-    let result = i2c.write_read(0x1E, &[0x0D], &mut reg).await;
-    if result.is_ok() {
+    let result = i2c.write_read(ACC_ADDR, &[ACC_ID_REG], &mut reg).await;
+    if result.is_ok() && reg[0] == ACC_ID {
         info!("i2c example - Read WHO_AM_I register: {:02X}", reg[0]);
     } else {
         error!("i2c example - Error reading WHO_AM_I register {}", result.unwrap_err());
+    }
+
+    //  Write 0x00 to accelerometer control register 1
+    info!("i2c example - Write 0x00 to ACC control register");
+    let mut reg = [0u8; 2];
+    reg[0] = ACC_CTRL_REG;
+    reg[1] = 0x00;
+    let result = i2c.write(ACC_ADDR, &reg).await;
+    if result.is_ok() {
+        info!("i2c example - Write ctrl reg");
+    } else {
+        error!("i2c example - Error writing ctrl reg {}", result.unwrap_err());
+    }
+
+    //  Write 0x01 to XYZ_DATA_CFG register, set acc range of +/- 4g range and no hpf
+    /*  [7]: reserved */
+    /*  [6]: reserved */
+    /*  [5]: reserved */
+    /*  [4]: hpf_out=0 */
+    /*  [3]: reserved */
+    /*  [2]: reserved */
+    /*  [1-0]: fs=01 for accelerometer range of +/-4g range with 0.488mg/LSB */
+    /*  databyte = 0x01; */
+    info!("i2c example - Write 0x01 to ACC XYZ_DATA_CFG register");
+    let mut reg = [0u8; 2];
+    reg[0] = ACC_XYZ_DATA_CFG_REG;
+    reg[1] = 0x01;
+    let result = i2c.write(ACC_ADDR, &reg).await;
+    if result.is_ok() {
+        info!("i2c example - Write xyz data cfg reg");
+    } else {
+        error!("i2c example - Error xyz data cfg reg {}", result.unwrap_err());
+    }
+
+    // Write 0x0D to accelerometer control register
+    /*  [7-6]: aslp_rate=00 */
+    /*  [5-3]: dr=001 for 200Hz data rate (when in hybrid mode) */
+    /*  [2]: lnoise=1 for low noise mode */
+    /*  [1]: f_read=0 for normal 16 bit reads */
+    /*  [0]: active=1 to take the part out of standby and enable sampling */
+    /*   databyte = 0x0D; */
+    info!("i2c example - Write 0x0D to ACC control register");
+    let mut reg = [0u8; 2];
+    reg[0] = ACC_CTRL_REG;
+    reg[1] = 0x0D;
+    let result = i2c.write(ACC_ADDR, &reg).await;
+    if result.is_ok() {
+        info!("i2c example - Write ctrl reg");
+    } else {
+        error!("i2c example - Error writing control reg {}", result.unwrap_err());
+    }
+
+    info!("i2c example - Read ACC status register until is ready (0xFF)");
+    let mut reg = [0u8; 1];
+    reg[0] = 0xAA;
+    while reg[0] != ACC_STATUS_DATA_READY {
+        let result = i2c.write_read(ACC_ADDR, &[ACC_STATUS_REG], &mut reg).await;
+        if result.is_ok() {
+            info!("i2c example - Read status register: {:02X}", reg[0]);
+        } else {
+            error!("i2c example - Error reading status register {}", result.unwrap_err());
+        }
+    }
+
+    /* Accelerometer status register, first byte always 0xFF, then X:Y:Z each 2 bytes, in total 7 bytes */
+    info!("i2c example - Read XYZ data from ACC status register");
+    for _ in 0..10 {
+        let mut reg: [u8; 7] = [0xAA; 7];
+        let result = i2c.write_read(ACC_ADDR, &[ACC_STATUS_REG], &mut reg).await;
+        if result.is_ok() {
+            info!("i2c example - Read XYZ data: {:02X}", reg);
+        } else {
+            error!("i2c example - Error reading XYZ data {}", result.unwrap_err());
+        }
     }
 
     info!("i2c example - Done!  Busy Loop...");
