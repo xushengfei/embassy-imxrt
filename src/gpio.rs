@@ -369,19 +369,19 @@ impl<'d> InputFuture<'d> {
 
         /* Pin interrupt configuration */
         pin.block().intedg(pin.port()).modify(|r, w| match int_type {
-            InterruptType::Edge => unsafe { w.bits(1 << pin.pin()) },
+            InterruptType::Edge => unsafe { w.bits(r.bits() | (1 << pin.pin())) },
             InterruptType::Level => unsafe { w.bits(r.bits() & !(1 << pin.pin())) },
         });
 
         pin.block().intpol(pin.port()).modify(|r, w| match level {
             Level::High => unsafe { w.bits(r.bits() & !(1 << pin.pin())) },
-            Level::Low => unsafe { w.bits(1 << pin.pin()) },
+            Level::Low => unsafe { w.bits(r.bits() | (1 << pin.pin())) },
         });
 
         // Enable pin interrupt on GPIO INT A
         pin.block()
             .intena(pin.port())
-            .modify(|_, w| unsafe { w.int_en().bits(1 << pin.pin()) });
+            .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() | (1 << pin.pin())) });
 
         Self { pin: pin.map_into() }
     }
