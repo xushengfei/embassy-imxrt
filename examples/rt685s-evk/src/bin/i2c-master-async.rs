@@ -3,7 +3,7 @@
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{self, I2cMasterBlocking};
+use embassy_imxrt::i2c::{self, I2cMasterAsync};
 
 const ACC_ADDR: u8 = 0x1E;
 
@@ -79,7 +79,7 @@ async fn main(_spawner: Spawner) {
     let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Polarity::ActiveHigh);
 
     info!("i2c example - I2c::new");
-    let mut i2c = i2c::I2cMaster::new_blocking(
+    let mut i2c = i2c::I2cMaster::new_async(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
@@ -90,13 +90,14 @@ async fn main(_spawner: Spawner) {
             sw_timeout: embassy_time::Duration::from_millis(1000),
         },
     )
+    .await
     .unwrap();
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
     info!("i2c example - ACC WHO_AM_I register check");
     let mut reg = [0u8; 1];
     reg[0] = 0xAA;
-    let result = i2c.write_read(ACC_ADDR, &[ACC_ID_REG], &mut reg);
+    let result = i2c.write_read(ACC_ADDR, &[ACC_ID_REG], &mut reg).await;
     if result.is_ok() && reg[0] == ACC_ID {
         info!("i2c example - Read WHO_AM_I register: {:02X}", reg[0]);
     } else {
@@ -108,7 +109,7 @@ async fn main(_spawner: Spawner) {
     let mut reg = [0u8; 2];
     reg[0] = ACC_CTRL_REG;
     reg[1] = 0x00;
-    let result = i2c.write(ACC_ADDR, &reg);
+    let result = i2c.write(ACC_ADDR, &reg).await;
     if result.is_ok() {
         info!("i2c example - Write ctrl reg");
     } else {
@@ -128,7 +129,7 @@ async fn main(_spawner: Spawner) {
     let mut reg = [0u8; 2];
     reg[0] = ACC_XYZ_DATA_CFG_REG;
     reg[1] = 0x01;
-    let result = i2c.write(ACC_ADDR, &reg);
+    let result = i2c.write(ACC_ADDR, &reg).await;
     if result.is_ok() {
         info!("i2c example - Write xyz data cfg reg");
     } else {
@@ -146,7 +147,7 @@ async fn main(_spawner: Spawner) {
     let mut reg = [0u8; 2];
     reg[0] = ACC_CTRL_REG;
     reg[1] = 0x0D;
-    let result = i2c.write(ACC_ADDR, &reg);
+    let result = i2c.write(ACC_ADDR, &reg).await;
     if result.is_ok() {
         info!("i2c example - Write ctrl reg");
     } else {
@@ -157,7 +158,7 @@ async fn main(_spawner: Spawner) {
     let mut reg = [0u8; 1];
     reg[0] = 0xAA;
     while reg[0] != ACC_STATUS_DATA_READY {
-        let result = i2c.write_read(ACC_ADDR, &[ACC_STATUS_REG], &mut reg);
+        let result = i2c.write_read(ACC_ADDR, &[ACC_STATUS_REG], &mut reg).await;
         if result.is_ok() {
             info!("i2c example - Read status register: {:02X}", reg[0]);
         } else {
@@ -169,7 +170,7 @@ async fn main(_spawner: Spawner) {
     info!("i2c example - Read XYZ data from ACC status register");
     for _ in 0..10 {
         let mut reg: [u8; 7] = [0xAA; 7];
-        let result = i2c.write_read(ACC_ADDR, &[ACC_STATUS_REG], &mut reg);
+        let result = i2c.write_read(ACC_ADDR, &[ACC_STATUS_REG], &mut reg).await;
         if result.is_ok() {
             info!("i2c example - Read XYZ data: {:02X}", reg);
         } else {
