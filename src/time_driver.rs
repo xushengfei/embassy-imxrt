@@ -470,18 +470,15 @@ impl RtcDatetime {
             year,
             month,
             day: day as u8,
-            hour: hour.try_into().unwrap(),
-            minute: minute.try_into().unwrap(),
-            second: second.try_into().unwrap(),
+            hour: hour as u8,
+            minute: minute as u8,
+            second: second as u8,
         }
     }
 
     /// Set the datetime.
     pub fn set_datetime(&self, datetime: &Datetime) -> Result<(), Error> {
-        let ret = self.is_valid_datetime(datetime);
-        if ret.is_err() {
-            return ret;
-        }
+        self.is_valid_datetime(datetime)?;
         let secs = self.convert_datetime_to_secs(datetime);
         self.rtc.count().write(|w| unsafe { w.bits(secs) });
         Ok(())
