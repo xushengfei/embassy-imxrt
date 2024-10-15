@@ -64,6 +64,24 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 });
 
 impl TimerDriver {
+    /// Access the GPREG0 register to use it as a 31-bit counter.
+    #[inline]
+    fn counter_reg(&self) -> &pac::rtc::Gpreg {
+        rtc().gpreg(0)
+    }
+
+    /// Access the GPREG1 register to use it as a compare register for triggering alarms.
+    #[inline]
+    fn compare_reg(&self) -> &pac::rtc::Gpreg {
+        rtc().gpreg(1)
+    }
+
+    /// Access the GPREG2 register to use it to enable or disable interrupts (int_en).
+    #[inline]
+    fn int_en_reg(&self) -> &pac::rtc::Gpreg {
+        rtc().gpreg(2)
+    }
+
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
         // enable RTC int (1kHz since subsecond doesn't generate an int)
@@ -74,7 +92,7 @@ impl TimerDriver {
         // safety: Writing to the gregs is always considered unsafe, gpreg1 is used
         // as a compare register for triggering an alarm so to avoid unnecessary triggers
         // after initialization, this is set to 0x:FFFF_FFFF
-        r.gpreg(1).write(|w| unsafe { w.gpdata().bits(u32::MAX) });
+        self.compare_reg().write(|w| unsafe { w.gpdata().bits(u32::MAX) });
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
     }
@@ -94,16 +112,16 @@ impl TimerDriver {
             // The following reloads 10 into the count-down timer after it triggers an int.
             // The countdown begins anew after the write so time can continue to be measured.
             r.wake().write(|w| unsafe { w.bits(0xA) });
-            if (r.gpreg(0).read().bits() + 0xA) > 0x8000_0000 {
+            if (self.counter_reg().read().bits() + 0xA) > 0x8000_0000 {
                 // if we're going to "overflow", increase the period
                 self.next_period();
-                let rollover_diff = 0x8000_0000 - (r.gpreg(0).read().bits() + 0xA);
+                let rollover_diff = 0x8000_0000 - (self.counter_reg().read().bits() + 0xA);
                 // safety: writing to gpregs is always considered unsafe. In order to
                 // not "lose" time when incrementing the period, gpreg0, the extended
                 // counter, is restarted at the # of ticks it would overflow by
-                r.gpreg(0).write(|w| unsafe { w.bits(rollover_diff) });
+                self.counter_reg().write(|w| unsafe { w.bits(rollover_diff) });
             } else {
-                r.gpreg(0).modify(|r, w| unsafe { w.bits(r.bits() + 0xA) });
+                self.counter_reg().modify(|r, w| unsafe { w.bits(r.bits() + 0xA) });
             }
         }
 
@@ -111,10 +129,10 @@ impl TimerDriver {
             // gpreg2 as an "int_en" set by next_period(). This is
             // 1 when the timestamp for the alarm deadline expires
             // before the counter register overflows again.
-            if r.gpreg(2).read().gpdata().bits() == 1 {
+            if self.int_en_reg().read().gpdata().bits() == 1 {
                 // gpreg0 is our extended counter register, check if
                 // our counter is larger than the compare value
-                if r.gpreg(0).read().bits() > r.gpreg(1).read().bits() {
+                if self.counter_reg().read().bits() > self.compare_reg().read().bits() {
                     self.trigger_alarm(0, cs);
                 }
             }
@@ -123,7 +141,6 @@ impl TimerDriver {
 
     fn next_period(&self) {
         critical_section::with(|cs| {
-            let r = rtc();
             let period = self
                 .period
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |p| Some(p + 1))
@@ -141,7 +158,7 @@ impl TimerDriver {
                 // safety: writing to gpregs is always unsafe, gpreg2 is an alarm
                 // enable. If the alarm must trigger within the next period, then
                 // just enable it. `set_alarm` has already set the correct CC val.
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(1) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
             }
         })
     }
@@ -153,13 +170,12 @@ impl TimerDriver {
     }
 
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        let r = rtc();
         // safety: writing to gpregs is always unsafe. Because
         // gpreg 2 is "int_en" and gpreg1 is the compare register,
         // after we trigger an alarm, the enable must be cleared and
         // our compare must go back to the initialization value
-        r.gpreg(2).write(|w| unsafe { w.bits(0) });
-        r.gpreg(1).write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        self.int_en_reg().write(|w| unsafe { w.bits(0) });
+        self.compare_reg().write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -179,7 +195,7 @@ impl Driver for TimerDriver {
         // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Acquire);
         compiler_fence(Ordering::Acquire);
-        let counter = rtc().gpreg(0).read().bits();
+        let counter = self.counter_reg().read().bits();
         calc_now(period, counter)
     }
 
@@ -209,15 +225,13 @@ impl Driver for TimerDriver {
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
-            let r = rtc();
-
             let t = self.now();
             if timestamp <= t {
                 // safety: Writing to the gpregs is always unsafe, gpreg2 is
                 // always just used as the alarm enable for the timer driver.
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(0) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -233,7 +247,7 @@ impl Driver for TimerDriver {
             // the compare register, gpreg1, is set to the last 31 bits of the timestamp
             // as the 32nd and final bit is used for the parity check in `next_period`
             // `period` will be used for the upper bits in a timestamp comparison.
-            r.gpreg(1)
+            self.compare_reg()
                 .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
 
             // The following checks that the difference in timestamp is less than the overflow period
@@ -243,241 +257,16 @@ impl Driver for TimerDriver {
 
                 // safety: writing to the gpregs is always unsafe. If the alarm
                 // must trigger within the next period, set the "int enable"
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(1) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
             } else {
                 // safety: writing to the gpregs is always unsafe. If alarm must trigger
                 // some time after the current period, too far in the future, don't setup
                 // the alarm enable, gpreg2, yet. It will be setup later by `next_period`.
-                r.gpreg(2).write(|w| unsafe { w.gpdata().bits(0) });
+                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
             }
 
             true
         })
-    }
-}
-
-/// Represents a date and time.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Datetime {
-    /// The year component of the date.
-    pub year: u32,
-    /// The month component of the date (1-12).
-    pub month: u8,
-    /// The day component of the date (1-31).
-    pub day: u8,
-    /// The hour component of the time (0-23).
-    pub hour: u8,
-    /// The minute component of the time (0-59).
-    pub minute: u8,
-    /// The second component of the time (0-59).
-    pub second: u8,
-}
-
-/// Represents a real-time clock datetime.
-pub struct RtcDatetime {
-    rtc: &'static pac::rtc::RegisterBlock,
-}
-
-#[derive(PartialEq)]
-/// Represents the result of a datetime validation.
-pub enum Error {
-    /// The year is invalid.
-    InvalidYear,
-    /// The month is invalid.
-    InvalidMonth,
-    /// The day is invalid.
-    InvalidDay,
-    /// The hour is invalid.
-    InvalidHour,
-    /// The minute is invalid.
-    InvalidMinute,
-    /// The second is invalid.
-    InvalidSecond,
-}
-
-/// Default implementation for `RtcDatetime`.
-impl Default for RtcDatetime {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Implementation for `RtcDatetime`.
-impl RtcDatetime {
-    /// Create a new `RtcDatetime` instance.
-    pub fn new() -> Self {
-        Self { rtc: rtc() }
-    }
-    /// check valid datetime.
-    pub fn is_valid_datetime(&self, time: &Datetime) -> Result<(), Error> {
-        // Validate year
-        if time.year < 1970 {
-            return Err(Error::InvalidYear);
-        }
-
-        // Validate month
-        if time.month < 1 || time.month > 12 {
-            return Err(Error::InvalidMonth);
-        }
-
-        // Validate day
-        if time.day < 1 {
-            return Err(Error::InvalidDay);
-        }
-
-        match time.month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => {
-                if time.day > 31 {
-                    return Err(Error::InvalidDay);
-                }
-            }
-            4 | 6 | 9 | 11 => {
-                if time.day > 30 {
-                    return Err(Error::InvalidDay);
-                }
-            }
-            2 => {
-                if self.is_leap_year(time.year) {
-                    if time.day > 29 {
-                        return Err(Error::InvalidDay);
-                    }
-                } else if time.day > 28 {
-                    return Err(Error::InvalidDay);
-                }
-            }
-            _ => return Err(Error::InvalidDay),
-        }
-
-        // Validate hour
-        if time.hour > 23 {
-            return Err(Error::InvalidHour);
-        }
-
-        // Validate minute
-        if time.minute > 59 {
-            return Err(Error::InvalidMinute);
-        }
-
-        // Validate second
-        if time.second > 59 {
-            return Err(Error::InvalidSecond);
-        }
-        Ok(())
-    }
-
-    /// Check if a year is a leap year.
-    fn is_leap_year(&self, year: u32) -> bool {
-        (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-    }
-
-    /// Convert a datetime to seconds since 1970-01-01 00:00:00.
-    pub fn convert_datetime_to_secs(&self, datetime: &Datetime) -> u32 {
-        let mut days: u32 = 0;
-        let mut year = datetime.year;
-        let mut month = datetime.month;
-        let day: u32 = datetime.day as u32;
-
-        // Calculate days from 1970 to the current year
-        while year > 1970 {
-            days += 365;
-            if self.is_leap_year(year) {
-                days += 1;
-            }
-            year -= 1;
-        }
-
-        // Calculate days from January to the current month
-        let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30];
-        while month > 1 {
-            days += days_in_month[month as usize];
-            if month == 2 && self.is_leap_year(datetime.year) {
-                days += 1;
-            }
-            month -= 1;
-        }
-
-        // Calculate days from the first day of the month to the current day
-        days += day - 1;
-
-        // Calculate seconds from the first day of the month to the current day
-        let secs = datetime.second as u32 + datetime.minute as u32 * 60 + datetime.hour as u32 * 3600;
-
-        days * 86400 + secs
-    }
-
-    /// Convert seconds since 1970-01-01 00:00:00 to a datetime.
-    fn convert_secs_to_datetime(&self, secs: u32) -> Datetime {
-        let mut days = secs / 86400;
-        let mut secs = secs % 86400;
-
-        let mut year = 1970;
-        let mut month = 1;
-        let mut day = 0;
-
-        // Calculate year
-        while days >= 365 {
-            if self.is_leap_year(year) {
-                if days >= 366 {
-                    days -= 366;
-                } else {
-                    break;
-                }
-            } else {
-                days -= 365;
-            }
-            year += 1;
-        }
-
-        // Calculate month
-        let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30];
-        while days >= days_in_month[month as usize] {
-            if month == 2 && self.is_leap_year(year) {
-                if days >= 29 {
-                    days -= 29;
-                } else {
-                    break;
-                }
-            } else {
-                days -= days_in_month[month as usize];
-            }
-            month += 1;
-        }
-
-        // Calculate day
-        day += days;
-
-        // Calculate hour, minute, and second
-        let hour = secs / 3600;
-        secs %= 3600;
-        let minute = secs / 60;
-        let second = secs % 60;
-
-        Datetime {
-            year,
-            month,
-            day: day as u8,
-            hour: hour as u8,
-            minute: minute as u8,
-            second: second as u8,
-        }
-    }
-
-    /// Set the datetime.
-    pub fn set_datetime(&self, datetime: &Datetime) -> Result<(), Error> {
-        self.is_valid_datetime(datetime)?;
-        let secs = self.convert_datetime_to_secs(datetime);
-        self.rtc.count().write(|w| unsafe { w.bits(secs) });
-        Ok(())
-    }
-
-    /// Get the datetime.
-    pub fn get_datetime(&self) -> (Datetime, Result<(), Error>) {
-        let secs = self.rtc.count().read().bits();
-        let datetime = self.convert_secs_to_datetime(secs);
-        let res = self.is_valid_datetime(&datetime);
-        {
-            (datetime, res)
-        }
     }
 }
 
