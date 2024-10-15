@@ -19,6 +19,7 @@ pub mod iopctl;
 pub mod pwm;
 pub mod rng;
 #[cfg(feature = "time-driver")]
+/// Timer driver
 pub mod time_driver;
 pub mod wwdt;
 
