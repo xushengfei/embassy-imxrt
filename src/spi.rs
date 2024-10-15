@@ -7,11 +7,7 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::{pac, peripherals, Peripheral};
 
-//use crate::pac::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
-// todo: AnyPin temporary placeholder until gpio apis available
-pub struct AnyPin {
-    pin_port: u8,
-}
+use crate::iopctl::IopctlPin as Pin;
 
 /// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,13 +49,16 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
     todo!();
 }
 
-impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
+impl<'d, FC: Instance, M: Mode> Spi<'d, T, M> {
     fn new_inner(
-        inner: impl Peripheral<P = T> + 'd,
-        clk: Option<PeripheralRef<'d, AnyPin>>,
-        mosi: Option<PeripheralRef<'d, AnyPin>>,
-        miso: Option<PeripheralRef<'d, AnyPin>>,
-        cs: Option<PeripheralRef<'d, AnyPin>>,
+        inner: impl Peripheral<P = FC> + 'd,
+        clk: impl SckPin<FC> + 'd,
+        mosi: impl MosiPin<FC> + 'd,
+        miso: impl MisoPin<FC> + 'd,
+        ssel0: impl SselPin<FC> + 'd,
+        ssel1: impl SselPin<FC> + 'd,
+        ssel2: impl SselPin<FC> + 'd,
+        ssel3: impl SselPin<FC> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(inner);
@@ -215,53 +214,110 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(SPIO0, Spi0, 16, 17);
+impl_instance!(FLEXCOMM0, Spi0, 16, 17);
 
-/// CLK pin.
-pub trait ClkPin<T: Instance>: GpioPin {}
-/// CS pin.
-pub trait CsPin<T: Instance>: GpioPin {}
-/// MOSI pin.
-pub trait MosiPin<T: Instance>: GpioPin {}
-/// MISO pin.
-pub trait MisoPin<T: Instance>: GpioPin {}
+mod sealed {
+    /// simply seal a trait
+    pub trait Sealed {}
+}
 
-macro_rules! impl_pin {
-    ($pin:ident, $instance:ident, $function:ident) => {
-        impl $function<peripherals::$instance> for peripherals::$pin {}
+impl<T: Pin> sealed::Sealed for T {}
+
+/// io configuration trait for Mosi
+pub trait MosiPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for mosi usage
+    fn as_mosi(&self, pull: crate::iopctl::Pull);
+}
+
+/// io configuration trait for Miso
+pub trait MisoPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for miso usage
+    fn as_miso(&self, pull: crate::iopctl::Pull);
+}
+
+/// io configuration trait for Sck (serial clock)
+pub trait SckPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for sck usage
+    fn as_sck(&self, pull: crate::iopctl::Pull);
+}
+
+/// io configuration trait for Ssel n (chip select n)
+pub trait SselPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for ssel usage
+    fn as_ssel(&self, pull: crate::iopctl::Pull);
+}
+
+// flexcomm <-> Pin function map
+macro_rules! impl_miso {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl MosiPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
+            fn as_mosi(&self, pull: crate::iopctl::Pull) {
+                // UM11147 table 299 pg 262+
+                self.set_pull(pull)
+                    .set_slew_rate(crate::gpio::SlewRate::Standard)
+                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
+                    .set_drive_mode(crate::gpio::DriveMode::PushPull)
+                    .set_input_polarity(crate::gpio::Polarity::ActiveHigh)
+                    .enable_input_buffer()
+                    .set_function(crate::iopctl::Function::$fn);
+            }
+        }
+    };
+}
+macro_rules! impl_mosi {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl MisoPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
+            fn as_miso(&self, pull: crate::iopctl::Pull) {
+                // UM11147 table 299 pg 262+
+                self.set_pull(pull)
+                    .set_slew_rate(crate::gpio::SlewRate::Standard)
+                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
+                    .set_drive_mode(crate::gpio::DriveMode::PushPull)
+                    .set_input_polarity(crate::gpio::Polarity::ActiveHigh)
+                    .enable_input_buffer()
+                    .set_function(crate::iopctl::Function::$fn);
+            }
+        }
+    };
+}
+macro_rules! impl_sck {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl SckPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
+            fn as_sck(&self, pull: crate::iopctl::Pull) {
+                // UM11147 table 299 pg 262+
+                self.set_pull(pull)
+                    .set_slew_rate(crate::gpio::SlewRate::Standard)
+                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
+                    .set_drive_mode(crate::gpio::DriveMode::PushPull)
+                    .set_input_polarity(crate::gpio::Polarity::ActiveHigh)
+                    .enable_input_buffer()
+                    .set_function(crate::iopctl::Function::$fn);
+            }
+        }
+    };
+}
+macro_rules! impl_ssel {
+    ($piom_n:ident, $fn:ident, $fcn:ident) => {
+        impl SselPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
+            fn as_ssel(&self, pull: crate::iopctl::Pull) {
+                // UM11147 table 299 pg 262+
+                self.set_pull(pull)
+                    .set_slew_rate(crate::gpio::SlewRate::Standard)
+                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
+                    .set_drive_mode(crate::gpio::DriveMode::PushPull)
+                    .set_input_polarity(crate::gpio::Polarity::ActiveHigh)
+                    .enable_input_buffer()
+                    .set_function(crate::iopctl::Function::$fn);
+            }
+        }
     };
 }
 
-impl_pin!(PIN_0, SPI0, MisoPin);
-impl_pin!(PIN_1, SPI0, CsPin);
-impl_pin!(PIN_2, SPI0, ClkPin);
-impl_pin!(PIN_3, SPI0, MosiPin);
-impl_pin!(PIN_4, SPI0, MisoPin);
-impl_pin!(PIN_5, SPI0, CsPin);
-impl_pin!(PIN_6, SPI0, ClkPin);
-impl_pin!(PIN_7, SPI0, MosiPin);
-impl_pin!(PIN_8, SPI1, MisoPin);
-impl_pin!(PIN_9, SPI1, CsPin);
-impl_pin!(PIN_10, SPI1, ClkPin);
-impl_pin!(PIN_11, SPI1, MosiPin);
-impl_pin!(PIN_12, SPI1, MisoPin);
-impl_pin!(PIN_13, SPI1, CsPin);
-impl_pin!(PIN_14, SPI1, ClkPin);
-impl_pin!(PIN_15, SPI1, MosiPin);
-impl_pin!(PIN_16, SPI0, MisoPin);
-impl_pin!(PIN_17, SPI0, CsPin);
-impl_pin!(PIN_18, SPI0, ClkPin);
-impl_pin!(PIN_19, SPI0, MosiPin);
-impl_pin!(PIN_20, SPI0, MisoPin);
-impl_pin!(PIN_21, SPI0, CsPin);
-impl_pin!(PIN_22, SPI0, ClkPin);
-impl_pin!(PIN_23, SPI0, MosiPin);
-impl_pin!(PIN_24, SPI1, MisoPin);
-impl_pin!(PIN_25, SPI1, CsPin);
-impl_pin!(PIN_26, SPI1, ClkPin);
-impl_pin!(PIN_27, SPI1, MosiPin);
-impl_pin!(PIN_28, SPI1, MisoPin);
-impl_pin!(PIN_29, SPI1, CsPin);
+/// Flexcomm0 SPI GPIOs -
+impl_miso!(PIO0_1, F1, FLEXCOMM0);
+impl_mosi!(PIO0_2, F1, FLEXCOMM0);
+impl_sck!(PIO0_0, F1, FLEXCOMM0);
+impl_ssel!(PIO0_3, F1, FLEXCOMM0);
 
 macro_rules! impl_mode {
     ($name:ident) => {
