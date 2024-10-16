@@ -164,8 +164,8 @@ pub struct SpiBus<'p, F: SpiPeripheral> {
 }
 #[allow(private_bounds)]
 impl<'p, F: SpiPeripheral> SpiBus<'p, F> {
-    /// use Flexcomm fc as an SPI Bus
-    pub fn new(fc: impl SpiPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+    /// use Flexcomm fc as a blocking SPI Bus
+    pub fn new_blocking(fc: impl SpiPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::Spi)?;
         Ok(Self { _fc: fc.into_ref() })

@@ -10,13 +10,38 @@ use crate::{pac, peripherals, Peripheral};
 use crate::iopctl::IopctlPin as Pin;
 use sealed::Sealed;
 
-/// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub enum Error {
-    // No detailed errors specified
+/// SPI transfer errors.
+pub enum TransferError {
+    /// Timeout error
+    Timeout,
+    /// Reading (rx) failed
+    ReadFail,
+    /// Writing (tx) failed
+    WriteFail,
+    /// state mismatch or other internal register unexpected state
+    OtherBusError,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+// Error information type
+pub enum Error {
+    /// propagating a lower level flexcomm error
+    Flex(crate::flexcomm::Error),
+
+    /// configuration requested is not supported
+    UnsupportedConfiguration,
+
+    /// transaction failure types
+    Transfer(TransferError),
+}
+
+/// shorthand for -> Result<T>
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// SPI configuration.
 #[non_exhaustive]
@@ -83,19 +108,30 @@ pub trait SselPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     fn as_ssel(&self);
 }
 
-/// SPI driver.
-pub struct Spi<'d, T: Instance, M: Mode> {
-    inner: PeripheralRef<'d, T>,
-    phantom: PhantomData<(&'d mut T, M)>,
+/// Driver mode.
+#[allow(private_bounds)]
+pub trait Mode: Sealed {}
+
+/// Blocking mode.
+pub struct Blocking;
+impl Sealed for Blocking {}
+impl Mode for Blocking {}
+
+/// Async mode.
+pub struct Async;
+impl Sealed for Async {}
+impl Mode for Async {}
+
+/// use FCn as SPI Master controller
+pub struct SpiMaster<'d, FC: Instance, M: Mode> {
+    bus: crate::flexcomm::SpiBus<'d, FC>,
+    config: Config,
+    _phantom: PhantomData<M>,
 }
 
-fn calc_prescs(freq: u32) -> (u8, u8) {
-    todo!();
-}
-
-impl<'d, FC: Instance, M: Mode> Spi<'d, FC, M> {
+impl<'d, FC: Instance, M: Mode> SpiMaster<'d, FC, M> {
     fn new_inner(
-        inner: impl Peripheral<P = FC> + 'd,
+        bus: crate::flexcomm::SpiBus<'d, FC>,
         sclk: impl SckPin<FC> + 'd,
         mosi: impl MosiPin<FC> + 'd,
         miso: impl MisoPin<FC> + 'd,
@@ -104,15 +140,15 @@ impl<'d, FC: Instance, M: Mode> Spi<'d, FC, M> {
         ssel2: impl SselPin<FC> + 'd,
         ssel3: impl SselPin<FC> + 'd,
         config: Config,
-    ) -> Self {
-        into_ref!(inner);
-
-        let p = inner.regs();
+    ) -> Result<Self> {
+        if config.frequency > 20000000 {
+            return Err(Error::UnsupportedConfiguration);
+        }
         // todo: calculate and write prescaler
 
         // todo: set data size, polarity, phase, post divider
 
-        // todo: enable dma, if async mode
+        // todo: if async mode, enable dma
 
         // todo: configure gpio for spi
         sclk.as_sclk();
@@ -125,10 +161,50 @@ impl<'d, FC: Instance, M: Mode> Spi<'d, FC, M> {
 
         // todo: enable spi
 
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
+        Ok(Self {
+            bus,
+            _phantom: PhantomData,
+            config,
+        })
+    }
+
+    /// Set SPI frequency.
+    pub fn set_frequency(&mut self, freq: u32) {
+        let (presc, postdiv) = calc_prescs(freq);
+        let p = self.inner.regs();
+        // disable
+        p.cr1().write(|w| w.set_sse(false));
+
+        // change stuff
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().modify(|w| {
+            w.set_scr(postdiv);
+        });
+
+        // enable
+        p.cr1().write(|w| w.set_sse(true));
+    }
+}
+
+impl<'d, FC: Instance> Spi<'d, T, Blocking> {
+    /// Create an SPI driver in blocking mode.
+    pub fn new_blocking(
+        bus: crate::flexcomm::SpiBus<'d, FC>,
+        sclk: impl SckPin<FC> + 'd,
+        mosi: impl MosiPin<FC> + 'd,
+        miso: impl MisoPin<FC> + 'd,
+        ssel0: impl SselPin<FC> + 'd,
+        ssel1: impl SselPin<FC> + 'd,
+        ssel2: impl SselPin<FC> + 'd,
+        ssel3: impl SselPin<FC> + 'd,
+        config: Config,
+    ) -> Result<Self> {
+        // TODO - clock integration
+        let clock = crate::flexcomm::Clock::Sfro;
+        let bus: crate::flexcomm::SpiBus<'_, FC> = crate::flexcomm::SpiBus::new_blocking(fc, clock)?;
+        let mut this = Self::new_inner(bus, sclk, mosi, miso, ssel0, ssel1, ssel2, ssel3, config)?;
+
+        Ok(this)
     }
 
     /// Write data to SPI blocking execution until done.
@@ -194,45 +270,12 @@ impl<'d, FC: Instance, M: Mode> Spi<'d, FC, M> {
         while p.sr().read().bsy() {}
         Ok(())
     }
-
-    /// Set SPI frequency.
-    pub fn set_frequency(&mut self, freq: u32) {
-        let (presc, postdiv) = calc_prescs(freq);
-        let p = self.inner.regs();
-        // disable
-        p.cr1().write(|w| w.set_sse(false));
-
-        // change stuff
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().modify(|w| {
-            w.set_scr(postdiv);
-        });
-
-        // enable
-        p.cr1().write(|w| w.set_sse(true));
-    }
 }
 
-impl<'d, T: Instance> Spi<'d, T, Blocking> {
-    /// Create an SPI driver in blocking mode.
-    pub fn new_blocking(
-        inner: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(clk, mosi, miso);
-        Self::new_inner(
-            inner,
-            Some(clk.map_into()),
-            Some(mosi.map_into()),
-            Some(miso.map_into()),
-            None,
-            config,
-        )
-    }
-}
+// re-export embedded-hal trait
+pub use embedded_hal_1::spi::{ErrorType as SpiMasterBlockingErrorType, SpiBus as SpiMasterBlocking};
+
+impl<'d, FC: Instance> SpiMasterBlocking for SpiMaster<'d, FC, Blocking> {}
 
 trait SealedMode {}
 
@@ -264,8 +307,6 @@ macro_rules! impl_instance {
         impl Instance for peripherals::$type {}
     };
 }
-
-impl_instance!(FLEXCOMM0, Spi0, 16, 17);
 
 // flexcomm <-> Pin function map
 macro_rules! impl_miso {
