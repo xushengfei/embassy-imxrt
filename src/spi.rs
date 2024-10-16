@@ -49,10 +49,10 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
     todo!();
 }
 
-impl<'d, FC: Instance, M: Mode> Spi<'d, T, M> {
+impl<'d, FC: Instance, M: Mode> Spi<'d, FC, M> {
     fn new_inner(
         inner: impl Peripheral<P = FC> + 'd,
-        clk: impl SckPin<FC> + 'd,
+        sclk: impl SckPin<FC> + 'd,
         mosi: impl MosiPin<FC> + 'd,
         miso: impl MisoPin<FC> + 'd,
         ssel0: impl SselPin<FC> + 'd,
@@ -71,6 +71,13 @@ impl<'d, FC: Instance, M: Mode> Spi<'d, T, M> {
         // todo: enable dma, if async mode
 
         // todo: configure gpio for spi
+        sclk.as_sclk();
+        mosi.as_mosi();
+        miso.as_miso();
+        ssel0.as_ssel();
+        ssel1.as_ssel();
+        ssel2.as_ssel();
+        ssel3.as_ssel();
 
         // todo: enable spi
 
@@ -226,34 +233,34 @@ impl<T: Pin> sealed::Sealed for T {}
 /// io configuration trait for Mosi
 pub trait MosiPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for mosi usage
-    fn as_mosi(&self, pull: crate::iopctl::Pull);
+    fn as_mosi(&self);
 }
 
 /// io configuration trait for Miso
 pub trait MisoPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for miso usage
-    fn as_miso(&self, pull: crate::iopctl::Pull);
+    fn as_miso(&self);
 }
 
 /// io configuration trait for Sck (serial clock)
 pub trait SckPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for sck usage
-    fn as_sck(&self, pull: crate::iopctl::Pull);
+    fn as_sck(&self);
 }
 
 /// io configuration trait for Ssel n (chip select n)
 pub trait SselPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for ssel usage
-    fn as_ssel(&self, pull: crate::iopctl::Pull);
+    fn as_ssel(&self);
 }
 
 // flexcomm <-> Pin function map
 macro_rules! impl_miso {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl MosiPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_mosi(&self, pull: crate::iopctl::Pull) {
+            fn as_mosi(&self) {
                 // UM11147 table 299 pg 262+
-                self.set_pull(pull)
+                self.set_pull(crate::gpio::Pull::None)
                     .set_slew_rate(crate::gpio::SlewRate::Standard)
                     .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .set_drive_mode(crate::gpio::DriveMode::PushPull)
@@ -267,9 +274,9 @@ macro_rules! impl_miso {
 macro_rules! impl_mosi {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl MisoPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_miso(&self, pull: crate::iopctl::Pull) {
+            fn as_miso(&self) {
                 // UM11147 table 299 pg 262+
-                self.set_pull(pull)
+                self.set_pull(crate::gpio::Pull::None)
                     .set_slew_rate(crate::gpio::SlewRate::Standard)
                     .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .set_drive_mode(crate::gpio::DriveMode::PushPull)
@@ -283,9 +290,9 @@ macro_rules! impl_mosi {
 macro_rules! impl_sck {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl SckPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_sck(&self, pull: crate::iopctl::Pull) {
+            fn as_sck(&self) {
                 // UM11147 table 299 pg 262+
-                self.set_pull(pull)
+                self.set_pull(crate::gpio::Pull::None)
                     .set_slew_rate(crate::gpio::SlewRate::Standard)
                     .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .set_drive_mode(crate::gpio::DriveMode::PushPull)
@@ -299,9 +306,9 @@ macro_rules! impl_sck {
 macro_rules! impl_ssel {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl SselPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_ssel(&self, pull: crate::iopctl::Pull) {
+            fn as_ssel(&self) {
                 // UM11147 table 299 pg 262+
-                self.set_pull(pull)
+                self.set_pull(crate::gpio::Pull::None)
                     .set_slew_rate(crate::gpio::SlewRate::Standard)
                     .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .set_drive_mode(crate::gpio::DriveMode::PushPull)
@@ -313,11 +320,74 @@ macro_rules! impl_ssel {
     };
 }
 
-/// Flexcomm0 SPI GPIOs -
+/// Flexcomm0 SPI GPIO options -
 impl_miso!(PIO0_1, F1, FLEXCOMM0);
 impl_mosi!(PIO0_2, F1, FLEXCOMM0);
 impl_sck!(PIO0_0, F1, FLEXCOMM0);
-impl_ssel!(PIO0_3, F1, FLEXCOMM0);
+impl_ssel!(PIO0_3, F1, FLEXCOMM0); // SSEL0
+impl_ssel!(PIO0_4, F1, FLEXCOMM0); // SSEL1
+impl_ssel!(PIO0_5, F1, FLEXCOMM0); // SSEL2
+impl_ssel!(PIO0_6, F1, FLEXCOMM0); // SSEL3
+impl_ssel!(PIO0_10, F5, FLEXCOMM0); // SSEL2
+impl_ssel!(PIO0_11, F5, FLEXCOMM0); // SSEL3
+
+impl_miso!(PIO3_0, F5, FLEXCOMM0);
+impl_mosi!(PIO3_1, F5, FLEXCOMM0);
+impl_sck!(PIO3_2, F5, FLEXCOMM0);
+impl_ssel!(PIO3_3, F5, FLEXCOMM0); // SSEL0
+impl_ssel!(PIO3_4, F5, FLEXCOMM0); // SSEL1
+impl_ssel!(PIO3_5, F5, FLEXCOMM0); // SSEL2
+impl_ssel!(PIO3_6, F5, FLEXCOMM0); // SSEL3
+
+/// Flexcomm1 SPI GPIO options -
+impl_ssel!(PIO0_3, F5, FLEXCOMM1); // SSEL2
+impl_ssel!(PIO0_4, F5, FLEXCOMM1); // SSEL3
+impl_sck!(PIO0_7, F1, FLEXCOMM1);
+impl_miso!(PIO0_8, F1, FLEXCOMM1);
+impl_mosi!(PIO0_9, F1, FLEXCOMM1);
+impl_ssel!(PIO0_10, F1, FLEXCOMM1); // SSEL0
+impl_ssel!(PIO0_11, F1, FLEXCOMM1); // SSEL1
+impl_ssel!(PIO0_12, F1, FLEXCOMM1); // SSEL2
+impl_ssel!(PIO0_13, F1, FLEXCOMM1); // SSEL3
+
+impl_sck!(PIO7_25, F1, FLEXCOMM1);
+impl_miso!(PIO7_26, F1, FLEXCOMM1);
+impl_mosi!(PIO7_27, F1, FLEXCOMM1);
+impl_ssel!(PIO7_28, F1, FLEXCOMM1); // SSEL0
+impl_ssel!(PIO7_29, F1, FLEXCOMM1); // SSEL1
+impl_ssel!(PIO7_30, F1, FLEXCOMM1); // SSEL2
+impl_ssel!(PIO7_31, F1, FLEXCOMM1); // SSEL3
+
+/// Flexcomm2 SPI GPIO options -
+impl_sck!(PIO0_14, F1, FLEXCOMM2);
+impl_miso!(PIO0_15, F1, FLEXCOMM2);
+impl_mosi!(PIO0_16, F1, FLEXCOMM2);
+impl_ssel!(PIO0_17, F1, FLEXCOMM2); // SSEL0
+impl_ssel!(PIO0_18, F1, FLEXCOMM2); // SSEL1
+impl_ssel!(PIO0_19, F1, FLEXCOMM2); // SSEL2
+impl_ssel!(PIO0_20, F1, FLEXCOMM2); // SSEL3
+impl_ssel!(PIO0_24, F5, FLEXCOMM2); // SSEL2
+impl_ssel!(PIO0_25, F5, FLEXCOMM2); // SSEL3
+
+impl_ssel!(PIO4_8, F5, FLEXCOMM2); // SSEL2
+
+impl_sck!(PIO7_24, F5, FLEXCOMM2);
+impl_miso!(PIO7_30, F5, FLEXCOMM2);
+impl_mosi!(PIO7_31, F5, FLEXCOMM2);
+
+/// Flexcomm3 SPI GPIO options -
+
+/// Flexcomm4 SPI GPIO options -
+
+/// Flexcomm5 SPI GPIO options -
+
+/// Flexcomm6 SPI GPIO options -
+
+/// Flexcomm7 SPI GPIO options -
+
+/// Flexcomm14 SPI GPIO options -
+
+/// Flexcomm15 SPI GPIO options -
 
 macro_rules! impl_mode {
     ($name:ident) => {
