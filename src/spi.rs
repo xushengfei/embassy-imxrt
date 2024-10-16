@@ -39,6 +39,49 @@ impl Default for Config {
     }
 }
 
+mod sealed {
+    /// simply seal a trait
+    pub trait Sealed {}
+}
+
+impl<T: Pin> sealed::Sealed for T {}
+
+/// shared functions between master and slave operation
+#[allow(private_bounds)]
+pub trait Instance: crate::flexcomm::SpiPeripheral {}
+impl Instance for crate::peripherals::FLEXCOMM0 {}
+impl Instance for crate::peripherals::FLEXCOMM1 {}
+impl Instance for crate::peripherals::FLEXCOMM2 {}
+impl Instance for crate::peripherals::FLEXCOMM3 {}
+impl Instance for crate::peripherals::FLEXCOMM4 {}
+impl Instance for crate::peripherals::FLEXCOMM5 {}
+impl Instance for crate::peripherals::FLEXCOMM6 {}
+impl Instance for crate::peripherals::FLEXCOMM7 {}
+
+/// io configuration trait for Mosi
+pub trait MosiPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for mosi usage
+    fn as_mosi(&self);
+}
+
+/// io configuration trait for Miso
+pub trait MisoPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for miso usage
+    fn as_miso(&self);
+}
+
+/// io configuration trait for Sck (serial clock)
+pub trait SckPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for sck usage
+    fn as_sck(&self);
+}
+
+/// io configuration trait for Ssel n (chip select n)
+pub trait SselPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for ssel usage
+    fn as_ssel(&self);
+}
+
 /// SPI driver.
 pub struct Spi<'d, T: Instance, M: Mode> {
     inner: PeripheralRef<'d, T>,
@@ -223,37 +266,6 @@ macro_rules! impl_instance {
 
 impl_instance!(FLEXCOMM0, Spi0, 16, 17);
 
-mod sealed {
-    /// simply seal a trait
-    pub trait Sealed {}
-}
-
-impl<T: Pin> sealed::Sealed for T {}
-
-/// io configuration trait for Mosi
-pub trait MosiPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
-    /// convert the pin to appropriate function for mosi usage
-    fn as_mosi(&self);
-}
-
-/// io configuration trait for Miso
-pub trait MisoPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
-    /// convert the pin to appropriate function for miso usage
-    fn as_miso(&self);
-}
-
-/// io configuration trait for Sck (serial clock)
-pub trait SckPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
-    /// convert the pin to appropriate function for sck usage
-    fn as_sck(&self);
-}
-
-/// io configuration trait for Ssel n (chip select n)
-pub trait SselPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
-    /// convert the pin to appropriate function for ssel usage
-    fn as_ssel(&self);
-}
-
 // flexcomm <-> Pin function map
 macro_rules! impl_miso {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
@@ -320,6 +332,8 @@ macro_rules! impl_ssel {
     };
 }
 
+// note that signals and pins may be optionally mapped to multiple locations
+
 /// Flexcomm0 SPI GPIO options -
 impl_miso!(PIO0_1, F1, FLEXCOMM0);
 impl_mosi!(PIO0_2, F1, FLEXCOMM0);
@@ -376,6 +390,7 @@ impl_miso!(PIO7_30, F5, FLEXCOMM2);
 impl_mosi!(PIO7_31, F5, FLEXCOMM2);
 
 /// Flexcomm3 SPI GPIO options -
+// todo for other fcn channels...
 
 /// Flexcomm4 SPI GPIO options -
 
