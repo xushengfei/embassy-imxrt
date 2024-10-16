@@ -673,14 +673,11 @@ impl<'a, FC: Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::Sev
 
 /// interface trait for generalized I2C slave interactions
 pub trait I2cSlaveBlocking {
-    /// block until the address is pinged (expect no payload)
-    fn block_until_addressed(&self) -> Result<()>;
+    /// listen for cmd
+    fn listen(&self, cmd: &mut [u8]) -> Result<()>;
 
-    /// wait for a read request
-    fn read(&self, read: &mut [u8]) -> Result<()>;
-
-    /// wait for a write request
-    fn write(&self, write: &[u8]) -> Result<()>;
+    /// respond with data
+    fn respond(&self, response: &[u8]) -> Result<()>;
 }
 
 impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
@@ -741,9 +738,7 @@ impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
 
         Ok(())
     }
-}
 
-impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC, Blocking> {
     fn block_until_addressed(&self) -> Result<()> {
         self.poll()?;
 
@@ -756,13 +751,15 @@ impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC, Blocking> {
         i2c.slvctl().write(|w| w.slvcontinue().continue_());
         Ok(())
     }
+}
 
-    fn read(&self, read: &mut [u8]) -> Result<()> {
+impl<FC: Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Blocking> {
+    fn listen(&self, cmd: &mut [u8]) -> Result<()> {
         let i2c = self.bus.i2c();
 
         self.block_until_addressed()?;
 
-        for b in read {
+        for b in cmd {
             self.poll()?;
 
             if !i2c.stat().read().slvstate().is_slave_receive() {
@@ -777,12 +774,12 @@ impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC, Blocking> {
         Ok(())
     }
 
-    fn write(&self, write: &[u8]) -> Result<()> {
+    fn respond(&self, response: &[u8]) -> Result<()> {
         let i2c = self.bus.i2c();
 
         self.block_until_addressed()?;
 
-        for b in write {
+        for b in response {
             self.poll()?;
 
             if !i2c.stat().read().slvstate().is_slave_transmit() {
@@ -790,8 +787,8 @@ impl<'a, FC: Instance> I2cSlaveBlocking for I2cSlave<'a, FC, Blocking> {
             }
 
             i2c.slvdat().write(|w|
-                // SAFETY: unsafe only here due to use of bits()
-                unsafe{w.data().bits(*b)});
+                    // SAFETY: unsafe only here due to use of bits()
+                    unsafe{w.data().bits(*b)});
 
             i2c.slvctl().write(|w| w.slvcontinue().continue_());
         }

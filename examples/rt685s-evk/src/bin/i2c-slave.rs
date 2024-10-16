@@ -9,45 +9,26 @@ use embassy_imxrt::pac;
 
 const SLAVE_ADDR: Option<i2c::Address> = i2c::Address::new(0x20);
 
-fn wait_for_magic(i2c: &impl I2cSlaveBlocking) {
-    info!("i2cs example - waiting for ping");
+fn slave_service(i2c: &impl I2cSlaveBlocking) {
+    let magic_code = [0xF0, 0x05, 0xBA, 0x11];
+    let mut cmd: [u8; 4] = [0xAA; 4];
 
-    match i2c.block_until_addressed() {
-        Ok(_) => info!("i2cs example - ping successfully received!"),
-        Err(e) => error!("i2cs example - ping exited with {:?}", e),
-    }
+    info!("i2cs example - wait for cmd");
+    i2c.listen(&mut cmd).unwrap();
 
-    info!("i2cs example - wait for magic code 0xDEADBEEF");
-    let magic_code = [0xDE, 0xAD, 0xBE, 0xEF];
-    let mut received: [u8; 4] = [0; 4];
-
-    match i2c.read(&mut received) {
-        Ok(_) => {
-            info!("i2cs example - read(4) success! Checking Code");
-
-            for (rx, mg) in received.iter().zip(magic_code.iter()) {
-                if rx != mg {
-                    error!("Mismatch got {:?} but expected {:?}", rx, mg);
-                }
-            }
-        }
-        Err(e) => error!("i2cs example - read(4) exited with {:?}", e),
-    }
-
-    info!("i2cs example - writing back magic code to host");
-
-    match i2c.write(&magic_code) {
-        Ok(_) => info!("i2c example - write(4) successfully received!"),
-        Err(e) => error!("i2c example - write(4) exited with {:?}", e),
+    if cmd == [0xDE, 0xAD, 0xBE, 0xEF] {
+        info!("i2cs example - receive init cmd");
+    } else if cmd == [0xDE, 0xCA, 0xFB, 0xAD] {
+        info!("i2cs example - receive magic cmd, writing back magic code to host");
+        i2c.respond(&magic_code).unwrap();
+    } else {
+        error!("unexpected cmd = {:02X}", cmd);
+        panic!("i2cs example - unexpected cmd");
     }
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    // NOTE: tested with a raspberry pi 5 as master controller. Commands used:
-    // $ i2cdetect -y 1
-    // $ i2ctransfer -y 1 w4@0x20 0xDE 0xAD 0xBE 0xEF r4
-
     let pac = pac::Peripherals::take().unwrap();
 
     // Ensure SFRO Clock is set to run (power down is cleared)
@@ -56,12 +37,14 @@ async fn main(_spawner: Spawner) {
     info!("i2cs example - embassy_imxrt::init");
     let p = embassy_imxrt::init(Default::default());
 
+    // NOTE: Tested with a raspberry pi 5 as master controller connected FC2 to i2c on Pi5
+    //       Test program here: https://github.com/jerrysxie/pi5-i2c-test
     info!("i2cs example - I2c::new");
     let i2c = i2c::I2cSlave::new(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, Pull::Down, SLAVE_ADDR.unwrap()).unwrap();
 
     embassy_imxrt_examples::delay(500);
 
     loop {
-        wait_for_magic(&i2c);
+        slave_service(&i2c);
     }
 }
