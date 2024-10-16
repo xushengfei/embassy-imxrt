@@ -177,7 +177,7 @@ pub struct TimeoutSettings {
 
 impl<'a, FC: Instance, M: Mode> I2cMaster<'a, FC, M> {
     fn new_inner(
-        fc: impl Instance<P = FC> + 'a,
+        bus: crate::flexcomm::I2cBus<'a, FC>,
         scl: impl SclPin<FC> + 'a,
         sda: impl SdaPin<FC> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
@@ -185,13 +185,8 @@ impl<'a, FC: Instance, M: Mode> I2cMaster<'a, FC, M> {
         speed: Speed,
         timeout: TimeoutSettings,
     ) -> Result<Self> {
-        // TODO - clock integration
-        let clock = crate::flexcomm::Clock::Sfro;
-
         sda.as_sda(pull);
         scl.as_scl(pull);
-
-        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
 
@@ -285,7 +280,10 @@ impl<'a, FC: Instance> I2cMaster<'a, FC, Blocking> {
         speed: Speed,
         timeout: TimeoutSettings,
     ) -> Result<Self> {
-        let mut this = Self::new_inner(fc, scl, sda, pull, speed, timeout)?;
+        // TODO - clock integration
+        let clock = crate::flexcomm::Clock::Sfro;
+        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
+        let mut this = Self::new_inner(bus, scl, sda, pull, speed, timeout)?;
         this.poll_ready()?;
 
         Ok(this)
@@ -414,7 +412,10 @@ impl<'a, FC: Instance> I2cMaster<'a, FC, Async> {
         speed: Speed,
         timeout: TimeoutSettings,
     ) -> Result<Self> {
-        let mut this = Self::new_inner(fc, scl, sda, pull, speed, timeout)?;
+        // TODO - clock integration
+        let clock = crate::flexcomm::Clock::Sfro;
+        let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_async(fc, clock)?;
+        let mut this = Self::new_inner(bus, scl, sda, pull, speed, timeout)?;
         this.poll_ready().await?;
 
         Ok(this)
