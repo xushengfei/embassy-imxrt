@@ -8,6 +8,7 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 use crate::{pac, peripherals, Peripheral};
 
 use crate::iopctl::IopctlPin as Pin;
+use sealed::Sealed;
 
 /// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
