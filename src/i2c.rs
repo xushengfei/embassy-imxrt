@@ -680,23 +680,27 @@ pub trait I2cSlaveBlocking {
     fn respond(&self, response: &[u8]) -> Result<()>;
 }
 
-impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
+/// interface trait for generalized I2C slave interactions
+pub trait I2cSlaveAsync {
+    /// listen for cmd
+    async fn listen(&self, cmd: &mut [u8]) -> Result<()>;
+
+    /// respond with data
+    async fn respond(&self, response: &[u8]) -> Result<()>;
+}
+
+impl<'a, FC: Instance, M: Mode> I2cSlave<'a, FC, M> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new(
-        fc: impl Instance<P = FC> + 'a,
+    fn new_inner(
+        bus: crate::flexcomm::I2cBus<'a, FC>,
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         address: Address,
     ) -> Result<Self> {
-        // TODO - clock integration
-        let clock = crate::flexcomm::Clock::Sfro;
-
         sda.as_sda(pull);
         scl.as_scl(pull);
-
-        let bus = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
         // this check should be redundant with T::set_mode()? above
         let i2c = bus.i2c();
@@ -730,6 +734,24 @@ impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
             _phantom: PhantomData,
         })
     }
+}
+
+impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
+    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
+    pub fn new_blocking(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC>,
+        sda: impl SdaPin<FC>,
+        // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
+        pull: crate::iopctl::Pull,
+        address: Address,
+    ) -> Result<Self> {
+        // TODO - clock integration
+        let clock = crate::flexcomm::Clock::Sfro;
+        let bus = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
+
+        Self::new_inner(bus, scl, sda, pull, address)
+    }
 
     fn poll(&self) -> Result<()> {
         let i2c = self.bus.i2c();
@@ -741,6 +763,64 @@ impl<'a, FC: Instance> I2cSlave<'a, FC, Blocking> {
 
     fn block_until_addressed(&self) -> Result<()> {
         self.poll()?;
+
+        let i2c = self.bus.i2c();
+
+        if !i2c.stat().read().slvstate().is_slave_address() {
+            return Err(TransferError::AddressNack.into());
+        }
+
+        i2c.slvctl().write(|w| w.slvcontinue().continue_());
+        Ok(())
+    }
+}
+
+impl<'a, FC: Instance> I2cSlave<'a, FC, Async> {
+    /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
+    pub fn new_async(
+        fc: impl Instance<P = FC> + 'a,
+        scl: impl SclPin<FC>,
+        sda: impl SdaPin<FC>,
+        // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
+        pull: crate::iopctl::Pull,
+        address: Address,
+    ) -> Result<Self> {
+        // TODO - clock integration
+        let clock = crate::flexcomm::Clock::Sfro;
+        let bus = crate::flexcomm::I2cBus::new_async(fc, clock)?;
+
+        Self::new_inner(bus, scl, sda, pull, address)
+    }
+
+    async fn poll(&self) -> Result<()> {
+        let i2c = self.bus.i2c();
+
+        i2c.intenset()
+            .write(|w| w.slvpendingen().set_bit().slvdeselen().set_bit());
+
+        // Wait for fifo watermark interrupt.
+        poll_fn(|cx| {
+            self.bus.waker().register(cx.waker());
+
+            //check for readyness
+            if i2c.stat().read().slvpending().bit_is_set() {
+                return Poll::Ready(());
+            }
+
+            if i2c.stat().read().slvdesel().bit_is_set() {
+                i2c.stat().write(|w| w.slvdesel().deselected());
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        Ok(())
+    }
+
+    async fn block_until_addressed(&self) -> Result<()> {
+        self.poll().await?;
 
         let i2c = self.bus.i2c();
 
@@ -792,6 +872,52 @@ impl<FC: Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Blocking> {
 
             i2c.slvctl().write(|w| w.slvcontinue().continue_());
         }
+
+        Ok(())
+    }
+}
+
+impl<FC: Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async> {
+    async fn listen(&self, request: &mut [u8]) -> Result<()> {
+        let i2c = self.bus.i2c();
+
+        self.block_until_addressed().await?;
+
+        for b in request {
+            self.poll().await?;
+
+            if !i2c.stat().read().slvstate().is_slave_receive() {
+                return Err(TransferError::ReadFail.into());
+            }
+
+            *b = i2c.slvdat().read().data().bits();
+
+            i2c.slvctl().write(|w| w.slvcontinue().continue_());
+        }
+        self.poll().await?;
+
+        Ok(())
+    }
+
+    async fn respond(&self, response: &[u8]) -> Result<()> {
+        let i2c = self.bus.i2c();
+
+        self.block_until_addressed().await?;
+
+        for b in response {
+            self.poll().await?;
+
+            if !i2c.stat().read().slvstate().is_slave_transmit() {
+                return Err(TransferError::WriteFail.into());
+            }
+
+            i2c.slvdat().write(|w|
+                // SAFETY: unsafe only here due to use of bits()
+                unsafe{w.data().bits(*b)});
+
+            i2c.slvctl().write(|w| w.slvcontinue().continue_());
+        }
+        self.poll().await?;
 
         Ok(())
     }
