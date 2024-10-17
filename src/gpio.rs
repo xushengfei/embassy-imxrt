@@ -5,9 +5,10 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use crate::interrupt;
+use crate::clocks::enable_and_reset;
 use crate::iopctl::IopctlPin;
 pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Polarity, Pull, SlewRate};
+use crate::{interrupt, peripherals};
 use crate::{into_ref, Peripheral, PeripheralRef};
 
 use embassy_hal_internal::interrupt::InterruptExt;
@@ -101,50 +102,24 @@ fn irq_handler(port_wakers: &[Option<&PortWaker>]) {
     }
 }
 
-/// Initialize clocks.
-/// TODO: Refactor after clocks mod done.
-/// This just enables all GPIO port clocks for now.
+/// Initialization Logic
+/// Note: GPIO port clocks are initialized in the clocks module.
 /// # Safety
 ///
 /// This function enables GPIO INT A interrupt. It should not be called
 /// until you are ready to handle the interrupt
 pub unsafe fn init() {
-    let clkctl1 = crate::pac::Clkctl1::steal();
+    // Enable GPIO clocks
+    enable_and_reset::<peripherals::HSGPIO0>();
+    enable_and_reset::<peripherals::HSGPIO1>();
+    enable_and_reset::<peripherals::HSGPIO2>();
+    enable_and_reset::<peripherals::HSGPIO3>();
+    enable_and_reset::<peripherals::HSGPIO4>();
+    enable_and_reset::<peripherals::HSGPIO5>();
+    enable_and_reset::<peripherals::HSGPIO6>();
+    enable_and_reset::<peripherals::HSGPIO7>();
 
-    let rstctl1 = crate::pac::Rstctl1::steal();
-
-    // Port 0
-    clkctl1.pscctl1_set().write(|w| w.hsgpio0_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio0_rst_clr().clr_reset());
-
-    // Port 1
-    clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
-
-    // Port 2
-    clkctl1.pscctl1_set().write(|w| w.hsgpio2_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio2_rst_clr().clr_reset());
-
-    // Port 3
-    clkctl1.pscctl1_set().write(|w| w.hsgpio3_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio3_rst_clr().clr_reset());
-
-    // Port 4
-    clkctl1.pscctl1_set().write(|w| w.hsgpio4_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio4_rst_clr().clr_reset());
-
-    // Port 5
-    clkctl1.pscctl1_set().write(|w| w.hsgpio5_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio5_rst_clr().clr_reset());
-
-    // Port 6
-    clkctl1.pscctl1_set().write(|w| w.hsgpio6_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio6_rst_clr().clr_reset());
-
-    // Port 7
-    clkctl1.pscctl1_set().write(|w| w.hsgpio7_clk_set().set_clock());
-    rstctl1.prstctl1_clr().write(|w| w.hsgpio7_rst_clr().clr_reset());
-
+    // Enable INTA
     interrupt::GPIO_INTA.unpend();
     interrupt::GPIO_INTA.enable();
 }

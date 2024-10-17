@@ -163,6 +163,14 @@ embassy_hal_internal::peripherals!(
     GPIO_INTA,
     GPIO_INTB,
     HASHCRYPT,
+    HSGPIO0,
+    HSGPIO1,
+    HSGPIO2,
+    HSGPIO3,
+    HSGPIO4,
+    HSGPIO5,
+    HSGPIO6,
+    HSGPIO7,
     HWVAD0,
     HYPERVISOR,
     I3C0,
@@ -360,7 +368,7 @@ pub mod config {
     impl Default for Config {
         fn default() -> Self {
             Self {
-                clocks: ClockConfig::crystal(24_000_000),
+                clocks: ClockConfig::crystal(),
                 #[cfg(feature = "time-driver")]
                 time_interrupt_priority: crate::interrupt::Priority::P0,
             }
@@ -390,7 +398,10 @@ pub fn init(config: config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
 
     unsafe {
-        clocks::init(config.clocks);
+        if let Err(e) = clocks::init(config.clocks) {
+            error!("unable to initialize Clocks for reason: {:?}", e);
+            // Panic here?
+        }
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
         // dma::init();
