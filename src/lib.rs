@@ -18,8 +18,9 @@ pub mod i2c;
 pub mod iopctl;
 pub mod pwm;
 pub mod rng;
+/// Time driver for the iMX RT600 series.
 #[cfg(feature = "time-driver")]
-mod time_driver;
+pub mod time_driver;
 pub mod uart;
 pub mod wwdt;
 
