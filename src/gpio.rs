@@ -129,6 +129,8 @@ pub unsafe fn init() {
 /// This pin can be either an input or output pin. The output level register bit will
 /// remain set while not in output mode, so the pin's level will be 'remembered' when it is not in
 /// output mode.
+//#[derive(Copy)] //Clone, Debug, PartialEq, Eq
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pin: PeripheralRef<'d, AnyPin>,
 }
@@ -537,6 +539,135 @@ macro_rules! define_port_waker {
             };
         }
     };
+}
+
+/// Represents all info needed to properly set registers for a particular mode
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PinMode {
+    /// Pin is an input with given pull mode and polarity
+    Input(Pull, Polarity),
+    /// Pin is an output with given drive mode/strength and slew rate
+    Output(DriveMode, DriveStrength, SlewRate),
+    /// Pin is mapping to its special function (clk_out, i2c, etc)
+    Func(Function),
+}
+
+/// Struct to represent state transitions for simple IO pins
+/// This will NOT cover pins that also act as buses (I2C, SPI, etc)
+//#[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Pmgpio<'d> {
+    /// Tracks current pin state
+    usage_state: SimplePinState,
+    /// The pin that is being managed
+    pub pin: Flex<'d>, // maybe IopctlPin?
+    /// Desired idle config
+    idle: PinMode,
+    /// Desired active config
+    active: PinMode,
+    /// Desired reset state
+    pub reset: SimplePinState,
+}
+
+impl<'d> Pmgpio<'d> {
+    /// Creates a new power managed GPIO pin
+    pub fn new(reset_state: SimplePinState, flex_pin: Flex<'d>, idle_config: PinMode, active_config: PinMode) -> Self {
+        Self {
+            usage_state: reset_state,
+            pin: flex_pin,
+            idle: idle_config,
+            active: active_config,
+            reset: reset_state,
+        }
+    }
+    /// Sets simple pin to idle config
+    pub fn set_idle(&mut self) -> Result<(), PowerStateError> {
+        self.set_state(SimplePinState::Idle)?;
+        Ok(())
+    }
+    /// Sets simple pin to active config
+    pub fn set_active(&mut self) -> Result<(), PowerStateError> {
+        self.set_state(SimplePinState::Active)?;
+        Ok(())
+    }
+}
+
+/// Defines errors that occur during power state transitions
+/// TODO: move this to lib.rs?
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PowerStateError {
+    /// Failure when attempting to enter low power
+    LowPowerEntryError,
+    /// Failure when attempting to leave low power
+    LowPowerExitError,
+    /// Failure during bus transition
+    BusTransitionError,
+}
+
+/// Represents a binary state for GPIOs
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SimplePinState {
+    /// Pin is in its active configuration
+    Active,
+    /// Pin is in its idle configuration
+    Idle,
+}
+
+/// Trait to define behavior through power transitions
+pub trait PowerManagedIO {
+    /// Keeps track of the pin state
+    type State: Into<SimplePinState>;
+
+    /// Sets the pin to desired config based on target state
+    fn set_state(&mut self, state: Self::State) -> Result<(), PowerStateError>;
+    /// Gets the pin power state
+    fn get_state(&self) -> Self::State;
+
+    /// Configures the pin to enter low power
+    fn enter_low_power(&mut self) -> Result<(), PowerStateError>;
+
+    /// Configures the pin to exit low power
+    fn exit_low_power(&mut self) -> Result<(), PowerStateError>;
+}
+
+impl PowerManagedIO for Pmgpio<'_> {
+    type State = SimplePinState;
+    fn get_state(&self) -> Self::State {
+        self.usage_state
+    }
+
+    fn enter_low_power(&mut self) -> Result<(), PowerStateError> {
+        self.set_state(SimplePinState::Idle)?;
+        Ok(())
+    }
+
+    fn exit_low_power(&mut self) -> Result<(), PowerStateError> {
+        self.set_state(SimplePinState::Active)?;
+        Ok(())
+    }
+
+    fn set_state(&mut self, state: Self::State) -> Result<(), PowerStateError> {
+        match state {
+            SimplePinState::Active => match self.active {
+                PinMode::Input(pull, pol) => self.pin.set_as_input(pull, pol),
+                PinMode::Output(mode, strength, slew_rate) => self.pin.set_as_output(mode, strength, slew_rate),
+                PinMode::Func(f) => {
+                    let _ = self.pin.pin.set_function(f);
+                }
+            },
+            SimplePinState::Idle => match self.idle {
+                PinMode::Input(pull, pol) => self.pin.set_as_input(pull, pol),
+                PinMode::Output(mode, strength, slew_rate) => self.pin.set_as_output(mode, strength, slew_rate),
+                PinMode::Func(f) => {
+                    let _ = self.pin.pin.set_function(f);
+                }
+            },
+        }
+        Ok(())
+    }
 }
 
 // GPIO port 0
