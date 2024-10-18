@@ -5,6 +5,7 @@ use defmt::assert;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::gpio;
+use embassy_imxrt::gpio::SenseDisabled;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -13,7 +14,11 @@ async fn main(_spawner: Spawner) {
     info!("Initializing GPIO");
     unsafe { gpio::init() };
 
-    let mut flex = gpio::Flex::new(p.PIO1_0);
+    // Start with a level sensing disabled, output only state
+    let flex = gpio::Flex::<SenseDisabled>::new(p.PIO1_0);
+
+    // enable level sensing
+    let mut flex = flex.enable_sensing();
 
     // set pin output bit to high before setting direction
     flex.set_high();
@@ -55,6 +60,34 @@ async fn main(_spawner: Spawner) {
 
     // check pin level is now low
     assert!(flex.is_low());
+
+    // disable level sensing
+    let mut flex = flex.disable_sensing();
+
+    // set pin level high
+    flex.set_high();
+
+    // re-enable level sensing
+    let mut flex = flex.enable_sensing();
+
+    // check pin level is high
+    assert!(flex.is_high());
+
+    // toggle pin
+    flex.toggle();
+
+    // check pin level is low
+    assert!(flex.is_low());
+
+    let mut flex = flex.disable_sensing();
+
+    // toggle pin
+    flex.toggle();
+
+    let flex = flex.enable_sensing();
+
+    // check pin level is high
+    assert!(flex.is_high());
 
     loop {
         embassy_imxrt_examples::delay(50_000);
