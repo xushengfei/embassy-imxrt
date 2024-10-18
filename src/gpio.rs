@@ -920,12 +920,12 @@ impl<S: Sense> embedded_hal_1::digital::OutputPin for Flex<'_, S> {
 impl embedded_hal_1::digital::StatefulOutputPin for Flex<'_, SenseEnabled> {
     #[inline]
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
-        Ok((*self).is_high())
+        Ok((*self).is_set_high())
     }
 
     #[inline]
     fn is_set_low(&mut self) -> Result<bool, Self::Error> {
-        Ok((*self).is_low())
+        Ok((*self).is_set_low())
     }
 }
 
