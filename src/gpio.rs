@@ -2,6 +2,7 @@
 
 use core::convert::Infallible;
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
@@ -124,56 +125,55 @@ pub unsafe fn init() {
     interrupt::GPIO_INTA.enable();
 }
 
+/// Input Sense mode.
+pub trait Sense {}
+
+/// Input sensing enabled (for input pins).
+pub struct SenseEnabled;
+impl Sense for SenseEnabled {}
+
+/// Input sensing disabled (for output pins).
+pub struct SenseDisabled;
+impl Sense for SenseDisabled {}
+
 /// Flex pin.
 ///
 /// This pin can be either an input or output pin. The output level register bit will
 /// remain set while not in output mode, so the pin's level will be 'remembered' when it is not in
 /// output mode.
-pub struct Flex<'d> {
+pub struct Flex<'d, S: Sense> {
     pin: PeripheralRef<'d, AnyPin>,
+    _sense_mode: PhantomData<S>,
 }
 
-impl<'d> Flex<'d> {
+impl<'d, S: Sense> Flex<'d, S> {
     /// New flex pin.
     pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd) -> Self {
         into_ref!(pin);
 
-        pin.set_function(Function::F0)
-            .disable_analog_multiplex()
-            .enable_input_buffer();
+        pin.set_function(Function::F0).disable_analog_multiplex();
 
-        Self { pin: pin.map_into() }
+        Self {
+            pin: pin.map_into(),
+            _sense_mode: PhantomData,
+        }
     }
 
-    /// Converts pin to input pin
-    pub fn set_as_input(&mut self, pull: Pull, polarity: Polarity) {
-        self.pin.set_pull(pull).set_input_polarity(polarity);
-
-        self.pin.block().dirclr(self.pin.port()).write(|w|
-                // SAFETY: Writing a 0 to bits in this register has no effect,
-                // however PAC has it marked unsafe due to using the bits() method.
-                // There is not currently a "safe" method for setting a single-bit.
-                unsafe { w.dirclrp().bits(1 << self.pin.pin()) });
+    fn do_drop(&self) {
+        self.pin.reset();
     }
+}
 
-    /// Converts pin to output pin
-    ///
-    /// The pin level will be whatever was set before (or low by default). If you want it to begin
-    /// at a specific level, call `set_high`/`set_low` on the pin first.
-    pub fn set_as_output(&mut self, mode: DriveMode, strength: DriveStrength, slew_rate: SlewRate) {
-        self.pin
-            .set_pull(Pull::None)
-            .set_drive_mode(mode)
-            .set_drive_strength(strength)
-            .set_slew_rate(slew_rate);
+// Needs to be commented out to resolve an error when consuming the pin
+// Need to find a workaround
+// impl<'d, S: Sense> Drop for Flex<'d, S> {
+//     fn drop(&mut self) {
+//         self.pin.reset();
+//         // TODO: Disable clock for pin's port (assuming ref counted)?
+//     }
+// }
 
-        self.pin.block().dirset(self.pin.port()).write(|w|
-                // SAFETY: Writing a 0 to bits in this register has no effect,
-                // however PAC has it marked unsafe due to using the bits() method.
-                // There is not currently a "safe" method for setting a single-bit.
-                unsafe { w.dirsetp().bits(1 << self.pin.pin()) });
-    }
-
+impl<'d> Flex<'d, SenseEnabled> {
     /// Is high?
     pub fn is_high(&self) -> bool {
         !self.is_low()
@@ -189,6 +189,73 @@ impl<'d> Flex<'d> {
         self.is_high().into()
     }
 
+    /// Wait until the pin is high. If it is already high, return immediately.
+    #[inline]
+    pub async fn wait_for_high(&mut self) {
+        InputFuture::new(self.pin.reborrow(), InterruptType::Level, Level::High).await;
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    #[inline]
+    pub async fn wait_for_low(&mut self) {
+        InputFuture::new(self.pin.reborrow(), InterruptType::Level, Level::Low).await;
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    #[inline]
+    pub async fn wait_for_rising_edge(&mut self) {
+        InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::High).await;
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    #[inline]
+    pub async fn wait_for_falling_edge(&mut self) {
+        InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::Low).await;
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    #[inline]
+    pub async fn wait_for_any_edge(&mut self) {
+        if self.is_high() {
+            InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::Low).await;
+        } else {
+            InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::High).await;
+        }
+    }
+
+    /// Converts pin to output pin
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
+    pub fn set_as_output(
+        self,
+        mode: DriveMode,
+        strength: DriveStrength,
+        slew_rate: SlewRate,
+    ) -> Flex<'d, SenseDisabled> {
+        self.do_drop();
+        let new_pin = Flex::<SenseDisabled>::new(self.pin);
+
+        new_pin.pin.disable_input_buffer();
+
+        new_pin
+            .pin
+            .set_pull(Pull::None)
+            .set_drive_mode(mode)
+            .set_drive_strength(strength)
+            .set_slew_rate(slew_rate);
+
+        new_pin.pin.block().dirset(new_pin.pin.port()).write(|w|
+                // SAFETY: Writing a 0 to bits in this register has no effect,
+                // however PAC has it marked unsafe due to using the bits() method.
+                // There is not currently a "safe" method for setting a single-bit.
+                unsafe { w.dirsetp().bits(1 << new_pin.pin.pin()) });
+
+        new_pin
+    }
+}
+
+impl<'d> Flex<'d, SenseDisabled> {
     /// Set high
     pub fn set_high(&mut self) {
         self.pin.block().set(self.pin.port()).write(|w|
@@ -234,58 +301,35 @@ impl<'d> Flex<'d> {
             unsafe { w.notp().bits(1 << self.pin.pin()) });
     }
 
-    /// Wait until the pin is high. If it is already high, return immediately.
-    #[inline]
-    pub async fn wait_for_high(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptType::Level, Level::High).await;
-    }
+    /// Converts pin to input pin
+    pub fn set_as_input(self, pull: Pull, polarity: Polarity) -> Flex<'d, SenseEnabled> {
+        self.do_drop();
+        let new_pin = Flex::<SenseEnabled>::new(self.pin);
 
-    /// Wait until the pin is low. If it is already low, return immediately.
-    #[inline]
-    pub async fn wait_for_low(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptType::Level, Level::Low).await;
-    }
+        new_pin.pin.enable_input_buffer();
 
-    /// Wait for the pin to undergo a transition from low to high.
-    #[inline]
-    pub async fn wait_for_rising_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::High).await;
-    }
+        new_pin.pin.set_pull(pull).set_input_polarity(polarity);
 
-    /// Wait for the pin to undergo a transition from high to low.
-    #[inline]
-    pub async fn wait_for_falling_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::Low).await;
-    }
+        new_pin.pin.block().dirclr(new_pin.pin.port()).write(|w|
+                    // SAFETY: Writing a 0 to bits in this register has no effect,
+                    // however PAC has it marked unsafe due to using the bits() method.
+                    // There is not currently a "safe" method for setting a single-bit.
+                    unsafe { w.dirclrp().bits(1 << new_pin.pin.pin()) });
 
-    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
-    #[inline]
-    pub async fn wait_for_any_edge(&mut self) {
-        if self.is_high() {
-            InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::Low).await;
-        } else {
-            InputFuture::new(self.pin.reborrow(), InterruptType::Edge, Level::High).await;
-        }
-    }
-}
-
-impl<'d> Drop for Flex<'d> {
-    fn drop(&mut self) {
-        self.pin.reset();
-        // TODO: Disable clock for pin's port (assuming ref counted)?
+        new_pin
     }
 }
 
 /// Input pin
+/// Input buffer is always enabled
 pub struct Input<'d> {
-    pin: Flex<'d>,
+    pin: Flex<'d, SenseEnabled>,
 }
 
 impl<'d> Input<'d> {
     /// New input pin
     pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd, pull: Pull, polarity: Polarity) -> Self {
-        let mut pin = Flex::new(pin);
-        pin.set_as_input(pull, polarity);
+        let pin = Flex::<SenseEnabled>::new(pin);
         Self { pin }
     }
 
@@ -405,7 +449,7 @@ impl<'d> Future for InputFuture<'d> {
 
 /// Output pin
 pub struct Output<'d> {
-    pin: Flex<'d>,
+    pin: Flex<'d, SenseDisabled>,
 }
 
 impl<'d> Output<'d> {
@@ -417,9 +461,8 @@ impl<'d> Output<'d> {
         strength: DriveStrength,
         slew_rate: SlewRate,
     ) -> Self {
-        let mut pin = Flex::new(pin);
+        let mut pin = Flex::<SenseDisabled>::new(pin);
         pin.set_level(initial_output);
-        pin.set_as_output(mode, strength, slew_rate);
 
         Self { pin }
     }
@@ -445,18 +488,15 @@ impl<'d> Output<'d> {
     }
 
     /// Is set high?
+    /// Valid even though input buffer is disabled since we read from a register that tracks pin state.
     pub fn is_set_high(&self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is set low?
+    /// Valid even though input buffer is disabled since we read from a register that tracks pin state.
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_low()
-    }
-
-    /// Get output level
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_level()
     }
 }
 
@@ -715,7 +755,7 @@ static GPIO_WAKERS: [Option<&PortWaker>; PORT_COUNT] = [
     Some(&port7_waker::WAKER),
 ];
 
-impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
+impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d, SenseEnabled> {
     type Error = Infallible;
 
     #[inline]
@@ -729,7 +769,7 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
+impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d, SenseDisabled> {
     type Error = Infallible;
 
     #[inline]
@@ -745,7 +785,7 @@ impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
+impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d, SenseDisabled> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
@@ -757,7 +797,7 @@ impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
+impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d, SenseDisabled> {
     type Error = Infallible;
 
     #[inline]
@@ -819,11 +859,11 @@ impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
+impl<'d, S: Sense> embedded_hal_1::digital::ErrorType for Flex<'d, S> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
+impl<'d> embedded_hal_1::digital::InputPin for Flex<'d, SenseEnabled> {
     #[inline]
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         // Dereference of self is used here and a few other places to
@@ -838,7 +878,7 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
+impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d, SenseDisabled> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
@@ -852,19 +892,19 @@ impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
+impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, SenseDisabled> {
     #[inline]
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
-        Ok((*self).is_high())
+        Ok((*self).is_set_high()) // Why were we using is_high()? we use it for embedded_hal_v0.2. is this good enough?
     }
 
     #[inline]
     fn is_set_low(&mut self) -> Result<bool, Self::Error> {
-        Ok((*self).is_low())
+        Ok((*self).is_set_low())
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for Flex<'d> {
+impl<'d> embedded_hal_async::digital::Wait for Flex<'d, SenseEnabled> {
     #[inline]
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
