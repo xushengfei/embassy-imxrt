@@ -98,6 +98,6 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(100).await;
         }
 
-        embassy_imxrt_examples::delay(10_000);
+        Timer::after_millis(1000).await;
     }
 }

@@ -6,6 +6,7 @@ extern crate embassy_imxrt_examples;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::gpio;
+use embassy_time::Timer;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -25,6 +26,6 @@ async fn main(_spawner: Spawner) {
     loop {
         info!("Toggling LED");
         led.toggle();
-        embassy_imxrt_examples::delay(50_000);
+        Timer::after_millis(1000).await;
     }
 }

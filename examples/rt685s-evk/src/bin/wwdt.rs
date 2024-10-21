@@ -9,6 +9,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::pac::{interrupt, Interrupt};
 use embassy_imxrt::wwdt::WindowedWatchdog;
+use embassy_time::Timer;
 use panic_probe as _;
 
 #[embassy_executor::main]
@@ -29,9 +30,10 @@ async fn main(_spawner: Spawner) {
         if feed_count > 0 {
             wwdt.feed();
             feed_count -= 1;
-            embassy_imxrt_examples::delay(25_000);
             info!("Reset in {} μs if feed does not occur", wwdt.timeout());
         }
+
+        Timer::after_millis(1000).await;
     }
 }
 

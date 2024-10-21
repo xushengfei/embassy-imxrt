@@ -8,6 +8,7 @@ use embassy_executor::Spawner;
 use embassy_imxrt::i2c::{self, I2cSlaveBlocking};
 use embassy_imxrt::iopctl::Pull;
 use embassy_imxrt::pac;
+use embassy_time::Timer;
 
 const SLAVE_ADDR: Option<i2c::Address> = i2c::Address::new(0x20);
 
@@ -44,9 +45,8 @@ async fn main(_spawner: Spawner) {
     info!("i2cs example - I2c::new");
     let i2c = i2c::I2cSlave::new(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, Pull::Down, SLAVE_ADDR.unwrap()).unwrap();
 
-    embassy_imxrt_examples::delay(500);
-
     loop {
         slave_service(&i2c);
+        Timer::after_millis(1000).await;
     }
 }

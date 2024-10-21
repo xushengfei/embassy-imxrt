@@ -10,6 +10,7 @@ use embassy_imxrt::adc::ChannelConfig;
 use embassy_imxrt::adc::Config;
 use embassy_imxrt::adc::InterruptHandler;
 use embassy_imxrt::bind_interrupts;
+use embassy_time::Timer;
 
 bind_interrupts!(struct Irqs {
     ADC0 => InterruptHandler;
@@ -30,6 +31,6 @@ async fn main(_spawner: Spawner) {
 
         info!("ADC sample = {:#x}", data);
 
-        embassy_imxrt_examples::delay(50000);
+        Timer::after_millis(1000).await;
     }
 }
