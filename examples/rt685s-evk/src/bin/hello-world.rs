@@ -1,8 +1,12 @@
 #![no_std]
 #![no_main]
 
+extern crate embassy_imxrt_examples;
+
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_time::Timer;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -11,6 +15,6 @@ async fn main(_spawner: Spawner) {
     info!("Hello world");
 
     loop {
-        embassy_imxrt_examples::delay(50_000_000);
+        Timer::after_millis(1000).await;
     }
 }

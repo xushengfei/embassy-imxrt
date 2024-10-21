@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 
-use defmt::assert;
-use defmt::info;
+extern crate embassy_imxrt_examples;
+
+use defmt::{assert, info};
 use embassy_executor::Spawner;
 use embassy_imxrt::gpio;
 use embassy_imxrt::gpio::SenseDisabled;
+use embassy_time::Timer;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -90,6 +92,6 @@ async fn main(_spawner: Spawner) {
     assert!(flex.is_high());
 
     loop {
-        embassy_imxrt_examples::delay(50_000);
+        Timer::after_millis(1000).await;
     }
 }
