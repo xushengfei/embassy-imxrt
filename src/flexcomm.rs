@@ -399,6 +399,14 @@ macro_rules! impl_flexcomm {
                 i2c.intenclr().write(|w| w.mstststperrclr().set_bit());
             }
 
+            if i2c.intstat().read().slvpending().bit_is_set() {
+                i2c.intenclr().write(|w| w.slvpendingclr().set_bit());
+            }
+
+            if i2c.intstat().read().slvdesel().bit_is_set() {
+                i2c.intenclr().write(|w| w.slvdeselclr().set_bit());
+            }
+
             waker.wake();
         }
 
