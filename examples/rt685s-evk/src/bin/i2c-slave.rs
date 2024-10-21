@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+extern crate embassy_imxrt_examples;
+
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_imxrt::i2c::{self, I2cSlaveBlocking};

@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+extern crate embassy_imxrt_examples;
+
 use cortex_m::peripheral::NVIC;
 use defmt::{info, warn};
 use defmt_rtt as _;

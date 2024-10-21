@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+extern crate embassy_imxrt_examples;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_imxrt::crc::{Config, Crc, Polynomial};

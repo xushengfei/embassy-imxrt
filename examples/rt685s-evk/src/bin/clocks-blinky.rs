@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 
+extern crate embassy_imxrt_examples;
+
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_imxrt::clocks;
