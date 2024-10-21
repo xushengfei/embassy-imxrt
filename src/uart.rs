@@ -1,23 +1,19 @@
 //!Universal Asynchronous Receiver Transmitter (UART) driver.
 //!
 
-use crate::iopctl::*;
 use mimxrt685s_pac as pac;
-
-use crate::iopctl::IopctlPin as Pin;
-
 // Re-export SVD variants to allow user to directly set values.
 use pac::usart0::cfg::Datalen;
-use pac::usart0::cfg::Paritysel as Parity;
-use pac::usart0::cfg::Stoplen;
+use pac::usart0::cfg::{Paritysel as Parity, Stoplen};
+
+use crate::iopctl::{IopctlPin as Pin, *};
 type Baudrate = u32;
 
-use pac::usart0::cfg::Clkpol;
-use pac::usart0::cfg::Loop;
 /// Syncen : Sync/ Async mode selection
 use pac::usart0::cfg::Syncen;
 /// Syncmst : Sync master/slave mode selection (only applicable in sync mode)
 use pac::usart0::cfg::Syncmst;
+use pac::usart0::cfg::{Clkpol, Loop};
 use pac::usart0::ctl::Cc;
 
 /// Summary

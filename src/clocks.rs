@@ -1,9 +1,11 @@
 //! Clock configuration for the RT6xx
-use crate::pac;
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+
 #[cfg(feature = "defmt")]
 use defmt;
 use paste::paste;
+
+use crate::pac;
 
 /// Clock configuration;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

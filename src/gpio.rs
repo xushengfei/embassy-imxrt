@@ -6,16 +6,14 @@ use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
+use embassy_hal_internal::interrupt::InterruptExt;
+use embassy_sync::waitqueue::AtomicWaker;
+use sealed::Sealed;
+
 use crate::clocks::enable_and_reset;
 use crate::iopctl::IopctlPin;
 pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Polarity, Pull, SlewRate};
-use crate::{interrupt, peripherals};
-use crate::{into_ref, Peripheral, PeripheralRef};
-
-use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_sync::waitqueue::AtomicWaker;
-
-use sealed::Sealed;
+use crate::{interrupt, into_ref, peripherals, Peripheral, PeripheralRef};
 
 // This should be unique per IMXRT package
 const PORT_COUNT: usize = 8;
