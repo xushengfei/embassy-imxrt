@@ -1,14 +1,14 @@
-use crate::into_ref;
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
+
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 
 use crate::interrupt::InterruptExt;
-use crate::{interrupt, pac, peripherals, Peripheral, PeripheralRef};
+use crate::{interrupt, into_ref, pac, peripherals, Peripheral, PeripheralRef};
 
 fn rtc() -> &'static pac::rtc::RegisterBlock {
     unsafe { &*pac::Rtc::ptr() }
