@@ -65,8 +65,10 @@ fn GPIO_INTA() {
     irq_handler(&GPIO_WAKERS);
 }
 
+#[cfg(feature = "rt")]
 struct BitIter(u32);
 
+#[cfg(feature = "rt")]
 impl Iterator for BitIter {
     type Item = u32;
 
