@@ -7,7 +7,6 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::uart::{self, Uart};
 use embassy_time::Timer;
-
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

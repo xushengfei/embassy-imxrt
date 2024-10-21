@@ -3,8 +3,7 @@
 
 extern crate embassy_imxrt_examples;
 
-use defmt::assert;
-use defmt::info;
+use defmt::{assert, info};
 use embassy_executor::Spawner;
 use embassy_imxrt::gpio;
 use embassy_imxrt::gpio::SenseDisabled;

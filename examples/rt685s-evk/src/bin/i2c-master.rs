@@ -7,7 +7,6 @@ use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_imxrt::i2c::{self, I2cMasterBlocking};
 use embassy_time::Timer;
-
 use {defmt_rtt as _, panic_probe as _};
 
 const ACC_ADDR: u8 = 0x1E;
