@@ -6,7 +6,7 @@ use mimxrt685s_pac as pac;
 use pac::usart0::cfg::Datalen;
 use pac::usart0::cfg::{Paritysel as Parity, Stoplen};
 
-use crate::iopctl::{IopctlPin as Pin, *};
+use crate::iopctl::{DriveMode, DriveStrength, IopctlPin as Pin, Pull, SlewRate};
 type Baudrate = u32;
 
 /// Syncen : Sync/ Async mode selection
@@ -76,7 +76,7 @@ impl Default for GeneralConfig {
     /// Default configuration for single channel sampling.
     fn default() -> Self {
         Self {
-            baudrate: 115200,
+            baudrate: 115_200,
             data_bits: Datalen::Bit8,
             parity: Parity::NoParity,
             stop_bits: Stoplen::Bit1,
@@ -84,7 +84,7 @@ impl Default for GeneralConfig {
     }
 }
 
-/// UART MCU_specific config
+/// UART `MCU_specific` config
 #[derive(Clone, Copy)]
 pub struct UartMcuSpecificConfig {
     /// Polarity of the clock
@@ -241,7 +241,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
         // Todo: Make it generic for any clock
         // Since the FC clock is hardcoded to Sfro, this freq is returned.
         // sfro : 0xf42400, //ffro: 0x2dc6c00
-        0xf42400
+        0x00f4_2400
     }
 
     fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> Result<()> {
@@ -249,9 +249,9 @@ impl<'a, FC: Instance> Uart<'a, FC> {
         let baudrate_bps = gen_config.baudrate;
         let source_clock_hz = self.get_fc_freq(); // TODO: replace this with the call to flexcomm_getClkFreq()
 
-        let mut best_diff: u32 = 0xFFFFFFFF;
+        let mut best_diff: u32 = 0xFFFF_FFFF;
         let mut best_osrval: u32 = 0xF;
-        let mut best_brgval: u32 = 0xFFFFFFFF;
+        let mut best_brgval: u32 = 0xFFFF_FFFF;
         let mut diff: u32;
 
         if baudrate_bps == 0 || source_clock_hz == 0 {
@@ -485,7 +485,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
                 while bus.usart().fifostat().read().txnotfull().bit_is_clear() {}
                 let x = buf[i as usize];
                 // SAFETY: unsafe only used for .bits()
-                bus.usart().fifowr().write(|w| unsafe { w.txdata().bits(x as u16) });
+                bus.usart().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(x)) });
             }
             // Wait to finish transfer
             while bus.usart().stat().read().txidle().bit_is_clear() {}

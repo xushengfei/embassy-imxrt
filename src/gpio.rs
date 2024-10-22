@@ -208,11 +208,13 @@ impl<S: Sense> Flex<'_, S> {
     }
 
     /// Is the output level high?
+    #[must_use]
     pub fn is_set_high(&self) -> bool {
         !self.is_set_low()
     }
 
     /// Is the output level low?
+    #[must_use]
     pub fn is_set_low(&self) -> bool {
         (self.pin.block().set(self.pin.port()).read().setp().bits() & (1 << self.pin.pin())) == 0
     }
@@ -261,16 +263,19 @@ impl<'d> Flex<'d, SenseEnabled> {
     }
 
     /// Is high?
+    #[must_use]
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
 
     /// Is low?
+    #[must_use]
     pub fn is_low(&self) -> bool {
         self.pin.block().b(self.pin.port()).b_(self.pin.pin()).read() == 0
     }
 
     /// Current level
+    #[must_use]
     pub fn get_level(&self) -> Level {
         self.is_high().into()
     }
@@ -312,6 +317,7 @@ impl<'d> Flex<'d, SenseEnabled> {
     /// Return a new Flex pin instance with level sensing disabled.
     ///
     /// Consumes less power than a flex pin with sensing enabled.
+    #[must_use]
     pub fn disable_sensing(self) -> Flex<'d, SenseDisabled> {
         // Cloning the pin is ok since we consume self immediately
         let new_pin = unsafe { self.pin.clone_unchecked() };
@@ -336,6 +342,7 @@ impl<'d> Flex<'d, SenseDisabled> {
     }
 
     /// Return a new Flex pin instance with level sensing enabled.
+    #[must_use]
     pub fn enable_sensing(self) -> Flex<'d, SenseEnabled> {
         // Cloning the pin is ok since we consume self immediately
         let new_pin = unsafe { self.pin.clone_unchecked() };
@@ -358,16 +365,19 @@ impl<'d> Input<'d> {
     }
 
     /// Is high?
+    #[must_use]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
     /// Is low?
+    #[must_use]
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
 
     /// Input level
+    #[must_use]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
     }
@@ -515,11 +525,13 @@ impl<'d> Output<'d> {
     }
 
     /// Is set high?
+    #[must_use]
     pub fn is_set_high(&self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is set low?
+    #[must_use]
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_low()
     }

@@ -145,7 +145,7 @@ impl<'d, T: Instance> Rng<'d, T> {
 
                 // write bytes to chunk
                 for (dest, src) in chunk.iter_mut().zip(entropy.iter()) {
-                    *dest = *src
+                    *dest = *src;
                 }
             }
         }

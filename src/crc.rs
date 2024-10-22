@@ -26,6 +26,7 @@ pub struct Config {
 
 impl Config {
     /// Create a new CRC config.
+    #[must_use]
     pub fn new(
         polynomial: Polynomial,
         bit_order_input_reverse: bool,
@@ -53,7 +54,7 @@ impl Default for Config {
             input_complement: false,
             bit_order_crc_reverse: false,
             crc_complement: false,
-            seed: 0xffffffff,
+            seed: 0xffff_ffff,
         }
     }
 }

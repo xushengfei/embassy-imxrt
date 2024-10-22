@@ -32,6 +32,7 @@ pub struct Address(u8);
 
 impl Address {
     /// Construct an address type
+    #[must_use]
     pub const fn new(addr: u8) -> Option<Self> {
         match addr {
             0x08..=0x77 => Some(Self(addr)),
@@ -40,11 +41,13 @@ impl Address {
     }
 
     /// interpret address as a read command
+    #[must_use]
     pub fn read(&self) -> u8 {
         (self.0 << 1) | 1
     }
 
     /// interpret address as a write command
+    #[must_use]
     pub fn write(&self) -> u8 {
         self.0 << 1
     }
@@ -151,7 +154,7 @@ pub struct Async;
 impl Sealed for Async {}
 impl Mode for Async {}
 
-/// use FCn as I2C Master controller
+/// use `FCn` as I2C Master controller
 pub struct I2cMaster<'a, FC: Instance, M: Mode, D: dma::Instance> {
     bus: crate::flexcomm::I2cBus<'a, FC>,
     timeout: TimeoutSettings,
@@ -161,7 +164,7 @@ pub struct I2cMaster<'a, FC: Instance, M: Mode, D: dma::Instance> {
     dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
 }
 
-/// use FCn as I2C Slave controller
+/// use `FCn` as I2C Slave controller
 pub struct I2cSlave<'a, FC: Instance, M: Mode> {
     bus: crate::flexcomm::I2cBus<'a, FC>,
     _phantom: PhantomData<M>,
@@ -304,7 +307,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
 
         i2cregs.mstdat().write(|w|
             // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1 | if is_read {0x01} else {0x00}) });
+            unsafe { w.data().bits(address << 1 | u8::from(is_read)) });
 
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 
@@ -362,7 +365,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
 
         self.start(address, false)?;
 
-        for byte in write.iter() {
+        for byte in write {
             i2cregs.mstdat().write(|w|
                 // SAFETY: unsafe only due to .bits usage
                 unsafe { w.data().bits(*byte) });
@@ -438,7 +441,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
 
         i2cregs.mstdat().write(|w|
             // SAFETY: only unsafe due to .bits usage
-            unsafe { w.data().bits(address << 1 | if is_read {0x01} else {0x00}) });
+            unsafe { w.data().bits(address << 1 | u8::from(is_read)) });
 
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 

@@ -5,19 +5,19 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::{interrupt, pac, Peripheral, PeripheralRef};
 
-/// alias for fc0::Registers, as layout is the same across all FCn
+/// alias for `fc0::Registers`, as layout is the same across all `FCn`
 pub type FlexcommRegisters = pac::flexcomm0::RegisterBlock;
 
-/// alias for i2c0::Registers, as layout is the same across all FCn
+/// alias for `i2c0::Registers`, as layout is the same across all `FCn`
 pub type I2cRegisters = pac::i2c0::RegisterBlock;
 
-/// alias for spi0::Registers, as layout is the same across all FCn
+/// alias for `spi0::Registers`, as layout is the same across all `FCn`
 pub type SpiRegisters = pac::spi0::RegisterBlock;
 
-/// alias for i2s0::Registers, as layout is the same across all FCn
+/// alias for `i2s0::Registers`, as layout is the same across all `FCn`
 pub type I2sRegisters = pac::i2s0::RegisterBlock;
 
-/// alias for usart0::Registers, as layout is the same across all FCn
+/// alias for `usart0::Registers`, as layout is the same across all `FCn`
 pub type UsartRegisters = pac::usart0::RegisterBlock;
 
 const FC_COUNT: usize = 8;
@@ -33,20 +33,20 @@ pub enum Clock {
     /// FFRO
     Ffro,
 
-    /// AUDIO_PLL
+    /// `AUDIO_PLL`
     AudioPll,
 
     /// MASTER
     Master,
 
-    /// FCn_FRG
+    /// `FCn_FRG`
     FcnFrg,
 
     /// disabled
     None,
 }
 
-/// what mode to configure this FCn to
+/// what mode to configure this `FCn` to
 pub enum Mode {
     /// i2c operation
     I2c,
@@ -77,7 +77,7 @@ mod sealed {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// feature not present on FCn (such as no SPI or I2S support)
+    /// feature not present on `FCn` (such as no SPI or I2S support)
     FeatureNotPresent,
 }
 
@@ -181,14 +181,14 @@ impl<'p, F: SpiPeripheral> SpiBus<'p, F> {
 #[allow(private_bounds)]
 pub(crate) trait I2sPeripheral: FlexcommLowLevel {}
 
-/// Flexcomm configured for I2sTx usage
+/// Flexcomm configured for `I2sTx` usage
 #[allow(private_bounds)]
 pub struct I2sTransmit<'p, F: I2sPeripheral> {
     _fc: PeripheralRef<'p, F>,
 }
 #[allow(private_bounds)]
 impl<'p, F: I2sPeripheral> I2sTransmit<'p, F> {
-    /// use Flexcomm fc as an I2sTx Bus
+    /// use Flexcomm fc as an `I2sTx` Bus
     pub fn new(fc: impl I2sPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::I2sTx)?;
@@ -201,14 +201,14 @@ impl<'p, F: I2sPeripheral> I2sTransmit<'p, F> {
     }
 }
 
-/// Flexcomm configured for I2sRx usage
+/// Flexcomm configured for `I2sRx` usage
 #[allow(private_bounds)]
 pub struct I2sReceive<'p, F: I2sPeripheral> {
     _fc: PeripheralRef<'p, F>,
 }
 #[allow(private_bounds)]
 impl<'p, F: I2sPeripheral> I2sReceive<'p, F> {
-    /// use Flexcomm fc as an I2sRx Bus
+    /// use Flexcomm fc as an `I2sRx` Bus
     pub fn new(fc: impl I2sPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::I2sRx)?;
@@ -221,7 +221,7 @@ impl<'p, F: I2sPeripheral> I2sReceive<'p, F> {
     }
 }
 
-/// internal shared USARt peripheral operations
+/// internal shared `USARt` peripheral operations
 #[allow(private_bounds)]
 pub(crate) trait UsartPeripheral: FlexcommLowLevel {}
 
