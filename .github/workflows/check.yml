@@ -73,7 +73,7 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
-    name: ${{ matrix.toolchain }} / clippy
+    name: ${{ matrix.toolchain }} / clippy (${{ matrix.commit }})
     needs: commit_list
     permissions:
       contents: read
@@ -214,7 +214,7 @@ jobs:
                        #
                        # embassy-time requires 1.79 due to
                        # collapse_debuginfo
-    name: ubuntu / ${{ matrix.msrv }}
+    name: ubuntu / ${{ matrix.msrv }} (${{ matrix.commit }})
     steps:
       - uses: actions/checkout@v4
         with:
