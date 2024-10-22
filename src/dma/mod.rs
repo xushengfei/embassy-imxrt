@@ -68,6 +68,7 @@ fn DMA0() {
 
 #[cfg(feature = "rt")]
 fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
+    // SAFETY: unsafe needed to take pointer to Dma0 during interrupt handling
     let reg = unsafe { crate::pac::Dma0::steal() };
 
     // Is an error interrupt pending?
@@ -77,9 +78,6 @@ fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
         for channel in err.trailing_zeros()..(32 - err.leading_zeros()) {
             if err & (1 << channel) != 0 {
                 error!("DMA error interrupt on channel {}!", channel);
-                // Clear interrupt enable (mask) for this channel
-                // SAFETY: unsafe due to .bits usage
-                reg.intenclr0().write(|w| unsafe { w.clr().bits(1 << channel) });
                 // Clear the pending interrupt for this channel
                 // SAFETY: unsafe due to .bits usage
                 reg.errint0().write(|w| unsafe { w.err().bits(1 << channel) });
@@ -94,9 +92,6 @@ fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
         // Loop through interrupt bitfield, excluding trailing and leading zeros looking for interrupt source(s)
         for channel in ia.trailing_zeros()..(32 - ia.leading_zeros()) {
             if ia & (1 << channel) != 0 {
-                // Clear interrupt enable (mask) for this channel
-                // SAFETY: unsafe due to .bits usage
-                reg.intenclr0().write(|w| unsafe { w.clr().bits(1 << channel) });
                 // Clear the pending interrupt for this channel
                 // SAFETY: unsafe due to .bits usage
                 reg.inta0().write(|w| unsafe { w.ia().bits(1 << channel) });

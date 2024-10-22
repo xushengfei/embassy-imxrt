@@ -119,7 +119,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
             channel,
             request,
             Direction::MemoryToPeripheral,
-            buf as *const [u8] as *mut u32,
+            buf as *const [u8] as *const u32,
             peri_addr as *mut u32,
             buf.len(),
             options,
@@ -156,21 +156,13 @@ impl<'d, T: Instance> Transfer<'d, T> {
         options: TransferOptions,
     ) -> Self {
         // Configure the DMA channel descriptor and registers
-        match channel.configure_channel(dir, src_buf, dst_buf, mem_len, options) {
-            Ok(v) => v,
-            Err(_e) => error!("failed to configure DMA channel",),
-        };
+        channel.configure_channel(dir, src_buf, dst_buf, mem_len, options);
+
         // Enable the channel
-        match channel.enable_channel() {
-            Ok(v) => v,
-            Err(_e) => error!("failed to enable DMA channel",),
-        };
+        channel.enable_channel();
 
         // Generate a software channel trigger to start the transfer
-        match channel.trigger_channel() {
-            Ok(v) => v,
-            Err(_e) => error!("failed to trigger DMA channel",),
-        };
+        channel.trigger_channel();
 
         Self { _inner: channel }
     }

@@ -1,6 +1,5 @@
 //! DMA channel & request
 
-use super::Error;
 use super::Instance;
 use super::DESCRIPTORS;
 use super::DMA_WAKERS;
@@ -72,21 +71,15 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
 
             let channel = T::get_channel_number();
 
-            // Has the transfer already completed?  If so the channel interrupt will be disabled (masked)
-            if T::regs().intenset0().read().inten().bits() & (1 << channel) == 0 {
-                // Enable the interrupt on this channel
-                // SAFETY: unsafe due to .bits usage
-                T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
+            // Has the transfer already completed?
+            if T::regs().active0().read().act().bits() & (1 << channel) == 0 {
                 return Poll::Ready(());
             }
 
             DMA_WAKERS[channel].register(cx.waker());
 
-            // Has the transfer completed now?  If so the channel interrupt will be disabled (masked)
-            if T::regs().intenset0().read().inten().bits() & (1 << channel) == 0 {
-                // Enable the interrupt on this channel
-                // SAFETY: unsafe due to .bits usage
-                T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
+            // Has the transfer completed now?
+            if T::regs().active0().read().act().bits() & (1 << channel) == 0 {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -111,13 +104,14 @@ impl<'d, T: Instance> Channel<'d, T> {
         dstbase: *mut u32,
         mem_len: usize,
         options: TransferOptions,
-    ) -> Result<(), Error> {
+    ) {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
         let channel = T::get_channel_number();
 
         // Configure the channel descriptor
         // NOTE: the DMA controller expects the memory buffer end address but peripheral address is actual
+        // SAFETY: unsafe due to use of a mutable static (DESCRIPTORS.list)
         unsafe {
             DESCRIPTORS.list[channel].reserved = 0;
             if dir == Direction::MemoryToPeripheral {
@@ -134,7 +128,8 @@ impl<'d, T: Instance> Channel<'d, T> {
         }
 
         // Configure for transfer type, no hardware triggering (we'll trigger via software), high priority
-        T::regs().channel(channel).cfg().modify(|_, w| unsafe {
+        // SAFETY: unsafe due to .bits usage
+        T::regs().channel(channel).cfg().write(|w| unsafe {
             if dir == Direction::MemoryToMemory {
                 w.periphreqen().clear_bit();
             } else {
@@ -148,7 +143,8 @@ impl<'d, T: Instance> Channel<'d, T> {
         T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
 
         // Mark configuration valid, clear trigger on complete, width is 1 byte, source & destination increments are width x 1 (1 byte), no reload
-        T::regs().channel(channel).xfercfg().modify(|_, w| unsafe {
+        // SAFETY: unsafe due to .bits usage
+        T::regs().channel(channel).xfercfg().write(|w| unsafe {
             w.cfgvalid().set_bit();
             w.clrtrig().set_bit();
             w.reload().clear_bit();
@@ -166,21 +162,20 @@ impl<'d, T: Instance> Channel<'d, T> {
             }
             w.xfercount().bits(xfercount as u16)
         });
-        Ok(())
     }
 
     /// Enable the DMA channel (only after configuring)
-    pub fn enable_channel(&self) -> Result<(), Error> {
+    // SAFETY: unsafe due to .bits usage
+    pub fn enable_channel(&self) {
         let channel = T::get_channel_number();
         T::regs()
             .enableset0()
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
-        Ok(())
     }
+
     /// Trigger the DMA channel
-    pub fn trigger_channel(&self) -> Result<(), Error> {
+    pub fn trigger_channel(&self) {
         let channel = T::get_channel_number();
         T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
-        Ok(())
     }
 }
