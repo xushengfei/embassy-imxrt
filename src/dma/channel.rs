@@ -22,27 +22,23 @@ pub struct ChannelAndRequest<'d, T: Instance> {
 
 impl<'d, T: Instance> ChannelAndRequest<'d, T> {
     /// Reads from a peripheral into a memory buffer
-    pub async fn read_from_peripheral(
+    pub fn read_from_peripheral(
         &'d self,
         peri_addr: *const u8,
         buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Transfer<'d, T> {
-        let transfer = Transfer::new_read(&self.channel, self.request, peri_addr, buf, options);
-        self.poll_transfer_complete().await;
-        transfer
+        Transfer::new_read(&self.channel, self.request, peri_addr, buf, options)
     }
 
     /// Writes from a memory buffer to a peripheral
-    pub async fn write_to_peripheral(
+    pub fn write_to_peripheral(
         &'d self,
         buf: &'d [u8],
         peri_addr: *mut u8,
         options: TransferOptions,
     ) -> Transfer<'d, T> {
-        let transfer = Transfer::new_write(&self.channel, self.request, buf, peri_addr, options);
-        self.poll_transfer_complete().await;
-        transfer
+        Transfer::new_write(&self.channel, self.request, buf, peri_addr, options)
     }
 
     /// Writes from a memory buffer to another memory buffer
