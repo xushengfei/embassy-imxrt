@@ -26,6 +26,7 @@ Embassy official repository,
 * UART
 * Watchdog
 * PWM
+* DMA
 
 ## Plan
 
