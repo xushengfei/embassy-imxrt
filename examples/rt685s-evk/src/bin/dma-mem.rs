@@ -3,9 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::{transfer::TransferOptions, Dma};
-use embassy_imxrt::rng;
-use embassy_imxrt::{bind_interrupts, peripherals};
+use embassy_imxrt::dma::transfer::TransferOptions;
+use embassy_imxrt::dma::Dma;
+use embassy_imxrt::{bind_interrupts, peripherals, rng};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

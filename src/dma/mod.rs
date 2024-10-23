@@ -3,12 +3,14 @@
 pub mod channel;
 pub mod transfer;
 
+use core::ptr;
+
+use embassy_hal_internal::interrupt::InterruptExt;
+use embassy_hal_internal::PeripheralRef;
+use embassy_sync::waitqueue::AtomicWaker;
+
 use crate::dma::channel::{Channel, ChannelAndRequest, Request};
 use crate::{interrupt, peripherals, Peripheral};
-use core::ptr;
-use embassy_hal_internal::{interrupt::InterruptExt, PeripheralRef};
-
-use embassy_sync::waitqueue::AtomicWaker;
 
 // TODO:
 //

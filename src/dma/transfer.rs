@@ -1,7 +1,6 @@
 //! DMA transfer management
 
 use super::Instance;
-
 use crate::dma::channel::{Channel, Request};
 
 /// DMA transfer options

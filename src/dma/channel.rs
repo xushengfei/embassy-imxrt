@@ -1,16 +1,13 @@
 //! DMA channel & request
 
-use super::Instance;
-use super::DESCRIPTORS;
-use super::DMA_WAKERS;
-
 use core::future::poll_fn;
 use core::task::Poll;
 
-use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 use embassy_hal_internal::PeripheralRef;
-
 use embassy_sync::waitqueue::AtomicWaker;
+
+use super::{Instance, DESCRIPTORS, DMA_WAKERS};
+use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 
 /// DMA request identifier
 pub type Request = u8;
