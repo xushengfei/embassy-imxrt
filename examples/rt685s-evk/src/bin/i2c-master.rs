@@ -93,6 +93,7 @@ async fn main(_spawner: Spawner) {
             hw_timeout: true,
             sw_timeout: embassy_time::Duration::from_millis(1000),
         },
+        p.DMA0_CH5,
     )
     .unwrap();
 
