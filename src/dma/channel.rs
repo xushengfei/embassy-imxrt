@@ -54,7 +54,7 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
     }
 
     /// Return a reference to the channel's waker
-    pub fn get_waker() -> &'d AtomicWaker {
+    pub fn get_waker(&self) -> &'d AtomicWaker {
         &DMA_WAKERS[T::get_channel_number()]
     }
 
