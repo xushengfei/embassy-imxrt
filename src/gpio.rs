@@ -260,6 +260,14 @@ impl<'d> Flex<'d, SenseEnabled> {
                     unsafe { w.dirclrp().bits(1 << self.pin.pin()) });
     }
 
+    /// Converts pin to special function pin
+    /// # Safety
+    /// Unsafe to require justifying change from default to a special function
+    ///
+    pub unsafe fn set_as_special_function(&mut self, func: Function) {
+        self.pin.set_function(func);
+    }
+
     /// Is high?
     pub fn is_high(&self) -> bool {
         !self.is_low()
