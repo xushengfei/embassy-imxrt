@@ -5,7 +5,7 @@
 use crate::interrupt;
 use crate::pac::Clkctl1;
 use crate::pac::Rstctl1;
-use crate::pac::{Ctimer0, Ctimer1, Ctimer2, Ctimer3, Ctimer4};
+use crate::pac::{Ctimer0, Ctimer1, Ctimer2, Ctimer3, Ctimer4, Inputmux};
 use crate::peripherals::{CTIMER0, CTIMER1, CTIMER2, CTIMER3, CTIMER4};
 use core::future::poll_fn;
 use core::task::Poll;
@@ -27,9 +27,12 @@ enum Periodicity {
     OneShot,
     Periodic,
 }
-enum CaptureChEdge {
+
+#[derive(PartialEq)]
+pub enum CaptureChEdge {
     Rising,
     Falling,
+    Duel,
 }
 enum TimerError {}
 
@@ -38,6 +41,7 @@ const CAPTURE_CHANNEL: usize = 20;
 const TOTAL_CHANNELS: usize = COUNT_CHANNEL + CAPTURE_CHANNEL;
 const TIMER_MODULES: usize = 5;
 const CHANNEL_PER_MODULE: usize = 4;
+const CAPTURE_CHANNEL_OFFSET: usize = 4;
 
 mod private {
     pub trait Sealed {}
@@ -60,7 +64,6 @@ impl Channel {
 pub trait Countdown {
     fn start(&mut self, count: u32);
     async fn wait(&mut self);
-    fn dump_data(&self) -> u32;
 }
 
 pub trait Timer: Countdown {
@@ -68,39 +71,90 @@ pub trait Timer: Countdown {
     fn get_id(&self) -> usize;
 }
 
-struct CaptureTimer<F: Fn()> {
-    _id: usize, // Unique ID to represent the mapping between logical timer and physical timer channel
+pub struct CaptureTimer<F: Fn(u32)> {
+    _id: usize,
     _clk_freq: u32,
     _cb: F, // User callback closure
     _timeout: u32,
+    _edge: CaptureChEdge,
+    _periodic: bool,
 }
 
 struct CountingTimer<F: Fn()> {
-    _id: usize, // Unique ID to represent the mapping between logical timer and physical timer channel
+    _id: usize,
     _clk_freq: u32,
     _cb: F, // User callback closure
     _timeout: u32,
     _periodic: bool,
 }
 
-impl<F: Fn()> CaptureTimer<F> {
-    fn new(id: usize, callback: F) -> Self {
+impl<F: Fn(u32)> CaptureTimer<F> {
+    fn new(id: usize, callback: F, edge: CaptureChEdge, periodic: bool) -> Self {
         CaptureTimer {
-            _id: id,
             _clk_freq: 16000000,
             _cb: callback,
             _timeout: 0,
+            _edge: edge,
+            _id: id,
+            _periodic: periodic,
         }
     }
 
-    async fn wait_for_interrupt(&self) {
+    pub async fn wait_for_interrupt(&self) {
         // Implementation of waiting for the interrupt
-        // poll_fn(|cx| {
-        //     // Register the waker
-        // })
-        // .await;
-        (self._cb)();
+        poll_fn(|cx| {
+            WAKERS[self._id].register(cx.waker());
+
+            let idx = (self._id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
+            let offset = (self._id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+            if idx == 0 {
+                let reg = unsafe { Ctimer0::steal() };
+                if offset == 0 && reg.cr(offset).read().bits() != 0 {
+                    if self._periodic {
+                        let mut data = reg.ccr().read().bits();
+                        data |= 0x4;
+                        reg.ccr().write(|w| unsafe { w.bits(data) });
+                    }
+                    (self._cb)(reg.cr(offset).read().bits());
+                    return Poll::Ready(());
+                }
+            }
+            Poll::Pending
+        })
+        .await;
     }
+
+    pub fn start(&self, event_input: u32) {
+        // Just enable the interrupt for capture event
+        let idx = (self._id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
+        let offset = (self._id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+        let reg = unsafe { Inputmux::steal() };
+
+        reg.ct32bit_cap(idx)
+            .ct32bit_cap_sel(offset)
+            .write(|w| unsafe { w.bits(event_input) });
+
+        if idx == 0 {
+            let reg = unsafe { Ctimer0::steal() };
+
+            if reg.tcr().read().cen().bit_is_clear() {
+                reg.tcr().write(|w| w.crst().set_bit());
+                reg.tcr().write(|w| w.crst().clear_bit());
+                reg.tcr().write(|w| w.cen().set_bit());
+                unsafe {
+                    interrupt::CTIMER0.unpend();
+                    interrupt::CTIMER0.enable();
+                }
+            }
+        }
+    }
+}
+
+impl<F: Fn(u32)> Countdown for CaptureTimer<F> {
+    async fn wait(&mut self) {
+        self.wait_for_interrupt().await;
+    }
+    fn start(&mut self, dur: u32) {}
 }
 
 impl<F: Fn()> CountingTimer<F> {
@@ -118,7 +172,7 @@ impl<F: Fn()> CountingTimer<F> {
         // Implementation of waiting for the interrupt
         poll_fn(|cx| {
             // Register the waker
-            let idx = self._id / TIMER_MODULES;
+            let idx = self._id / CHANNEL_PER_MODULE;
             WAKERS[self._id].register(cx.waker());
             let reg = unsafe { Ctimer0::steal() };
 
@@ -174,19 +228,6 @@ impl<F: Fn()> CountingTimer<F> {
     }
 }
 
-impl<F> Countdown for CaptureTimer<F>
-where
-    F: Fn(),
-{
-    fn start(&mut self, duration_us: u32) {}
-    async fn wait(&mut self) {
-        self.wait_for_interrupt().await;
-    }
-    fn dump_data(&self) -> u32 {
-        self._id as u32
-    }
-}
-
 impl<F> Countdown for CountingTimer<F>
 where
     F: Fn(),
@@ -195,7 +236,7 @@ where
         //TODO: Start the timer
         //      - Program the match register
         //      - Enable the interrupt for the channel
-        let idx = self._id / TIMER_MODULES;
+        let idx = self._id / CHANNEL_PER_MODULE;
         let dur = ((duration_us as u64 * self._clk_freq as u64) / 1000000);
 
         if dur > (u32::MAX) as u64 {
@@ -262,9 +303,6 @@ where
     async fn wait(&mut self) {
         self.wait_for_interrupt().await;
     }
-    fn dump_data(&self) -> u32 {
-        self._id as u32
-    }
 }
 
 impl<F> Timer for CountingTimer<F>
@@ -281,7 +319,7 @@ where
 
 impl<F> Timer for CaptureTimer<F>
 where
-    F: Fn(),
+    F: Fn(u32),
 {
     fn start_timer(&mut self, count: u32) {
         self.start(count);
@@ -362,35 +400,6 @@ impl CTimerManager<Uninitialized> {
 }
 
 impl CTimerManager<Initialized> {
-    pub fn read_timer_registers(&self) -> (u32, u32, u32, u32, u32, u32, u32) {
-        // Read the timer registers
-        let reg = unsafe { Clkctl1::steal() };
-        let clk_src = reg.ct32bitfclksel(0).read().sel().bits() as u32;
-        let clk_en = reg.pscctl2().read().bits() as u32;
-
-        let reg = unsafe { Rstctl1::steal() };
-        let rst = reg.prstctl2().read().bits() as u32;
-
-        let reg = unsafe { Ctimer0::steal() };
-        let mr1 = reg.mr(1).read().bits() as u32;
-        let mcr = reg.mcr().read().bits() as u32;
-        let tr = reg.tc().read().bits() as u32;
-        let pcr = reg.pc().read().bits() as u32;
-        let pr = reg.pr().read().bits() as u32;
-        let ir = reg.ir().read().bits() as u32;
-        let tcr = reg.tcr().read().bits() as u32;
-        let mr0 = reg.mr(0).read().bits() as u32;
-
-        (clk_src, tr, mr1, mr0, mcr, pr, tcr)
-    }
-
-    pub fn read_irq_reg(&self) -> (u32, u32) {
-        let reg = unsafe { Ctimer1::steal() };
-        let mr0 = reg.mr(0).read().bits() as u32;
-        let mr1 = reg.mr(1).read().bits() as u32;
-        (mr0, mr1)
-    }
-
     // Factory method for Abstract counting timer creation for user
     pub fn request_counting_timer(&mut self, callback: impl Fn(), periodic: bool) -> impl Timer + Countdown {
         let id = self.allocate_channel(TimerType::Counting).unwrap_or(u32::MAX as usize);
@@ -399,7 +408,7 @@ impl CTimerManager<Initialized> {
             panic!("No free channel available");
         }
 
-        let timer_idx = id / TIMER_MODULES;
+        let timer_idx = id / CHANNEL_PER_MODULE;
 
         if timer_idx == 0 {
             let reg = unsafe { Ctimer0::steal() };
@@ -418,34 +427,53 @@ impl CTimerManager<Initialized> {
         CountingTimer::new(id, callback, periodic)
     }
 
-    pub fn request_capture_timer(&mut self, callback: impl Fn()) -> impl Timer {
+    /// Requests a capture timer with the specified callback and edge.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - The callback function to be called on capture event.
+    /// * `edge` - The edge type for the capture channel.
+    pub fn request_capture_timer(
+        &mut self,
+        callback: impl Fn(u32),
+        edge: CaptureChEdge,
+        periodic: bool,
+    ) -> CaptureTimer<impl Fn(u32)> {
         let id = self.allocate_channel(TimerType::Capture).unwrap_or(u32::MAX as usize);
 
         if (id == u32::MAX as usize) {
             panic!("No free channel available");
         }
 
-        let timer_idx = id / TIMER_MODULES;
+        // map logical timer id to physical controller
+        let timer_idx = (id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
 
         if timer_idx == 0 {
             let reg = unsafe { Ctimer0::steal() };
-            let offset = id % CHANNEL_PER_MODULE;
-            let data = reg.mcr().read().bits();
+            let offset = (id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+            let data = reg.ccr().read().bits();
             if offset == 0 {
-                reg.mcr().write(|w| unsafe { w.bits(data | 0x1) });
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x4) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x1) });
+                } else if (edge == CaptureChEdge::Falling) {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x2) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x3) });
+                }
             } else if offset == 1 {
-                reg.mcr().write(|w| unsafe { w.bits(data | 0x8) });
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
             } else if offset == 2 {
-                reg.mcr().write(|w| unsafe { w.bits(data | 0x40) });
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
             } else if offset == 3 {
-                reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
             }
         }
-        CaptureTimer::new(id, callback)
+        CaptureTimer::new(id, callback, edge, periodic)
     }
 
-    fn allocate_channel(&mut self, flag: TimerType) -> Option<usize> {
-        match flag {
+    fn allocate_channel(&mut self, timertype: TimerType) -> Option<usize> {
+        match timertype {
             TimerType::Counting => {
                 return self.allocate_counting_channel();
             }
@@ -474,6 +502,7 @@ impl CTimerManager<Initialized> {
         }
         return None;
     }
+
     pub fn drop_timer(&mut self, _id: usize) {
         // Drop the timer
         self.state.ch_arr[_id].allocated = false;
@@ -486,24 +515,53 @@ fn irq_handler(inst: u32) {
         let reg = unsafe { Ctimer0::steal() };
 
         if reg.ir().read().mr0int().bit_is_set() {
-            //reg.mcr().write(|w| w.mr0i().clear_bit());
+            let mut data = reg.mcr().read().bits();
+            data &= !0x1;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.mr0int().set_bit());
             reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
             WAKERS[0].wake();
         }
         if (reg.ir().read().mr1int().bit_is_set()) {
-            //reg.mcr().write(|w| w.mr1i().clear_bit());
+            let mut data = reg.mcr().read().bits();
+            data &= !0x8;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.mr1int().set_bit());
             reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
             WAKERS[1].wake();
         }
         if (reg.ir().read().mr2int().bit_is_set()) {
-            //reg.ir().write(|w| w.mr2int().set_bit());
+            let mut data = reg.mcr().read().bits();
+            data &= !0x40;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr2int().set_bit());
             WAKERS[2].wake();
         }
         if (reg.ir().read().mr3int().bit_is_set()) {
-            //reg.ir().write(|w| w.mr3int().set_bit());
+            let mut data = reg.mcr().read().bits();
+            data &= !0x200;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr3int().set_bit());
             WAKERS[3].wake();
+        }
+        if (reg.ir().read().cr0int().bit_is_set()) {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x4;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr0int().set_bit());
+            WAKERS[20].wake();
+        }
+        if (reg.ir().read().cr1int().bit_is_set()) {
+            reg.ir().write(|w| w.cr1int().set_bit());
+            WAKERS[21].wake();
+        }
+        if (reg.ir().read().cr2int().bit_is_set()) {
+            reg.ir().write(|w| w.cr2int().set_bit());
+            WAKERS[22].wake();
+        }
+        if (reg.ir().read().cr3int().bit_is_set()) {
+            reg.ir().write(|w| w.cr3int().set_bit());
+            WAKERS[23].wake();
         }
     } else if inst == 1 {
         let reg = unsafe { Ctimer1::steal() };
