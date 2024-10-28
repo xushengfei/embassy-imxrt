@@ -1190,6 +1190,7 @@ fn irq_handler(inst: u32) {
             data &= !0x40;
             reg.mcr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.mr2int().set_bit());
+            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
             WAKERS[2].wake();
         }
         if reg.ir().read().mr3int().bit_is_set() {
@@ -1197,6 +1198,7 @@ fn irq_handler(inst: u32) {
             data &= !0x200;
             reg.mcr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.mr3int().set_bit());
+            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
             WAKERS[3].wake();
         }
         if reg.ir().read().cr0int().bit_is_set() {
@@ -1207,16 +1209,281 @@ fn irq_handler(inst: u32) {
             WAKERS[20].wake();
         }
         if reg.ir().read().cr1int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x20;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.cr1int().set_bit());
             WAKERS[21].wake();
         }
         if reg.ir().read().cr2int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x100;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.cr2int().set_bit());
             WAKERS[22].wake();
         }
         if reg.ir().read().cr3int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x800;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
             reg.ir().write(|w| w.cr3int().set_bit());
             WAKERS[23].wake();
+        }
+    }
+    if inst == 1 {
+        let reg = unsafe { Ctimer1::steal() };
+
+        if reg.ir().read().mr0int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x1;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr0int().set_bit());
+            reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[4].wake();
+        }
+        if reg.ir().read().mr1int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x8;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr1int().set_bit());
+            reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[5].wake();
+        }
+        if reg.ir().read().mr2int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x40;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr2int().set_bit());
+            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[6].wake();
+        }
+        if reg.ir().read().mr3int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x200;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr3int().set_bit());
+            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[7].wake();
+        }
+        if reg.ir().read().cr0int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x4;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr0int().set_bit());
+            WAKERS[24].wake();
+        }
+        if reg.ir().read().cr1int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x20;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr1int().set_bit());
+            WAKERS[25].wake();
+        }
+        if reg.ir().read().cr2int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x100;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr2int().set_bit());
+            WAKERS[26].wake();
+        }
+        if reg.ir().read().cr3int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x800;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr3int().set_bit());
+            WAKERS[27].wake();
+        }
+    }
+    if inst == 2 {
+        let reg = unsafe { Ctimer2::steal() };
+
+        if reg.ir().read().mr0int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x1;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr0int().set_bit());
+            reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[8].wake();
+        }
+        if reg.ir().read().mr1int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x8;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr1int().set_bit());
+            reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[9].wake();
+        }
+        if reg.ir().read().mr2int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x40;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr2int().set_bit());
+            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[10].wake();
+        }
+        if reg.ir().read().mr3int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x200;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr3int().set_bit());
+            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[11].wake();
+        }
+        if reg.ir().read().cr0int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x4;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr0int().set_bit());
+            WAKERS[28].wake();
+        }
+        if reg.ir().read().cr1int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x20;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr1int().set_bit());
+            WAKERS[29].wake();
+        }
+        if reg.ir().read().cr2int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x100;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr2int().set_bit());
+            WAKERS[30].wake();
+        }
+        if reg.ir().read().cr3int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x800;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr3int().set_bit());
+            WAKERS[31].wake();
+        }
+    }
+    if inst == 3 {
+        let reg = unsafe { Ctimer3::steal() };
+
+        if reg.ir().read().mr0int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x1;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr0int().set_bit());
+            reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[12].wake();
+        }
+        if reg.ir().read().mr1int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x8;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr1int().set_bit());
+            reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[13].wake();
+        }
+        if reg.ir().read().mr2int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x40;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr2int().set_bit());
+            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[14].wake();
+        }
+        if reg.ir().read().mr3int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x200;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr3int().set_bit());
+            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[15].wake();
+        }
+        if reg.ir().read().cr0int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x4;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr0int().set_bit());
+            WAKERS[32].wake();
+        }
+        if reg.ir().read().cr1int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x20;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr1int().set_bit());
+            WAKERS[33].wake();
+        }
+        if reg.ir().read().cr2int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x100;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr2int().set_bit());
+            WAKERS[34].wake();
+        }
+        if reg.ir().read().cr3int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x800;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr3int().set_bit());
+            WAKERS[35].wake();
+        }
+    }
+    if inst == 4 {
+        let reg = unsafe { Ctimer4::steal() };
+
+        if reg.ir().read().mr0int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x1;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr0int().set_bit());
+            reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[16].wake();
+        }
+        if reg.ir().read().mr1int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x8;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr1int().set_bit());
+            reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[17].wake();
+        }
+        if reg.ir().read().mr2int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x40;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr2int().set_bit());
+            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[18].wake();
+        }
+        if reg.ir().read().mr3int().bit_is_set() {
+            let mut data = reg.mcr().read().bits();
+            data &= !0x200;
+            reg.mcr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.mr3int().set_bit());
+            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[19].wake();
+        }
+        if reg.ir().read().cr0int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x4;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr0int().set_bit());
+            WAKERS[36].wake();
+        }
+        if reg.ir().read().cr1int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x20;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr1int().set_bit());
+            WAKERS[37].wake();
+        }
+        if reg.ir().read().cr2int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x100;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr2int().set_bit());
+            WAKERS[38].wake();
+        }
+        if reg.ir().read().cr3int().bit_is_set() {
+            let mut data = reg.ccr().read().bits();
+            data &= !0x800;
+            reg.ccr().write(|w| unsafe { w.bits(data) });
+            reg.ir().write(|w| w.cr3int().set_bit());
+            WAKERS[39].wake();
         }
     }
 }
@@ -1254,17 +1521,4 @@ fn CTIMER3() {
 #[allow(non_snake_case)]
 fn CTIMER4() {
     irq_handler(4)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let ctimer = CountingTimer::new(0);
-        match timer.StartOneShotTimer(100, || {
-            println!("Timer Expired. Test successful !!");
-        }) {
-            Err(e) => panic!("Error starting timer: {:?}", e),
-        }
-    }
 }
