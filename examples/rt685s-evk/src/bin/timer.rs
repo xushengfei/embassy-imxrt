@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 // use embassy_imxrt::bind_interrupts;
 use embassy_imxrt::gpio;
 use embassy_imxrt::timer;
-use embassy_imxrt::timer::{CaptureChEdge, Countdown, Timer};
+use embassy_imxrt::timer::{CaptureChEdge, Timer};
 use embassy_time::Timer as Tmr;
 
 #[panic_handler]
@@ -54,13 +54,13 @@ async fn main(_spawner: Spawner) {
 
     let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveLow);
 
-    tmr1.start_timer(5000000);
-    tmr2.start_timer(10000000);
-    cap_tmr.start(8); // pass the input mux number user is interested in
+    tmr1.start_count(5000000);
+    tmr2.start_count(10000000);
+    cap_tmr.start_capture(8); // pass the input mux number user is interested in
 
     tmr1.wait().await;
     tmr2.wait().await;
-    cap_tmr.wait_for_interrupt().await;
+    cap_tmr.wait().await;
 
     loop {
         info!("Pin level is {}", monitor.get_level());

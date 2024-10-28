@@ -48,27 +48,23 @@ impl Channel {
         Self { allocated: false }
     }
 }
-/// Trait representing a countdown timer.
-pub trait Countdown {
-    /// Starts the countdown timer with the specified count.
-    ///
-    /// # Arguments
-    ///
-    /// * `count` - The countdown value to start the timer with.
-    fn start(&mut self, count: u32);
-
-    /// Waits for the countdown timer to complete.
-    async fn wait(&mut self);
-}
 
 /// Trait representing a timer that can be started and provides an ID.
-pub trait Timer: Countdown {
+pub trait Timer {
     /// Starts the timer with the specified count.
     ///
     /// # Arguments
     ///
     /// * `count` - The countdown value to start the timer with.
-    fn start_timer(&mut self, count: u32);
+    fn start_count(&mut self, count: u32);
+
+    /// Starts the capture timer with the event for capture passed as argument.
+    /// # Arguments
+    /// * `event_input` - The event input to capture the timer counter.
+    fn start_capture(&self, event_input: u32);
+
+    /// Waits for the countdown timer to complete.
+    async fn wait(&self);
 }
 
 /// A timer that captures events based on a specified edge and calls a user-defined callback.
@@ -100,9 +96,10 @@ impl<F: Fn(u32)> CaptureTimer<F> {
             _periodic: periodic,
         }
     }
+}
 
-    /// Waits for an interrupt to occur and handles it asynchronously.
-    pub async fn wait_for_interrupt(&self) {
+impl<F: Fn(u32)> Timer for CaptureTimer<F> {
+    async fn wait(&self) {
         // Implementation of waiting for the interrupt
         poll_fn(|cx| {
             WAKERS[self._id].register(cx.waker());
@@ -111,27 +108,31 @@ impl<F: Fn(u32)> CaptureTimer<F> {
             let offset = (self._id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
             if idx == 0 {
                 let reg = unsafe { Ctimer0::steal() };
-                if offset == 0 && reg.cr(offset).read().bits() != 0 {
-                    if self._periodic {
-                        let mut data = reg.ccr().read().bits();
-                        data |= 0x4;
-                        reg.ccr().write(|w| unsafe { w.bits(data) });
-                    }
-                    (self._cb)(reg.cr(offset).read().bits());
-                    return Poll::Ready(());
+                let mut data = reg.ccr().read().bits();
+                if offset == 0 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x4;
+                } else if offset == 1 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x20;
+                } else if offset == 2 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x100;
+                } else if offset == 3 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x800;
+                } else {
+                    return Poll::Pending;
                 }
+                reg.ccr().write(|w| unsafe { w.bits(data) });
+                (self._cb)(reg.cr(offset).read().bits());
+                return Poll::Ready(());
             }
             Poll::Pending
         })
         .await;
     }
+    fn start_count(&mut self, _dur: u32) {
+        panic!("Counting not supported for capture timer");
+    }
 
-    /// Starts the capture timer with the specified event input.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_input` - The event input to capture the timer counter.
-    pub fn start(&self, event_input: u32) {
+    fn start_capture(&self, event_input: u32) {
         // Just enable the interrupt for capture event
         let idx = (self._id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
         let offset = (self._id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
@@ -209,13 +210,6 @@ impl<F: Fn(u32)> CaptureTimer<F> {
     }
 }
 
-impl<F: Fn(u32)> Countdown for CaptureTimer<F> {
-    async fn wait(&mut self) {
-        self.wait_for_interrupt().await;
-    }
-    fn start(&mut self, _dur: u32) {}
-}
-
 impl<F: Fn()> CountingTimer<F> {
     fn new(id: usize, callback: F, periodic: bool) -> Self {
         CountingTimer {
@@ -226,78 +220,13 @@ impl<F: Fn()> CountingTimer<F> {
             _periodic: periodic,
         }
     }
-
-    async fn wait_for_interrupt(&self) {
-        // Implementation of waiting for the interrupt
-        poll_fn(|cx| {
-            // Register the waker
-            let idx = self._id / CHANNEL_PER_MODULE;
-            WAKERS[self._id].register(cx.waker());
-            let reg = unsafe { Ctimer0::steal() };
-
-            if idx == 0 {
-                let offset = self._id % CHANNEL_PER_MODULE;
-                // Checking whether MR[Channel] is zero is based on the following logic-
-                // For countdown timer, it makes sense to assume that MR is set to 1 initial value
-                // and it is going to be counting down to 0.
-                // With this logic, we can confirm whether this is the timer which expired.
-                if offset == 0 && reg.mr(0).read().bits() == 0 {
-                    if self._periodic {
-                        let cycles = self._timeout;
-                        let curr_time = reg.tc().read().bits();
-
-                        if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
-                            let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
-                            let cycles = leftover as u32;
-                            unsafe {
-                                reg.mr(0).write(|w| w.match_().bits(cycles));
-                            }
-                        } else {
-                            unsafe {
-                                reg.mr(0).write(|w| w.match_().bits(curr_time + cycles));
-                            }
-                        }
-                        let mut data = reg.mcr().read().bits();
-                        data |= 0x1;
-                        reg.mcr().write(|w| unsafe { w.bits(data) });
-                    }
-                    return Poll::Ready(());
-                }
-                if offset == 1 && reg.mr(1).read().bits() == 0 {
-                    if self._periodic {
-                        let cycles = self._timeout;
-                        let curr_time = reg.tc().read().bits();
-
-                        if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
-                            let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
-                            let cycles = leftover as u32;
-                            unsafe {
-                                reg.mr(1).write(|w| w.match_().bits(cycles));
-                            }
-                        } else {
-                            unsafe {
-                                reg.mr(1).write(|w| w.match_().bits(curr_time + cycles));
-                            }
-                        }
-                        let mut data = reg.mcr().read().bits();
-                        data |= 0x8;
-                        reg.mcr().write(|w| unsafe { w.bits(data) });
-                    }
-                    return Poll::Ready(());
-                }
-            }
-            Poll::Pending
-        })
-        .await;
-        (self._cb)();
-    }
 }
 
-impl<F> Countdown for CountingTimer<F>
+impl<F> Timer for CountingTimer<F>
 where
     F: Fn(),
 {
-    fn start(&mut self, duration_us: u32) {
+    fn start_count(&mut self, duration_us: u32) {
         //TODO: Start the timer
         //      - Program the match register
         //      - Enable the interrupt for the channel
@@ -365,26 +294,72 @@ where
             }
         }
     }
-    async fn wait(&mut self) {
-        self.wait_for_interrupt().await;
-    }
-}
+    async fn wait(&self) {
+        // Implementation of waiting for the interrupt
+        poll_fn(|cx| {
+            // Register the waker
+            let idx = self._id / CHANNEL_PER_MODULE;
+            WAKERS[self._id].register(cx.waker());
+            let reg = unsafe { Ctimer0::steal() };
 
-impl<F> Timer for CountingTimer<F>
-where
-    F: Fn(),
-{
-    fn start_timer(&mut self, count: u32) {
-        self.start(count);
-    }
-}
+            if idx == 0 {
+                let offset = self._id % CHANNEL_PER_MODULE;
+                // Checking whether MR[Channel] is zero is based on the following logic-
+                // For countdown timer, it makes sense to assume that MR is set to 1 initial value
+                // and it is going to be counting down to 0.
+                // With this logic, we can confirm whether this is the timer which expired.
+                if offset == 0 && reg.mr(0).read().bits() == 0 {
+                    if self._periodic {
+                        let cycles = self._timeout;
+                        let curr_time = reg.tc().read().bits();
 
-impl<F> Timer for CaptureTimer<F>
-where
-    F: Fn(u32),
-{
-    fn start_timer(&mut self, count: u32) {
-        self.start(count);
+                        if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                            let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                            let cycles = leftover as u32;
+                            unsafe {
+                                reg.mr(0).write(|w| w.match_().bits(cycles));
+                            }
+                        } else {
+                            unsafe {
+                                reg.mr(0).write(|w| w.match_().bits(curr_time + cycles));
+                            }
+                        }
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x1;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 1 && reg.mr(1).read().bits() == 0 {
+                    if self._periodic {
+                        let cycles = self._timeout;
+                        let curr_time = reg.tc().read().bits();
+
+                        if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                            let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                            let cycles = leftover as u32;
+                            unsafe {
+                                reg.mr(1).write(|w| w.match_().bits(cycles));
+                            }
+                        } else {
+                            unsafe {
+                                reg.mr(1).write(|w| w.match_().bits(curr_time + cycles));
+                            }
+                        }
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x8;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+            }
+            Poll::Pending
+        })
+        .await;
+        (self._cb)();
+    }
+    fn start_capture(&self, _event_input: u32) {
+        panic!("Capture not supported for counting timer");
     }
 }
 
@@ -505,12 +480,7 @@ impl CTimerManager<Initialized> {
     ///
     /// * `callback` - The callback function to be called on capture event.
     /// * `edge` - The edge type for the capture channel.
-    pub fn request_capture_timer(
-        &mut self,
-        callback: impl Fn(u32),
-        edge: CaptureChEdge,
-        periodic: bool,
-    ) -> CaptureTimer<impl Fn(u32)> {
+    pub fn request_capture_timer(&mut self, callback: impl Fn(u32), edge: CaptureChEdge, periodic: bool) -> impl Timer {
         let id = self.allocate_channel(TimerType::Capture).unwrap_or(u32::MAX as usize);
 
         if id == u32::MAX as usize {
