@@ -124,6 +124,78 @@ impl<F: Fn(u32)> Timer for CaptureTimer<F> {
                 (self._cb)(reg.cr(offset).read().bits());
                 return Poll::Ready(());
             }
+            if idx == 1 {
+                let reg = unsafe { Ctimer1::steal() };
+                let mut data = reg.ccr().read().bits();
+                if offset == 0 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x4;
+                } else if offset == 1 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x20;
+                } else if offset == 2 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x100;
+                } else if offset == 3 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x800;
+                } else {
+                    return Poll::Pending;
+                }
+                reg.ccr().write(|w| unsafe { w.bits(data) });
+                (self._cb)(reg.cr(offset).read().bits());
+                return Poll::Ready(());
+            }
+            if idx == 2 {
+                let reg = unsafe { Ctimer2::steal() };
+                let mut data = reg.ccr().read().bits();
+                if offset == 0 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x4;
+                } else if offset == 1 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x20;
+                } else if offset == 2 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x100;
+                } else if offset == 3 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x800;
+                } else {
+                    return Poll::Pending;
+                }
+                reg.ccr().write(|w| unsafe { w.bits(data) });
+                (self._cb)(reg.cr(offset).read().bits());
+                return Poll::Ready(());
+            }
+            if idx == 3 {
+                let reg = unsafe { Ctimer3::steal() };
+                let mut data = reg.ccr().read().bits();
+                if offset == 0 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x4;
+                } else if offset == 1 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x20;
+                } else if offset == 2 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x100;
+                } else if offset == 3 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x800;
+                } else {
+                    return Poll::Pending;
+                }
+                reg.ccr().write(|w| unsafe { w.bits(data) });
+                (self._cb)(reg.cr(offset).read().bits());
+                return Poll::Ready(());
+            }
+            if idx == 4 {
+                let reg = unsafe { Ctimer4::steal() };
+                let mut data = reg.ccr().read().bits();
+                if offset == 0 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x4;
+                } else if offset == 1 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x20;
+                } else if offset == 2 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x100;
+                } else if offset == 3 && reg.cr(offset).read().bits() != 0 && self._periodic {
+                    data |= 0x800;
+                } else {
+                    return Poll::Pending;
+                }
+                reg.ccr().write(|w| unsafe { w.bits(data) });
+                (self._cb)(reg.cr(offset).read().bits());
+                return Poll::Ready(());
+            }
             Poll::Pending
         })
         .await;
@@ -245,44 +317,20 @@ where
 
             self._timeout = cycles;
 
-            match offset {
-                0 => {
-                    let curr_time = reg.tc().read().bits();
+            let curr_time = reg.tc().read().bits();
 
-                    if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
-                        let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
-                        let cycles = leftover as u32;
-                        unsafe {
-                            reg.mr(0).write(|w| w.match_().bits(cycles));
-                        }
-                    } else {
-                        unsafe {
-                            reg.mr(0).write(|w| w.match_().bits(curr_time + cycles));
-                        }
-                    }
+            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                let cycles = leftover as u32;
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(cycles));
                 }
-                1 => {
-                    let curr_time = reg.tc().read().bits();
-                    unsafe {
-                        reg.mr(1).write(|w| w.match_().bits(curr_time + cycles));
-                    }
+            } else {
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
                 }
-                2 => {
-                    reg.mcr().write(|w| w.mr2i().set_bit());
-                    let curr_time = reg.tc().read().bits();
-                    unsafe {
-                        reg.mr(2).write(|w| w.match_().bits(curr_time + cycles));
-                    }
-                }
-                3 => {
-                    reg.mcr().write(|w| w.mr3i().set_bit());
-                    let curr_time = reg.tc().read().bits();
-                    unsafe {
-                        reg.mr(3).write(|w| w.match_().bits(curr_time + cycles));
-                    }
-                }
-                _ => {}
             }
+
             if reg.tcr().read().cen().bit_is_clear() {
                 reg.tcr().write(|w| w.crst().set_bit());
                 reg.tcr().write(|w| w.crst().clear_bit());
@@ -293,37 +341,159 @@ where
                 }
             }
         }
+        if idx == 1 {
+            let offset = self._id % CHANNEL_PER_MODULE;
+            let reg = unsafe { Ctimer1::steal() };
+
+            self._timeout = cycles;
+
+            let curr_time = reg.tc().read().bits();
+
+            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                let cycles = leftover as u32;
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(cycles));
+                }
+            } else {
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                }
+            }
+
+            if reg.tcr().read().cen().bit_is_clear() {
+                reg.tcr().write(|w| w.crst().set_bit());
+                reg.tcr().write(|w| w.crst().clear_bit());
+                reg.tcr().write(|w| w.cen().set_bit());
+                unsafe {
+                    interrupt::CTIMER1.unpend();
+                    interrupt::CTIMER1.enable();
+                }
+            }
+        }
+        if idx == 2 {
+            let offset = self._id % CHANNEL_PER_MODULE;
+            let reg = unsafe { Ctimer2::steal() };
+
+            self._timeout = cycles;
+
+            let curr_time = reg.tc().read().bits();
+
+            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                let cycles = leftover as u32;
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(cycles));
+                }
+            } else {
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                }
+            }
+
+            if reg.tcr().read().cen().bit_is_clear() {
+                reg.tcr().write(|w| w.crst().set_bit());
+                reg.tcr().write(|w| w.crst().clear_bit());
+                reg.tcr().write(|w| w.cen().set_bit());
+                unsafe {
+                    interrupt::CTIMER2.unpend();
+                    interrupt::CTIMER2.enable();
+                }
+            }
+        }
+        if idx == 3 {
+            let offset = self._id % CHANNEL_PER_MODULE;
+            let reg = unsafe { Ctimer3::steal() };
+
+            self._timeout = cycles;
+
+            let curr_time = reg.tc().read().bits();
+
+            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                let cycles = leftover as u32;
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(cycles));
+                }
+            } else {
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                }
+            }
+
+            if reg.tcr().read().cen().bit_is_clear() {
+                reg.tcr().write(|w| w.crst().set_bit());
+                reg.tcr().write(|w| w.crst().clear_bit());
+                reg.tcr().write(|w| w.cen().set_bit());
+                unsafe {
+                    interrupt::CTIMER3.unpend();
+                    interrupt::CTIMER3.enable();
+                }
+            }
+        }
+        if idx == 4 {
+            let offset = self._id % CHANNEL_PER_MODULE;
+            let reg = unsafe { Ctimer4::steal() };
+
+            self._timeout = cycles;
+
+            let curr_time = reg.tc().read().bits();
+
+            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                let cycles = leftover as u32;
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(cycles));
+                }
+            } else {
+                unsafe {
+                    reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                }
+            }
+
+            if reg.tcr().read().cen().bit_is_clear() {
+                reg.tcr().write(|w| w.crst().set_bit());
+                reg.tcr().write(|w| w.crst().clear_bit());
+                reg.tcr().write(|w| w.cen().set_bit());
+                unsafe {
+                    interrupt::CTIMER4.unpend();
+                    interrupt::CTIMER4.enable();
+                }
+            }
+        }
     }
     async fn wait(&self) {
         // Implementation of waiting for the interrupt
         poll_fn(|cx| {
             // Register the waker
             let idx = self._id / CHANNEL_PER_MODULE;
+            let offset = self._id % CHANNEL_PER_MODULE;
             WAKERS[self._id].register(cx.waker());
-            let reg = unsafe { Ctimer0::steal() };
 
             if idx == 0 {
-                let offset = self._id % CHANNEL_PER_MODULE;
+                let reg = unsafe { Ctimer0::steal() };
                 // Checking whether MR[Channel] is zero is based on the following logic-
                 // For countdown timer, it makes sense to assume that MR is set to 1 initial value
                 // and it is going to be counting down to 0.
                 // With this logic, we can confirm whether this is the timer which expired.
+                if self._periodic && reg.mr(offset).read().bits() == 0 {
+                    let cycles = self._timeout;
+                    let curr_time = reg.tc().read().bits();
+
+                    if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                        let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                        let cycles = leftover as u32;
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(cycles));
+                        }
+                    } else {
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                        }
+                    }
+                }
                 if offset == 0 && reg.mr(0).read().bits() == 0 {
                     if self._periodic {
-                        let cycles = self._timeout;
-                        let curr_time = reg.tc().read().bits();
-
-                        if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
-                            let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
-                            let cycles = leftover as u32;
-                            unsafe {
-                                reg.mr(0).write(|w| w.match_().bits(cycles));
-                            }
-                        } else {
-                            unsafe {
-                                reg.mr(0).write(|w| w.match_().bits(curr_time + cycles));
-                            }
-                        }
                         let mut data = reg.mcr().read().bits();
                         data |= 0x1;
                         reg.mcr().write(|w| unsafe { w.bits(data) });
@@ -332,22 +502,228 @@ where
                 }
                 if offset == 1 && reg.mr(1).read().bits() == 0 {
                     if self._periodic {
-                        let cycles = self._timeout;
-                        let curr_time = reg.tc().read().bits();
-
-                        if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
-                            let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
-                            let cycles = leftover as u32;
-                            unsafe {
-                                reg.mr(1).write(|w| w.match_().bits(cycles));
-                            }
-                        } else {
-                            unsafe {
-                                reg.mr(1).write(|w| w.match_().bits(curr_time + cycles));
-                            }
-                        }
                         let mut data = reg.mcr().read().bits();
                         data |= 0x8;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 2 && reg.mr(2).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x40;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 3 && reg.mr(3).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x200;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+            }
+            if idx == 1 {
+                let reg = unsafe { Ctimer1::steal() };
+                if self._periodic && reg.mr(offset).read().bits() == 0 {
+                    let cycles = self._timeout;
+                    let curr_time = reg.tc().read().bits();
+
+                    if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                        let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                        let cycles = leftover as u32;
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(cycles));
+                        }
+                    } else {
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                        }
+                    }
+                }
+                if offset == 0 && reg.mr(0).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x1;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 1 && reg.mr(1).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x8;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 2 && reg.mr(2).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x40;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 3 && reg.mr(3).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x200;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+            }
+            if idx == 2 {
+                let reg = unsafe { Ctimer2::steal() };
+                if self._periodic && reg.mr(offset).read().bits() == 0 {
+                    let cycles = self._timeout;
+                    let curr_time = reg.tc().read().bits();
+
+                    if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                        let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                        let cycles = leftover as u32;
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(cycles));
+                        }
+                    } else {
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                        }
+                    }
+                }
+                if offset == 0 && reg.mr(0).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x1;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 1 && reg.mr(1).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x8;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 2 && reg.mr(2).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x40;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 3 && reg.mr(3).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x200;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+            }
+            if idx == 3 {
+                let reg = unsafe { Ctimer3::steal() };
+                if self._periodic && reg.mr(offset).read().bits() == 0 {
+                    let cycles = self._timeout;
+                    let curr_time = reg.tc().read().bits();
+
+                    if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                        let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                        let cycles = leftover as u32;
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(cycles));
+                        }
+                    } else {
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                        }
+                    }
+                }
+                if offset == 0 && reg.mr(0).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x1;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 1 && reg.mr(1).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x8;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 2 && reg.mr(2).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x40;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 3 && reg.mr(3).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x200;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+            }
+            if idx == 4 {
+                let reg = unsafe { Ctimer4::steal() };
+                if self._periodic && reg.mr(offset).read().bits() == 0 {
+                    let cycles = self._timeout;
+                    let curr_time = reg.tc().read().bits();
+
+                    if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                        let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                        let cycles = leftover as u32;
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(cycles));
+                        }
+                    } else {
+                        unsafe {
+                            reg.mr(offset).write(|w| w.match_().bits(curr_time + cycles));
+                        }
+                    }
+                }
+                if offset == 0 && reg.mr(0).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x1;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 1 && reg.mr(1).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x8;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 2 && reg.mr(2).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x40;
+                        reg.mcr().write(|w| unsafe { w.bits(data) });
+                    }
+                    return Poll::Ready(());
+                }
+                if offset == 3 && reg.mr(3).read().bits() == 0 {
+                    if self._periodic {
+                        let mut data = reg.mcr().read().bits();
+                        data |= 0x200;
                         reg.mcr().write(|w| unsafe { w.bits(data) });
                     }
                     return Poll::Ready(());
@@ -471,6 +847,62 @@ impl CTimerManager<Initialized> {
                 reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
             }
         }
+        if timer_idx == 1 {
+            let reg = unsafe { Ctimer1::steal() };
+            let offset = id % CHANNEL_PER_MODULE;
+            let data = reg.mcr().read().bits();
+            if offset == 0 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x1) });
+            } else if offset == 1 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x8) });
+            } else if offset == 2 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x40) });
+            } else if offset == 3 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
+            }
+        }
+        if timer_idx == 2 {
+            let reg = unsafe { Ctimer2::steal() };
+            let offset = id % CHANNEL_PER_MODULE;
+            let data = reg.mcr().read().bits();
+            if offset == 0 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x1) });
+            } else if offset == 1 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x8) });
+            } else if offset == 2 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x40) });
+            } else if offset == 3 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
+            }
+        }
+        if timer_idx == 3 {
+            let reg = unsafe { Ctimer3::steal() };
+            let offset = id % CHANNEL_PER_MODULE;
+            let data = reg.mcr().read().bits();
+            if offset == 0 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x1) });
+            } else if offset == 1 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x8) });
+            } else if offset == 2 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x40) });
+            } else if offset == 3 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
+            }
+        }
+        if timer_idx == 4 {
+            let reg = unsafe { Ctimer4::steal() };
+            let offset = id % CHANNEL_PER_MODULE;
+            let data = reg.mcr().read().bits();
+            if offset == 0 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x1) });
+            } else if offset == 1 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x8) });
+            } else if offset == 2 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x40) });
+            } else if offset == 3 {
+                reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
+            }
+        }
         CountingTimer::new(id, callback, periodic)
     }
 
@@ -505,12 +937,202 @@ impl CTimerManager<Initialized> {
                 }
             } else if offset == 1 {
                 reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x8) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x10) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x18) });
+                }
             } else if offset == 2 {
                 reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x40) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x80) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0xC0) });
+                }
             } else if offset == 3 {
                 reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x200) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x400) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x600) });
+                }
             }
         }
+        if timer_idx == 1 {
+            let reg = unsafe { Ctimer1::steal() };
+            let offset = (id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+            let data = reg.ccr().read().bits();
+            if offset == 0 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x4) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x1) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x2) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x3) });
+                }
+            } else if offset == 1 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x8) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x10) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x18) });
+                }
+            } else if offset == 2 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x40) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x80) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0xC0) });
+                }
+            } else if offset == 3 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x200) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x400) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x600) });
+                }
+            }
+        }
+        if timer_idx == 2 {
+            let reg = unsafe { Ctimer2::steal() };
+            let offset = (id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+            let data = reg.ccr().read().bits();
+            if offset == 0 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x4) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x1) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x2) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x3) });
+                }
+            } else if offset == 1 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x8) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x10) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x18) });
+                }
+            } else if offset == 2 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x40) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x80) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0xC0) });
+                }
+            } else if offset == 3 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x200) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x400) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x600) });
+                }
+            }
+        }
+        if timer_idx == 3 {
+            let reg = unsafe { Ctimer3::steal() };
+            let offset = (id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+            let data = reg.ccr().read().bits();
+            if offset == 0 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x4) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x1) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x2) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x3) });
+                }
+            } else if offset == 1 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x8) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x10) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x18) });
+                }
+            } else if offset == 2 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x40) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x80) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0xC0) });
+                }
+            } else if offset == 3 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x200) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x400) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x600) });
+                }
+            }
+        }
+        if timer_idx == 4 {
+            let reg = unsafe { Ctimer4::steal() };
+            let offset = (id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+            let data = reg.ccr().read().bits();
+            if offset == 0 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x4) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x1) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x2) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x3) });
+                }
+            } else if offset == 1 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x8) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x10) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x18) });
+                }
+            } else if offset == 2 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x40) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x80) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0xC0) });
+                }
+            } else if offset == 3 {
+                reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
+                if edge == CaptureChEdge::Rising {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x200) });
+                } else if edge == CaptureChEdge::Falling {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x400) });
+                } else {
+                    reg.ccr().write(|w| unsafe { w.bits(data | 0x600) });
+                }
+            }
+        }
+
         CaptureTimer::new(id, callback, edge, periodic)
     }
 
@@ -595,82 +1217,6 @@ fn irq_handler(inst: u32) {
         if reg.ir().read().cr3int().bit_is_set() {
             reg.ir().write(|w| w.cr3int().set_bit());
             WAKERS[23].wake();
-        }
-    } else if inst == 1 {
-        let reg = unsafe { Ctimer1::steal() };
-
-        if reg.ir().read().mr0int().bit_is_set() {
-            reg.ir().write(|w| w.mr0int().set_bit());
-            WAKERS[CHANNEL_PER_MODULE].wake();
-        }
-        if reg.ir().read().mr1int().bit_is_set() {
-            reg.ir().write(|w| w.mr1int().set_bit());
-            WAKERS[CHANNEL_PER_MODULE + 1].wake();
-        }
-        if reg.ir().read().mr2int().bit_is_set() {
-            reg.ir().write(|w| w.mr2int().set_bit());
-            WAKERS[CHANNEL_PER_MODULE + 2].wake();
-        }
-        if reg.ir().read().mr3int().bit_is_set() {
-            reg.ir().write(|w| w.mr3int().set_bit());
-            WAKERS[CHANNEL_PER_MODULE + 3].wake();
-        }
-    } else if inst == 2 {
-        let reg = unsafe { Ctimer2::steal() };
-
-        if reg.ir().read().mr0int().bit_is_set() {
-            reg.ir().write(|w| w.mr0int().set_bit());
-            WAKERS[2 * CHANNEL_PER_MODULE].wake();
-        }
-        if reg.ir().read().mr1int().bit_is_set() {
-            reg.ir().write(|w| w.mr1int().set_bit());
-            WAKERS[2 * CHANNEL_PER_MODULE + 1].wake();
-        }
-        if reg.ir().read().mr2int().bit_is_set() {
-            reg.ir().write(|w| w.mr2int().set_bit());
-            WAKERS[2 * CHANNEL_PER_MODULE + 2].wake();
-        }
-        if reg.ir().read().mr3int().bit_is_set() {
-            reg.ir().write(|w| w.mr3int().set_bit());
-            WAKERS[2 * CHANNEL_PER_MODULE + 3].wake();
-        }
-    } else if inst == 3 {
-        let reg = unsafe { Ctimer3::steal() };
-
-        if reg.ir().read().mr0int().bit_is_set() {
-            reg.ir().write(|w| w.mr0int().set_bit());
-            WAKERS[3 * CHANNEL_PER_MODULE].wake();
-        }
-        if reg.ir().read().mr1int().bit_is_set() {
-            reg.ir().write(|w| w.mr1int().set_bit());
-            WAKERS[3 * CHANNEL_PER_MODULE + 1].wake();
-        }
-        if reg.ir().read().mr2int().bit_is_set() {
-            reg.ir().write(|w| w.mr2int().set_bit());
-            WAKERS[3 * CHANNEL_PER_MODULE + 2].wake();
-        }
-        if reg.ir().read().mr3int().bit_is_set() {
-            reg.ir().write(|w| w.mr3int().set_bit());
-            WAKERS[3 * CHANNEL_PER_MODULE + 3].wake();
-        }
-    } else if inst == 4 {
-        let reg = unsafe { Ctimer4::steal() };
-
-        if reg.ir().read().mr0int().bit_is_set() {
-            reg.ir().write(|w| w.mr0int().set_bit());
-            WAKERS[4 * CHANNEL_PER_MODULE].wake();
-        }
-        if reg.ir().read().mr1int().bit_is_set() {
-            reg.ir().write(|w| w.mr1int().set_bit());
-            WAKERS[4 * CHANNEL_PER_MODULE + 1].wake();
-        }
-        if reg.ir().read().mr2int().bit_is_set() {
-            reg.ir().write(|w| w.mr2int().set_bit());
-            WAKERS[4 * CHANNEL_PER_MODULE + 2].wake();
-        }
-        if reg.ir().read().mr3int().bit_is_set() {
-            reg.ir().write(|w| w.mr3int().set_bit());
-            WAKERS[4 * CHANNEL_PER_MODULE + 3].wake();
         }
     }
 }
