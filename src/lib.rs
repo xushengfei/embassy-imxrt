@@ -22,7 +22,13 @@ pub mod rng;
 /// Time driver for the iMX RT600 series.
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
+
+/// Timer module for handling timer-related functionalities.
+/// Module provides functionality for
+/// - Counting Timer
+/// - Capture Timer
 pub mod timer;
+
 pub mod uart;
 pub mod wwdt;
 

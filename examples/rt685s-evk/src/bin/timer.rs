@@ -1,15 +1,14 @@
 #![no_std]
 #![no_main]
 
-use defmt::{error, info};
+use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_imxrt::bind_interrupts;
+// use embassy_imxrt::bind_interrupts;
 use embassy_imxrt::gpio;
 use embassy_imxrt::timer;
 use embassy_imxrt::timer::{CaptureChEdge, Countdown, Timer};
 use embassy_time::Timer as Tmr;
-use mimxrt685s_pac::Iopctl;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -22,7 +21,7 @@ async fn main(_spawner: Spawner) {
 
     unsafe { gpio::init() };
 
-    let mut timer_manager: timer::CTimerManager<timer::Uninitialized> = timer::CTimerManager::new();
+    let timer_manager: timer::CTimerManager<timer::Uninitialized> = timer::CTimerManager::new();
 
     let mut timer_manager: timer::CTimerManager<timer::Initialized> = timer_manager.init_timer_modules();
 
@@ -40,7 +39,7 @@ async fn main(_spawner: Spawner) {
         false,
     );
 
-    let mut cap_tmr = timer_manager.request_capture_timer(
+    let cap_tmr = timer_manager.request_capture_timer(
         |count_reg| {
             info!("Capture Timer2 example - Capture Timer Callback");
             info!("count reg = {:02x}", count_reg);
@@ -48,8 +47,6 @@ async fn main(_spawner: Spawner) {
         CaptureChEdge::Rising,
         false,
     );
-
-    let reg = unsafe { Iopctl::steal() };
 
     let pac = embassy_imxrt::pac::Peripherals::take().unwrap();
 
