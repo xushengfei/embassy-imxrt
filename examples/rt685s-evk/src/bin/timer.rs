@@ -38,6 +38,36 @@ async fn main(_spawner: Spawner) {
         },
         false,
     );
+    let mut tmr3 = timer_manager.request_counting_timer(
+        || {
+            info!("Timer3 example - Timer Callback");
+        },
+        false,
+    );
+    let mut tmr4 = timer_manager.request_counting_timer(
+        || {
+            info!("Timer4 example - Timer Callback");
+        },
+        false,
+    );
+    let mut tmr5 = timer_manager.request_counting_timer(
+        || {
+            info!("Timer5 example - Timer Callback");
+        },
+        false,
+    );
+    let mut tmr6 = timer_manager.request_counting_timer(
+        || {
+            info!("Timer6 example - Timer Callback");
+        },
+        false,
+    );
+    let mut tmr7 = timer_manager.request_counting_timer(
+        || {
+            info!("Timer7 example - Timer Callback");
+        },
+        false,
+    );
 
     let cap_tmr = timer_manager.request_capture_timer(
         |count_reg| {
@@ -54,12 +84,23 @@ async fn main(_spawner: Spawner) {
 
     let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveLow);
 
-    tmr1.start_count(5000000);
-    tmr2.start_count(10000000);
+    tmr1.start_count(1000000); // 1 sec
+    tmr2.start_count(2000000); // 2 sec
+    tmr3.start_count(3000000); // 3 sec
+    tmr4.start_count(4000000); // 4 sec
+    tmr5.start_count(5000000); // 5 sec
+    tmr6.start_count(6000000); // 6 sec
+    tmr7.start_count(7000000); // 7 sec
+
     cap_tmr.start_capture(8); // pass the input mux number user is interested in
 
     tmr1.wait().await;
     tmr2.wait().await;
+    tmr3.wait().await;
+    tmr4.wait().await;
+    tmr5.wait().await;
+    tmr6.wait().await;
+    tmr7.wait().await;
     cap_tmr.wait().await;
 
     loop {
