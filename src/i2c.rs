@@ -1014,7 +1014,7 @@ macro_rules! impl_scl {
                     .set_slew_rate(crate::gpio::SlewRate::Standard)
                     .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
-                    .set_input_polarity(crate::gpio::Polarity::ActiveHigh)
+                    .set_input_inverter(crate::gpio::Inverter::Disabled)
                     .enable_input_buffer()
                     .set_function(crate::iopctl::Function::$fn);
             }
@@ -1030,7 +1030,7 @@ macro_rules! impl_sda {
                     .set_slew_rate(crate::gpio::SlewRate::Standard)
                     .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
-                    .set_input_polarity(crate::gpio::Polarity::ActiveHigh)
+                    .set_input_inverter(crate::gpio::Inverter::Disabled)
                     .enable_input_buffer()
                     .set_function(crate::iopctl::Function::$fn);
             }

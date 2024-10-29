@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
         gpio::SlewRate::Standard,
     );
 
-    let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveHigh);
+    let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Inverter::Disabled);
 
     let mut ticker = Ticker::every(Duration::from_millis(100));
 

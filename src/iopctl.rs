@@ -80,16 +80,15 @@ pub enum DriveMode {
     OpenDrain,
 }
 
-/// Input polarity of a pin.
+/// Input inverter of a pin.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Polarity {
-    /// Active-high
-    ActiveHigh,
-    /// Active-low, which essentially "inverts" the input signal
-    ///
-    /// e.g. A logic low on an input signal will be interpreted as a logic high
-    ActiveLow,
+pub enum Inverter {
+    /// No inverter
+    Disabled,
+    /// Enable input inverter on the input port. A low signal will be
+    /// seen as a high signal by the pin.
+    Enabled,
 }
 
 trait SealedPin {}
@@ -166,11 +165,11 @@ pub trait IopctlPin: SealedPin {
     /// See Section 7.4.2.7 of reference manual.
     fn set_drive_mode(&self, mode: DriveMode) -> &Self;
 
-    /// Sets the polarity of an input pin.
+    /// Sets the input inverter of an input pin.
     ///
-    /// Setting this to [`Polarity::ActiveLow`] will invert
+    /// Setting this to [`Inverter::Enabled`] will invert
     /// the input signal.
-    fn set_input_polarity(&self, polarity: Polarity) -> &Self;
+    fn set_input_inverter(&self, inverter: Inverter) -> &Self;
 
     /// Returns a pin to its reset state.
     fn reset(&self) -> &Self;
@@ -298,10 +297,10 @@ impl IopctlPin for AnyPin {
         self
     }
 
-    fn set_input_polarity(&self, polarity: Polarity) -> &Self {
-        match polarity {
-            Polarity::ActiveHigh => self.reg.modify(|_, w| w.iiena().disabled()),
-            Polarity::ActiveLow => self.reg.modify(|_, w| w.iiena().enabled()),
+    fn set_input_inverter(&self, inverter: Inverter) -> &Self {
+        match inverter {
+            Inverter::Disabled => self.reg.modify(|_, w| w.iiena().disabled()),
+            Inverter::Enabled => self.reg.modify(|_, w| w.iiena().enabled()),
         }
         self
     }
@@ -372,8 +371,8 @@ macro_rules! impl_pin {
             }
 
             #[inline]
-            fn set_input_polarity(&self, polarity: Polarity) -> &Self {
-                Self::to_raw($pin_port, $pin_no).set_input_polarity(polarity);
+            fn set_input_inverter(&self, inverter: Inverter) -> &Self {
+                Self::to_raw($pin_port, $pin_no).set_input_inverter(inverter);
                 self
             }
 
