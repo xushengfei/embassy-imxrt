@@ -12,7 +12,7 @@ use embassy_time::Timer;
 
 const SLAVE_ADDR: Option<i2c::Address> = i2c::Address::new(0x20);
 
-async fn slave_service(i2c: &impl I2cSlaveAsync) {
+async fn slave_service(i2c: &mut impl I2cSlaveAsync) {
     let magic_code = [0xF0, 0x05, 0xBA, 0x11];
     let mut cmd: [u8; 4] = [0xAA; 4];
 
@@ -43,11 +43,18 @@ async fn main(_spawner: Spawner) {
     // NOTE: Tested with a raspberry pi 5 as master controller connected FC2 to i2c on Pi5
     //       Test program here: https://github.com/jerrysxie/pi5-i2c-test
     info!("i2cs example - I2c::new");
-    let i2c = i2c::I2cSlave::new_async(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, Pull::Down, SLAVE_ADDR.unwrap()).unwrap();
+    let mut i2c = i2c::I2cSlave::new_async(
+        p.FLEXCOMM2,
+        p.PIO0_18,
+        p.PIO0_17,
+        Pull::Down,
+        SLAVE_ADDR.unwrap(),
+        p.DMA0_CH4,
+    )
+    .unwrap();
 
     loop {
-        slave_service(&i2c).await;
-
+        slave_service(&mut i2c).await;
         Timer::after_millis(1000).await;
     }
 }
