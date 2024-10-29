@@ -10,7 +10,7 @@ use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef}
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Binding;
-use crate::iopctl::*;
+use crate::iopctl::{DriveMode, DriveStrength, Function, IopctlPin, Polarity, Pull, SlewRate};
 use crate::pac::adc0;
 use crate::{interrupt, peripherals};
 

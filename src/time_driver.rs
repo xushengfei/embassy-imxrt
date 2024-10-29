@@ -1,6 +1,6 @@
 use core::cell::Cell;
+use core::ptr;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -98,6 +98,7 @@ impl TimerDriver {
         unsafe { interrupt::RTC.enable() };
     }
 
+    #[cfg(feature = "rt")]
     fn on_interrupt(&self) {
         let r = rtc();
         // This interrupt fires every 10 ticks of the 1kHz RTC high res clk and adds
@@ -140,6 +141,7 @@ impl TimerDriver {
         })
     }
 
+    #[cfg(feature = "rt")]
     fn next_period(&self) {
         critical_section::with(|cs| {
             let period = self
@@ -170,6 +172,7 @@ impl TimerDriver {
         unsafe { self.alarms.borrow(cs).get_unchecked(alarm.id() as usize) }
     }
 
+    #[cfg(feature = "rt")]
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         // safety: writing to gpregs is always unsafe. Because
         // gpreg 2 is "int_en" and gpreg1 is the compare register,
@@ -186,7 +189,7 @@ impl TimerDriver {
         // safety:
         // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
         // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
+        let f: fn(*mut ()) = unsafe { core::mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());
     }
 }
