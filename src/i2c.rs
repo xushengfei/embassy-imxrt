@@ -715,7 +715,7 @@ pub trait I2cSlaveBlocking {
 /// interface trait for generalized I2C slave interactions
 pub trait I2cSlaveAsync {
     /// listen for cmd
-    async fn listen(&mut self, cmd: &mut [u8]) -> Result<()>;
+    async fn listen(&mut self, cmd: &mut [u8], expect_stop: bool) -> Result<()>;
 
     /// respond with data
     async fn respond(&mut self, response: &[u8]) -> Result<()>;
@@ -866,7 +866,10 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Block
     fn listen(&self, cmd: &mut [u8]) -> Result<()> {
         let i2c = self.bus.i2c();
 
-        self.block_until_addressed()?;
+        // Skip address phase if we are already in receive mode
+        if !i2c.stat().read().slvstate().is_slave_receive() {
+            self.block_until_addressed()?;
+        }
 
         for b in cmd {
             self.poll()?;
@@ -907,10 +910,13 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Block
 }
 
 impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D> {
-    async fn listen(&mut self, request: &mut [u8]) -> Result<()> {
+    async fn listen(&mut self, request: &mut [u8], expect_stop: bool) -> Result<()> {
         let i2c = self.bus.i2c();
 
-        self.block_until_addressed().await?;
+        // Skip address phase if we are already in receive mode
+        if !i2c.stat().read().slvstate().is_slave_receive() {
+            self.block_until_addressed().await?;
+        }
 
         // Verify that we are ready to receive after addressed
         if !i2c.stat().read().slvstate().is_slave_receive() {
@@ -942,6 +948,11 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D
 
             if i2c.stat().read().slvdesel().bit_is_set() {
                 i2c.stat().write(|w| w.slvdesel().deselected());
+                return Poll::Ready(());
+            }
+
+            // Only check DMA status if we are not expecting a stop
+            if !expect_stop && !self.dma_ch.as_ref().unwrap().is_active() {
                 return Poll::Ready(());
             }
 
