@@ -12,7 +12,7 @@ use sealed::Sealed;
 
 use crate::clocks::enable_and_reset;
 use crate::iopctl::IopctlPin;
-pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Polarity, Pull, SlewRate};
+pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Inverter, Pull, SlewRate};
 use crate::{interrupt, into_ref, peripherals, Peripheral, PeripheralRef};
 
 // This should be unique per IMXRT package
@@ -252,8 +252,8 @@ impl<'d> Flex<'d, SenseEnabled> {
     }
 
     /// Converts pin to input pin
-    pub fn set_as_input(&mut self, pull: Pull, polarity: Polarity) {
-        self.pin.set_pull(pull).set_input_polarity(polarity);
+    pub fn set_as_input(&mut self, pull: Pull, inverter: Inverter) {
+        self.pin.set_pull(pull).set_input_inverter(inverter);
 
         self.pin.block().dirclr(self.pin.port()).write(|w|
                     // SAFETY: Writing a 0 to bits in this register has no effect,
@@ -358,9 +358,9 @@ pub struct Input<'d> {
 
 impl<'d> Input<'d> {
     /// New input pin
-    pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd, pull: Pull, polarity: Polarity) -> Self {
+    pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd, pull: Pull, inverter: Inverter) -> Self {
         let mut pin = Flex::<SenseEnabled>::new(pin);
-        pin.set_as_input(pull, polarity);
+        pin.set_as_input(pull, inverter);
         Self { pin }
     }
 

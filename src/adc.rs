@@ -10,7 +10,7 @@ use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef}
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Binding;
-use crate::iopctl::{DriveMode, DriveStrength, Function, IopctlPin, Polarity, Pull, SlewRate};
+use crate::iopctl::{DriveMode, DriveStrength, Function, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::adc0;
 use crate::{interrupt, peripherals};
 
@@ -422,7 +422,7 @@ macro_rules! impl_pin {
                     .set_drive_strength(DriveStrength::Normal)
                     .enable_analog_multiplex()
                     .set_drive_mode(DriveMode::PushPull)
-                    .set_input_polarity(Polarity::ActiveHigh);
+                    .set_input_inverter(Inverter::Disabled);
 
                 AdcChannel {
                     ch: crate::pac::adc0::cmdl::Adch::$ch,
