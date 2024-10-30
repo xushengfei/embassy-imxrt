@@ -14,10 +14,16 @@ const SLAVE_ADDR: Option<i2c::Address> = i2c::Address::new(0x20);
 
 async fn slave_service(i2c: &mut impl I2cSlaveAsync) {
     let magic_code = [0xF0, 0x05, 0xBA, 0x11];
-    let mut cmd: [u8; 4] = [0xAA; 4];
 
-    info!("i2cs example - wait for cmd");
-    i2c.listen(&mut cmd).await.unwrap();
+    let mut cmd_length: [u8; 1] = [0xAA; 1];
+    info!("i2cs example - wait for cmd - read cmd length first");
+    i2c.listen(&mut cmd_length, false).await.unwrap();
+    info!("cmd length = {:02X}", cmd_length);
+
+    let mut cmd: [u8; 4] = [0xAA; 4];
+    info!("i2cs example - wait for cmd - read the actual cmd");
+    i2c.listen(&mut cmd, true).await.unwrap();
+    info!("cmd length = {:02X}", cmd_length);
 
     if cmd == [0xDE, 0xAD, 0xBE, 0xEF] {
         info!("i2cs example - receive init cmd");

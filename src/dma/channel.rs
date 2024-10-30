@@ -58,6 +58,12 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
         &DMA_WAKERS[T::get_channel_number()]
     }
 
+    /// Check whether DMA is busy
+    pub fn is_active(&self) -> bool {
+        let channel = T::get_channel_number();
+        T::regs().active0().read().act().bits() & (1 << channel) != 0
+    }
+
     async fn poll_transfer_complete(&'d self) {
         poll_fn(|cx| {
             // TODO - handle transfer failure
