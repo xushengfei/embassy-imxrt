@@ -73,7 +73,7 @@ async fn main(_spawner: Spawner) {
         false,
     );
 
-    let cap_tmr = timer_manager.request_capture_timer(
+    let mut cap_tmr = timer_manager.request_capture_timer(
         |count_reg| {
             info!("Capture Timer example - Capture Timer Callback");
             info!("count reg = 0x{:02X}", count_reg);

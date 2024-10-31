@@ -67,7 +67,7 @@ pub trait Timer {
     fn start_capture(&self, event_input: u32);
 
     /// Waits for the countdown timer to complete.
-    async fn wait(&self);
+    async fn wait(&mut self);
 }
 
 /// A timer that captures events based on a specified edge and calls a user-defined callback.
@@ -78,6 +78,7 @@ pub struct CaptureTimer<F: Fn(u32)> {
     _timeout: u32,
     _edge: CaptureChEdge,
     _periodic: bool,
+    _hist: u32,
 }
 
 struct CountingTimer<F: Fn()> {
@@ -355,9 +356,10 @@ macro_rules! impl_capture_timer_wait {
 
         match $channel {
             CHANNEL_0 => {
-                if reg.cr($channel).read().bits() != 0 {
+                if reg.cr($channel).read().bits() != $self._hist {
+                    $self._hist = reg.cr($channel).read().bits();
                     if $self._periodic {
-                        reg.ccr().write(|w| w.cap0i().set_bit());
+                        reg.ccr().modify(|_, w| w.cap0i().set_bit());
                     }
                     ($self._cb)(reg.cr($channel).read().bits());
                     return Poll::Ready(());
@@ -366,7 +368,7 @@ macro_rules! impl_capture_timer_wait {
             CHANNEL_1 => {
                 if reg.cr($channel).read().bits() != 0 {
                     if $self._periodic {
-                        reg.ccr().write(|w| w.cap1i().set_bit());
+                        reg.ccr().modify(|_, w| w.cap1i().set_bit());
                     }
                     ($self._cb)(reg.cr($channel).read().bits());
                     return Poll::Ready(());
@@ -375,7 +377,7 @@ macro_rules! impl_capture_timer_wait {
             CHANNEL_2 => {
                 if reg.cr($channel).read().bits() != 0 {
                     if $self._periodic {
-                        reg.ccr().write(|w| w.cap2i().set_bit());
+                        reg.ccr().modify(|_, w| w.cap2i().set_bit());
                     }
                     ($self._cb)(reg.cr($channel).read().bits());
                     return Poll::Ready(());
@@ -384,7 +386,7 @@ macro_rules! impl_capture_timer_wait {
             CHANNEL_3 => {
                 if reg.cr($channel).read().bits() != 0 {
                     if $self._periodic {
-                        reg.ccr().write(|w| w.cap3i().set_bit());
+                        reg.ccr().modify(|_, w| w.cap3i().set_bit());
                     }
                     ($self._cb)(reg.cr($channel).read().bits());
                     return Poll::Ready(());
@@ -408,12 +410,13 @@ impl<F: Fn(u32)> CaptureTimer<F> {
             _edge: edge,
             _id: id,
             _periodic: periodic,
+            _hist: 0,
         }
     }
 }
 
 impl<F: Fn(u32)> Timer for CaptureTimer<F> {
-    async fn wait(&self) {
+    async fn wait(&mut self) {
         // Implementation of waiting for the interrupt
         poll_fn(|cx| {
             WAKERS[self._id].register(cx.waker());
@@ -524,7 +527,7 @@ where
             _ => panic!("Invalid timer instance"),
         }
     }
-    async fn wait(&self) {
+    async fn wait(&mut self) {
         // Implementation of waiting for the interrupt
         poll_fn(|cx| {
             // Register the waker
