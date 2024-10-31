@@ -827,7 +827,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
         Self::new_inner(bus, scl, sda, pull, address, Some(ch))
     }
 
-    async fn block_until_addressed(&self) -> Result<()> {
+    async fn poll_for_action(&self) -> Result<()> {
         let i2c = self.bus.i2c();
 
         i2c.intenset()
@@ -850,6 +850,14 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
 
         i2c.intenclr()
             .write(|w| w.slvpendingclr().set_bit().slvdeselclr().set_bit());
+
+        Ok(())
+    }
+
+    async fn block_until_addressed(&self) -> Result<()> {
+        let i2c = self.bus.i2c();
+
+        self.poll_for_action().await?;
 
         if !i2c.stat().read().slvstate().is_slave_address() {
             return Err(TransferError::AddressNack.into());
@@ -997,6 +1005,10 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D
                 return Poll::Ready(());
             }
 
+            if !self.dma_ch.as_ref().unwrap().is_active() {
+                return Poll::Ready(());
+            }
+
             Poll::Pending
         })
         .await;
@@ -1004,6 +1016,17 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D
         // Disable interrupts
         i2c.intenclr()
             .write(|w| w.slvpendingclr().set_bit().slvdeselclr().set_bit());
+
+        // if the master did not send a stop and we already send all the data,
+        // send nack
+        if i2c.stat().read().slvdesel().bit_is_clear() {
+            i2c.slvctl().write(|w| w.slvnack().nack());
+
+            self.poll_for_action().await?;
+
+            // clear the nack
+            i2c.slvctl().write(|w| w.slvcontinue().continue_());
+        }
 
         Ok(())
     }
