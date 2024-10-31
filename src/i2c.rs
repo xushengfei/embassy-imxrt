@@ -427,7 +427,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_async(fc, clock)?;
         let ch = dma::Dma::reserve_channel(dma_ch);
         let mut this = Self::new_inner(bus, scl, sda, pull, speed, timeout, Some(ch))?;
-        this.poll_ready().await?;
+        this.poll_ready(false).await?;
 
         Ok(this)
     }
@@ -446,7 +446,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
 
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 
-        self.poll_ready().await?;
+        self.poll_ready(false).await?;
 
         if i2cregs.stat().read().mststate().is_nack_address() {
             // STOP bit to complete the attempted transfer
@@ -482,7 +482,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 .unwrap()
                 .read_from_peripheral(i2cregs.mstdat().as_ptr() as *mut u8, read, options);
 
-            self.poll_ready().await?;
+            self.poll_ready(true).await?;
             self.check_for_bus_errors()?;
 
             // Disable DMA
@@ -490,7 +490,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         } else {
             read[0] = i2cregs.mstdat().read().data().bits();
 
-            self.poll_ready().await?;
+            self.poll_ready(false).await?;
             self.check_for_bus_errors()?;
         }
 
@@ -513,7 +513,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 .unwrap()
                 .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
 
-            self.poll_ready().await?;
+            self.poll_ready(true).await?;
             self.check_for_bus_errors()?;
 
             // Disable DMA
@@ -525,7 +525,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
 
             i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
 
-            self.poll_ready().await?;
+            self.poll_ready(false).await?;
             self.check_for_bus_errors()?;
         }
 
@@ -537,7 +537,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         let i2cregs = self.bus.i2c();
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready().await?;
+        self.poll_ready(false).await?;
         self.check_for_bus_errors()?;
 
         // ensure return to idle state for bus (no stuck SCL/SDA lines)
@@ -548,7 +548,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         }
     }
 
-    async fn poll_ready(&mut self) -> Result<()> {
+    async fn poll_ready(&mut self, dma: bool) -> Result<()> {
         #[cfg(feature = "time")]
         {
             self.poll_start = Instant::now();
@@ -577,6 +577,10 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 || i2c.stat().read().mstststperr().is_error()
                 || self.check_timeout().is_err()
             {
+                return Poll::Ready(());
+            }
+
+            if dma && !self.dma_ch.as_ref().unwrap().is_active() {
                 return Poll::Ready(());
             }
 
