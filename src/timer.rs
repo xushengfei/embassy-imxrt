@@ -12,261 +12,6 @@ static WAKERS: [AtomicWaker; TOTAL_CHANNELS] = [const { AtomicWaker::new() }; TO
 
 pub use embedded_hal_02::timer::{Cancel, CountDown, Periodic};
 
-macro_rules! irq_handler_impl {
-    ($timer:ident, $waker0:expr, $waker1:expr, $waker2:expr, $waker3:expr, $waker4:expr, $waker5:expr, $waker6:expr, $waker7:expr) => {
-        let reg = unsafe { $timer::steal() };
-        if reg.ir().read().mr0int().bit_is_set() {
-            let mut data = reg.mcr().read().bits();
-            data &= !0x1;
-            reg.mcr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.mr0int().set_bit());
-            reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
-            WAKERS[$waker0].wake();
-        }
-        if reg.ir().read().mr1int().bit_is_set() {
-            let mut data = reg.mcr().read().bits();
-            data &= !0x8;
-            reg.mcr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.mr1int().set_bit());
-            reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
-            WAKERS[$waker1].wake();
-        }
-        if reg.ir().read().mr2int().bit_is_set() {
-            let mut data = reg.mcr().read().bits();
-            data &= !0x40;
-            reg.mcr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.mr2int().set_bit());
-            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
-            WAKERS[$waker2].wake();
-        }
-        if reg.ir().read().mr3int().bit_is_set() {
-            let mut data = reg.mcr().read().bits();
-            data &= !0x200;
-            reg.mcr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.mr3int().set_bit());
-            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
-            WAKERS[$waker3].wake();
-        }
-        if reg.ir().read().cr0int().bit_is_set() {
-            let mut data = reg.ccr().read().bits();
-            data &= !0x4;
-            reg.ccr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.cr0int().set_bit());
-            WAKERS[$waker4].wake();
-        }
-        if reg.ir().read().cr1int().bit_is_set() {
-            let mut data = reg.ccr().read().bits();
-            data &= !0x20;
-            reg.ccr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.cr1int().set_bit());
-            WAKERS[$waker5].wake();
-        }
-        if reg.ir().read().cr2int().bit_is_set() {
-            let mut data = reg.ccr().read().bits();
-            data &= !0x100;
-            reg.ccr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.cr2int().set_bit());
-            WAKERS[$waker6].wake();
-        }
-        if reg.ir().read().cr3int().bit_is_set() {
-            let mut data = reg.ccr().read().bits();
-            data &= !0x800;
-            reg.ccr().write(|w| unsafe { w.bits(data) });
-            reg.ir().write(|w| w.cr3int().set_bit());
-            WAKERS[$waker7].wake();
-        }
-    };
-}
-
-macro_rules! impl_capture_timer_setup {
-    ($timer:ident, $edge:ident, $id:ident) => {
-        let reg = unsafe { $timer::steal() };
-        let offset = ($id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
-        let data = reg.ccr().read().bits();
-        if offset == 0 {
-            reg.ccr().write(|w| unsafe { w.bits(data | 0x4) });
-            if $edge == CaptureChEdge::Rising {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x1) });
-            } else if $edge == CaptureChEdge::Falling {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x2) });
-            } else {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x3) });
-            }
-        } else if offset == 1 {
-            reg.ccr().write(|w| unsafe { w.bits(data | 0x20) });
-            if $edge == CaptureChEdge::Rising {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x8) });
-            } else if $edge == CaptureChEdge::Falling {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x10) });
-            } else {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x18) });
-            }
-        } else if offset == 2 {
-            reg.ccr().write(|w| unsafe { w.bits(data | 0x100) });
-            if $edge == CaptureChEdge::Rising {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x40) });
-            } else if $edge == CaptureChEdge::Falling {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x80) });
-            } else {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0xC0) });
-            }
-        } else if offset == 3 {
-            reg.ccr().write(|w| unsafe { w.bits(data | 0x800) });
-            if $edge == CaptureChEdge::Rising {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x200) });
-            } else if $edge == CaptureChEdge::Falling {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x400) });
-            } else {
-                reg.ccr().write(|w| unsafe { w.bits(data | 0x600) });
-            }
-        }
-    };
-}
-
-macro_rules! impl_counting_timer_setup {
-    ($timer:ident, $id:ident) => {
-        let reg = unsafe { $timer::steal() };
-        let offset = $id % CHANNEL_PER_MODULE;
-        let data = reg.mcr().read().bits();
-
-        if offset == 0 {
-            reg.mcr().write(|w| unsafe { w.bits(data | 0x1) });
-        } else if offset == 1 {
-            reg.mcr().write(|w| unsafe { w.bits(data | 0x8) });
-        } else if offset == 2 {
-            reg.mcr().write(|w| unsafe { w.bits(data | 0x40) });
-        } else if offset == 3 {
-            reg.mcr().write(|w| unsafe { w.bits(data | 0x200) });
-        }
-    };
-}
-
-macro_rules! impl_counting_timer_wait {
-    ($timer:ident, $offset: ident, $self:ident) => {
-        let reg = unsafe { $timer::steal() };
-
-        if $self._periodic && reg.mr($offset).read().bits() == 0 {
-            let cycles = $self._timeout;
-            let curr_time = reg.tc().read().bits();
-
-            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
-                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
-                let cycles = leftover as u32;
-                unsafe {
-                    reg.mr($offset).write(|w| w.match_().bits(cycles));
-                }
-            } else {
-                unsafe {
-                    reg.mr($offset).write(|w| w.match_().bits(curr_time + cycles));
-                }
-            }
-        }
-
-        if $offset == 0 && reg.mr($offset).read().bits() == 0 {
-            if $self._periodic {
-                let mut data = reg.mcr().read().bits();
-                data |= 0x1;
-                reg.mcr().write(|w| unsafe { w.bits(data) });
-            }
-            return Poll::Ready(());
-        }
-        if $offset == 1 && reg.mr($offset).read().bits() == 0 {
-            if $self._periodic {
-                let mut data = reg.mcr().read().bits();
-                data |= 0x8;
-                reg.mcr().write(|w| unsafe { w.bits(data) });
-            }
-            return Poll::Ready(());
-        }
-        if $offset == 2 && reg.mr($offset).read().bits() == 0 {
-            if $self._periodic {
-                let mut data = reg.mcr().read().bits();
-                data |= 0x40;
-                reg.mcr().write(|w| unsafe { w.bits(data) });
-            }
-            return Poll::Ready(());
-        }
-        if $offset == 3 && reg.mr($offset).read().bits() == 0 {
-            if $self._periodic {
-                let mut data = reg.mcr().read().bits();
-                data |= 0x200;
-                reg.mcr().write(|w| unsafe { w.bits(data) });
-            }
-            return Poll::Ready(());
-        }
-    };
-}
-
-macro_rules! impl_counting_timer_start {
-    ($timer:ident, $self:ident, $cycles:ident, $timer_intr:ident) => {
-        let reg = unsafe { $timer::steal() };
-        let offset = $self._id % CHANNEL_PER_MODULE;
-
-        $self._timeout = $cycles;
-
-        let curr_time = reg.tc().read().bits();
-
-        if curr_time as u64 + $cycles as u64 > u32::MAX as u64 {
-            let leftover = (curr_time as u64 + $cycles as u64) - u32::MAX as u64;
-            let cycles = leftover as u32;
-            unsafe {
-                reg.mr(offset).write(|w| w.match_().bits(cycles));
-            }
-        } else {
-            unsafe {
-                reg.mr(offset).write(|w| w.match_().bits(curr_time + $cycles));
-            }
-        }
-
-        if reg.tcr().read().cen().bit_is_clear() {
-            reg.tcr().write(|w| w.crst().set_bit());
-            reg.tcr().write(|w| w.crst().clear_bit());
-            reg.tcr().write(|w| w.cen().set_bit());
-            unsafe {
-                interrupt::$timer_intr.unpend();
-                interrupt::$timer_intr.enable();
-            }
-        }
-    };
-}
-
-macro_rules! impl_capture_timer_start {
-    ($timer:ident, $self:ident, $timer_intr:ident) => {
-        let reg = unsafe { $timer::steal() };
-
-        if reg.tcr().read().cen().bit_is_clear() {
-            reg.tcr().write(|w| w.crst().set_bit());
-            reg.tcr().write(|w| w.crst().clear_bit());
-            reg.tcr().write(|w| w.cen().set_bit());
-            unsafe {
-                interrupt::$timer_intr.unpend();
-                interrupt::$timer_intr.enable();
-            }
-        }
-    };
-}
-
-macro_rules! impl_capture_timer_wait {
-    ($timer:ident,$offset:ident, $self:ident) => {
-        let reg = unsafe { Ctimer0::steal() };
-        let mut data = reg.ccr().read().bits();
-        if $offset == 0 && reg.cr($offset).read().bits() != 0 && $self._periodic {
-            data |= 0x4;
-        } else if $offset == 1 && reg.cr($offset).read().bits() != 0 && $self._periodic {
-            data |= 0x20;
-        } else if $offset == 2 && reg.cr($offset).read().bits() != 0 && $self._periodic {
-            data |= 0x100;
-        } else if $offset == 3 && reg.cr($offset).read().bits() != 0 && $self._periodic {
-            data |= 0x800;
-        } else {
-            return Poll::Pending;
-        }
-        reg.ccr().write(|w| unsafe { w.bits(data) });
-        ($self._cb)(reg.cr($offset).read().bits());
-        return Poll::Ready(());
-    };
-}
-
 /////// Enums ///////////////////////
 enum TimerType {
     Counting,
@@ -340,6 +85,278 @@ struct CountingTimer<F: Fn()> {
     _periodic: bool,
 }
 
+macro_rules! irq_handler_impl {
+    ($timer:ident, $waker0:expr, $waker1:expr, $waker2:expr, $waker3:expr, $waker4:expr, $waker5:expr, $waker6:expr, $waker7:expr) => {
+        let reg = unsafe { $timer::steal() };
+        if reg.ir().read().mr0int().bit_is_set() {
+            reg.mcr().modify(|_, w| w.mr0i().clear_bit());
+            reg.ir().modify(|_, w| w.mr0int().set_bit());
+            reg.mr(0).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[$waker0].wake();
+        }
+        if reg.ir().read().mr1int().bit_is_set() {
+            reg.mcr().modify(|_, w| w.mr1i().clear_bit());
+            reg.ir().write(|w| w.mr1int().set_bit());
+            reg.mr(1).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[$waker1].wake();
+        }
+        if reg.ir().read().mr2int().bit_is_set() {
+            reg.mcr().modify(|_, w| w.mr2i().clear_bit());
+            reg.ir().write(|w| w.mr2int().set_bit());
+            reg.mr(2).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[$waker2].wake();
+        }
+        if reg.ir().read().mr3int().bit_is_set() {
+            reg.mcr().modify(|_, w| w.mr3i().clear_bit());
+            reg.ir().write(|w| w.mr3int().set_bit());
+            reg.mr(3).write(|w| unsafe { w.match_().bits(0) });
+            WAKERS[$waker3].wake();
+        }
+        if reg.ir().read().cr0int().bit_is_set() {
+            reg.ccr().modify(|_, w| w.cap0i().clear_bit());
+            reg.ir().write(|w| w.cr0int().set_bit());
+            WAKERS[$waker4].wake();
+        }
+        if reg.ir().read().cr1int().bit_is_set() {
+            reg.ccr().modify(|_, w| w.cap1i().clear_bit());
+            reg.ir().write(|w| w.cr1int().set_bit());
+            WAKERS[$waker5].wake();
+        }
+        if reg.ir().read().cr2int().bit_is_set() {
+            reg.ccr().modify(|_, w| w.cap2i().clear_bit());
+            reg.ir().write(|w| w.cr2int().set_bit());
+            WAKERS[$waker6].wake();
+        }
+        if reg.ir().read().cr3int().bit_is_set() {
+            reg.ccr().modify(|_, w| w.cap3i().clear_bit());
+            reg.ir().write(|w| w.cr3int().set_bit());
+            WAKERS[$waker7].wake();
+        }
+    };
+}
+
+macro_rules! impl_capture_timer_setup {
+    ($timer:ident, $edge:ident, $id:ident) => {
+        let reg = unsafe { $timer::steal() };
+        let offset = ($id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
+
+        match offset {
+            0 => {
+                reg.ccr().modify(|_, w| w.cap0i().set_bit());
+                match $edge {
+                    CaptureChEdge::Rising => {
+                        reg.ccr().modify(|_, w| w.cap0re().set_bit());
+                    }
+                    CaptureChEdge::Falling => {
+                        reg.ccr().modify(|_, w| w.cap0fe().set_bit());
+                    }
+                    CaptureChEdge::Duel => {
+                        reg.ccr().modify(|_, w| w.cap0re().set_bit());
+                        reg.ccr().modify(|_, w| w.cap0fe().set_bit());
+                    }
+                }
+            }
+            1 => {
+                reg.ccr().modify(|_, w| w.cap1i().set_bit());
+                match $edge {
+                    CaptureChEdge::Rising => {
+                        reg.ccr().modify(|_, w| w.cap1re().set_bit());
+                    }
+                    CaptureChEdge::Falling => {
+                        reg.ccr().modify(|_, w| w.cap1fe().set_bit());
+                    }
+                    CaptureChEdge::Duel => {
+                        reg.ccr().modify(|_, w| w.cap1re().set_bit());
+                        reg.ccr().modify(|_, w| w.cap1fe().set_bit());
+                    }
+                }
+            }
+            2 => {
+                reg.ccr().modify(|_, w| w.cap2i().set_bit());
+                match $edge {
+                    CaptureChEdge::Rising => {
+                        reg.ccr().modify(|_, w| w.cap2re().set_bit());
+                    }
+                    CaptureChEdge::Falling => {
+                        reg.ccr().modify(|_, w| w.cap2fe().set_bit());
+                    }
+                    CaptureChEdge::Duel => {
+                        reg.ccr().modify(|_, w| w.cap2re().set_bit());
+                        reg.ccr().modify(|_, w| w.cap2fe().set_bit());
+                    }
+                }
+            }
+            3 => {
+                reg.ccr().modify(|_, w| w.cap3i().set_bit());
+                match $edge {
+                    CaptureChEdge::Rising => {
+                        reg.ccr().modify(|_, w| w.cap3re().set_bit());
+                    }
+                    CaptureChEdge::Falling => {
+                        reg.ccr().modify(|_, w| w.cap3fe().set_bit());
+                    }
+                    CaptureChEdge::Duel => {
+                        reg.ccr().modify(|_, w| w.cap3re().set_bit());
+                        reg.ccr().modify(|_, w| w.cap3fe().set_bit());
+                    }
+                }
+            }
+            _ => {
+                core::panic!("Invalid channel");
+            }
+        }
+    };
+}
+
+macro_rules! impl_counting_timer_setup {
+    ($timer:ident, $id:ident) => {
+        let reg = unsafe { $timer::steal() };
+        let offset = $id % CHANNEL_PER_MODULE;
+
+        match offset {
+            0 => {
+                reg.mcr().modify(|_, w| w.mr0i().set_bit());
+            }
+            1 => {
+                reg.mcr().modify(|_, w| w.mr1i().set_bit());
+            }
+            2 => {
+                reg.mcr().modify(|_, w| w.mr2i().set_bit());
+            }
+            3 => {
+                reg.mcr().modify(|_, w| w.mr3i().set_bit());
+            }
+            _ => {
+                core::panic!("Invalid channel");
+            }
+        }
+    };
+}
+
+macro_rules! impl_counting_timer_wait {
+    ($timer:ident, $offset: ident, $self:ident) => {
+        let reg = unsafe { $timer::steal() };
+
+        if $self._periodic && reg.mr($offset).read().bits() == 0 {
+            let cycles = $self._timeout;
+            let curr_time = reg.tc().read().bits();
+
+            if curr_time as u64 + cycles as u64 > u32::MAX as u64 {
+                let leftover = (curr_time as u64 + cycles as u64) - u32::MAX as u64;
+                let cycles = leftover as u32;
+                unsafe {
+                    reg.mr($offset).write(|w| w.match_().bits(cycles));
+                }
+            } else {
+                unsafe {
+                    reg.mr($offset).write(|w| w.match_().bits(curr_time + cycles));
+                }
+            }
+        }
+
+        if $offset == 0 && reg.mr($offset).read().bits() == 0 {
+            if $self._periodic {
+                reg.mcr().modify(|_, w| w.mr0i().set_bit());
+            }
+            return Poll::Ready(());
+        }
+        if $offset == 1 && reg.mr($offset).read().bits() == 0 {
+            if $self._periodic {
+                reg.mcr().modify(|_, w| w.mr1i().set_bit());
+            }
+            return Poll::Ready(());
+        }
+        if $offset == 2 && reg.mr($offset).read().bits() == 0 {
+            if $self._periodic {
+                reg.mcr().modify(|_, w| w.mr2i().set_bit());
+            }
+            return Poll::Ready(());
+        }
+        if $offset == 3 && reg.mr($offset).read().bits() == 0 {
+            if $self._periodic {
+                reg.mcr().modify(|_, w| w.mr3i().set_bit());
+            }
+            return Poll::Ready(());
+        }
+    };
+}
+
+macro_rules! impl_counting_timer_start {
+    ($timer:ident, $self:ident, $cycles:ident, $timer_intr:ident) => {
+        let reg = unsafe { $timer::steal() };
+        let offset = $self._id % CHANNEL_PER_MODULE;
+
+        $self._timeout = $cycles;
+
+        let curr_time = reg.tc().read().bits();
+
+        if curr_time as u64 + $cycles as u64 > u32::MAX as u64 {
+            let leftover = (curr_time as u64 + $cycles as u64) - u32::MAX as u64;
+            let cycles = leftover as u32;
+            unsafe {
+                reg.mr(offset).write(|w| w.match_().bits(cycles));
+            }
+        } else {
+            unsafe {
+                reg.mr(offset).write(|w| w.match_().bits(curr_time + $cycles));
+            }
+        }
+
+        if reg.tcr().read().cen().bit_is_clear() {
+            reg.tcr().write(|w| w.crst().set_bit());
+            reg.tcr().write(|w| w.crst().clear_bit());
+            reg.tcr().write(|w| w.cen().set_bit());
+            unsafe {
+                interrupt::$timer_intr.unpend();
+                interrupt::$timer_intr.enable();
+            }
+        }
+    };
+}
+
+macro_rules! impl_capture_timer_start {
+    ($timer:ident, $self:ident, $timer_intr:ident) => {
+        let reg = unsafe { $timer::steal() };
+
+        if reg.tcr().read().cen().bit_is_clear() {
+            reg.tcr().write(|w| w.crst().set_bit());
+            reg.tcr().write(|w| w.crst().clear_bit());
+            reg.tcr().write(|w| w.cen().set_bit());
+            unsafe {
+                interrupt::$timer_intr.unpend();
+                interrupt::$timer_intr.enable();
+            }
+        }
+    };
+}
+
+macro_rules! impl_capture_timer_wait {
+    ($timer:ident,$offset:ident, $self:ident) => {
+        let reg = unsafe { $timer::steal() };
+        if $offset == 0 && reg.cr($offset).read().bits() != 0 {
+            if ($self._periodic) {
+                reg.ccr().write(|w| w.cap0i().set_bit());
+            }
+        } else if $offset == 1 && reg.cr($offset).read().bits() != 0 {
+            if ($self._periodic) {
+                reg.ccr().write(|w| w.cap1i().set_bit());
+            }
+        } else if $offset == 2 && reg.cr($offset).read().bits() != 0 {
+            if ($self._periodic) {
+                reg.ccr().write(|w| w.cap2i().set_bit());
+            }
+        } else if $offset == 3 && reg.cr($offset).read().bits() != 0 {
+            if ($self._periodic) {
+                reg.ccr().write(|w| w.cap3i().set_bit());
+            }
+        } else {
+            return Poll::Pending;
+        }
+        ($self._cb)(reg.cr($offset).read().bits());
+        return Poll::Ready(());
+    };
+}
+
 impl<F: Fn(u32)> CaptureTimer<F> {
     fn new(id: usize, callback: F, edge: CaptureChEdge, periodic: bool) -> Self {
         CaptureTimer {
@@ -362,22 +379,26 @@ impl<F: Fn(u32)> Timer for CaptureTimer<F> {
             let idx = (self._id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
             let offset = (self._id - COUNT_CHANNEL) % CHANNEL_PER_MODULE;
 
-            if idx == 0 {
-                impl_capture_timer_wait!(Ctimer0, offset, self);
+            match idx {
+                0 => {
+                    impl_capture_timer_wait!(Ctimer0, offset, self);
+                }
+                1 => {
+                    impl_capture_timer_wait!(Ctimer1, offset, self);
+                }
+                2 => {
+                    impl_capture_timer_wait!(Ctimer2, offset, self);
+                }
+                3 => {
+                    impl_capture_timer_wait!(Ctimer3, offset, self);
+                }
+                4 => {
+                    impl_capture_timer_wait!(Ctimer4, offset, self);
+                }
+                _ => {
+                    panic!("Invalid timer instance");
+                }
             }
-            if idx == 1 {
-                impl_capture_timer_wait!(Ctimer1, offset, self);
-            }
-            if idx == 2 {
-                impl_capture_timer_wait!(Ctimer2, offset, self);
-            }
-            if idx == 3 {
-                impl_capture_timer_wait!(Ctimer3, offset, self);
-            }
-            if idx == 4 {
-                impl_capture_timer_wait!(Ctimer4, offset, self);
-            }
-            Poll::Pending
         })
         .await;
     }
@@ -393,22 +414,25 @@ impl<F: Fn(u32)> Timer for CaptureTimer<F> {
 
         reg.ct32bit_cap(idx)
             .ct32bit_cap_sel(offset)
-            .write(|w| unsafe { w.bits(event_input) });
+            .modify(|_, w| unsafe { w.bits(event_input) });
 
-        if idx == 0 {
-            impl_capture_timer_start!(Ctimer0, self, CTIMER0);
-        }
-        if idx == 1 {
-            impl_capture_timer_start!(Ctimer1, self, CTIMER1);
-        }
-        if idx == 2 {
-            impl_capture_timer_start!(Ctimer2, self, CTIMER2);
-        }
-        if idx == 3 {
-            impl_capture_timer_start!(Ctimer3, self, CTIMER3);
-        }
-        if idx == 4 {
-            impl_capture_timer_start!(Ctimer4, self, CTIMER4);
+        match idx {
+            0 => {
+                impl_capture_timer_start!(Ctimer0, self, CTIMER0);
+            }
+            1 => {
+                impl_capture_timer_start!(Ctimer1, self, CTIMER1);
+            }
+            2 => {
+                impl_capture_timer_start!(Ctimer2, self, CTIMER2);
+            }
+            3 => {
+                impl_capture_timer_start!(Ctimer3, self, CTIMER3);
+            }
+            4 => {
+                impl_capture_timer_start!(Ctimer4, self, CTIMER4);
+            }
+            _ => panic!("Invalid timer instance"),
         }
     }
 }
@@ -442,20 +466,23 @@ where
 
         let cycles = dur as u32;
 
-        if idx == 0 {
-            impl_counting_timer_start!(Ctimer0, self, cycles, CTIMER0);
-        }
-        if idx == 1 {
-            impl_counting_timer_start!(Ctimer1, self, cycles, CTIMER1);
-        }
-        if idx == 2 {
-            impl_counting_timer_start!(Ctimer2, self, cycles, CTIMER2);
-        }
-        if idx == 3 {
-            impl_counting_timer_start!(Ctimer3, self, cycles, CTIMER3);
-        }
-        if idx == 4 {
-            impl_counting_timer_start!(Ctimer4, self, cycles, CTIMER4);
+        match idx {
+            0 => {
+                impl_counting_timer_start!(Ctimer0, self, cycles, CTIMER0);
+            }
+            1 => {
+                impl_counting_timer_start!(Ctimer1, self, cycles, CTIMER1);
+            }
+            2 => {
+                impl_counting_timer_start!(Ctimer2, self, cycles, CTIMER2);
+            }
+            3 => {
+                impl_counting_timer_start!(Ctimer3, self, cycles, CTIMER3);
+            }
+            4 => {
+                impl_counting_timer_start!(Ctimer4, self, cycles, CTIMER4);
+            }
+            _ => panic!("Invalid timer instance"),
         }
     }
     async fn wait(&self) {
@@ -466,21 +493,27 @@ where
             let offset = self._id % CHANNEL_PER_MODULE;
             WAKERS[self._id].register(cx.waker());
 
-            if idx == 0 {
-                impl_counting_timer_wait!(Ctimer0, offset, self);
+            match idx {
+                0 => {
+                    impl_counting_timer_wait!(Ctimer0, offset, self);
+                }
+                1 => {
+                    impl_counting_timer_wait!(Ctimer1, offset, self);
+                }
+                2 => {
+                    impl_counting_timer_wait!(Ctimer2, offset, self);
+                }
+                3 => {
+                    impl_counting_timer_wait!(Ctimer3, offset, self);
+                }
+                4 => {
+                    impl_counting_timer_wait!(Ctimer4, offset, self);
+                }
+                _ => {
+                    panic!("Invalid timer instance");
+                }
             }
-            if idx == 1 {
-                impl_counting_timer_wait!(Ctimer1, offset, self);
-            }
-            if idx == 2 {
-                impl_counting_timer_wait!(Ctimer2, offset, self);
-            }
-            if idx == 3 {
-                impl_counting_timer_wait!(Ctimer3, offset, self);
-            }
-            if idx == 4 {
-                impl_counting_timer_wait!(Ctimer4, offset, self);
-            }
+
             Poll::Pending
         })
         .await;
@@ -542,6 +575,9 @@ impl CTimerManager<Uninitialized> {
         reg.pscctl2_set().write(|w| w.ct32bit3_clk_set().set_clock());
         reg.pscctl2_set().write(|w| w.ct32bit4_clk_set().set_clock());
 
+        // • Enable the clock to the PIMCTL in the CLKCTL1_PSCCTL2 register
+        reg.pscctl2_set().write(|w| w.pimctl_clk_set().set_bit());
+
         // • Select a clock source for the CTIMER using the appropriate CT32BIT0FCLKSEL
         // register (see Section 4.5.2.55 through Section 4.5.2.59).
         reg.ct32bitfclksel(0).write(|w| w.sel().sfro_clk());
@@ -584,20 +620,25 @@ impl CTimerManager<Initialized> {
 
         let timer_idx = id / CHANNEL_PER_MODULE;
 
-        if timer_idx == 0 {
-            impl_counting_timer_setup!(Ctimer0, id);
-        }
-        if timer_idx == 1 {
-            impl_counting_timer_setup!(Ctimer1, id);
-        }
-        if timer_idx == 2 {
-            impl_counting_timer_setup!(Ctimer2, id);
-        }
-        if timer_idx == 3 {
-            impl_counting_timer_setup!(Ctimer3, id);
-        }
-        if timer_idx == 4 {
-            impl_counting_timer_setup!(Ctimer4, id);
+        match timer_idx {
+            0 => {
+                impl_counting_timer_setup!(Ctimer0, id);
+            }
+            1 => {
+                impl_counting_timer_setup!(Ctimer1, id);
+            }
+            2 => {
+                impl_counting_timer_setup!(Ctimer2, id);
+            }
+            3 => {
+                impl_counting_timer_setup!(Ctimer3, id);
+            }
+            4 => {
+                impl_counting_timer_setup!(Ctimer4, id);
+            }
+            _ => {
+                panic!("Invalid timer instance");
+            }
         }
         CountingTimer::new(id, callback, periodic)
     }
@@ -618,20 +659,23 @@ impl CTimerManager<Initialized> {
         // map logical timer id to physical controller
         let timer_idx = (id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
 
-        if timer_idx == 0 {
-            impl_capture_timer_setup!(Ctimer0, edge, id);
-        }
-        if timer_idx == 1 {
-            impl_capture_timer_setup!(Ctimer1, edge, id);
-        }
-        if timer_idx == 2 {
-            impl_capture_timer_setup!(Ctimer2, edge, id);
-        }
-        if timer_idx == 3 {
-            impl_capture_timer_setup!(Ctimer3, edge, id);
-        }
-        if timer_idx == 4 {
-            impl_capture_timer_setup!(Ctimer4, edge, id);
+        match timer_idx {
+            0 => {
+                impl_capture_timer_setup!(Ctimer0, edge, id);
+            }
+            1 => {
+                impl_capture_timer_setup!(Ctimer1, edge, id);
+            }
+            2 => {
+                impl_capture_timer_setup!(Ctimer2, edge, id);
+            }
+            3 => {
+                impl_capture_timer_setup!(Ctimer3, edge, id);
+            }
+            4 => {
+                impl_capture_timer_setup!(Ctimer4, edge, id);
+            }
+            _ => panic!("Invalid timer instance"),
         }
 
         CaptureTimer::new(id, callback, edge, periodic)
@@ -667,20 +711,25 @@ impl CTimerManager<Initialized> {
 
 #[cfg(feature = "rt")]
 fn irq_handler(inst: u32) {
-    if inst == 0 {
-        irq_handler_impl!(Ctimer0, 0, 1, 2, 3, 20, 21, 22, 23);
-    }
-    if inst == 1 {
-        irq_handler_impl!(Ctimer1, 4, 5, 6, 7, 24, 25, 26, 27);
-    }
-    if inst == 2 {
-        irq_handler_impl!(Ctimer2, 8, 9, 10, 11, 28, 29, 30, 31);
-    }
-    if inst == 3 {
-        irq_handler_impl!(Ctimer3, 12, 13, 14, 15, 32, 33, 34, 35);
-    }
-    if inst == 4 {
-        irq_handler_impl!(Ctimer4, 16, 17, 18, 19, 36, 37, 38, 39);
+    match inst {
+        0 => {
+            irq_handler_impl!(Ctimer0, 0, 1, 2, 3, 20, 21, 22, 23);
+        }
+        1 => {
+            irq_handler_impl!(Ctimer1, 4, 5, 6, 7, 24, 25, 26, 27);
+        }
+        2 => {
+            irq_handler_impl!(Ctimer2, 8, 9, 10, 11, 28, 29, 30, 31);
+        }
+        3 => {
+            irq_handler_impl!(Ctimer3, 12, 13, 14, 15, 32, 33, 34, 35);
+        }
+        4 => {
+            irq_handler_impl!(Ctimer4, 16, 17, 18, 19, 36, 37, 38, 39);
+        }
+        _ => {
+            panic!("Invalid timer instance");
+        }
     }
 }
 

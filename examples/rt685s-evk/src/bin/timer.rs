@@ -17,7 +17,7 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_imxrt::init(Default::default());
+    let _p = embassy_imxrt::init(Default::default());
 
     unsafe { gpio::init() };
 
@@ -71,18 +71,18 @@ async fn main(_spawner: Spawner) {
 
     let cap_tmr = timer_manager.request_capture_timer(
         |count_reg| {
-            info!("Capture Timer2 example - Capture Timer Callback");
-            info!("count reg = {:02x}", count_reg);
+            info!("Capture Timer example - Capture Timer Callback");
+            info!("count reg = 0x{:02X}", count_reg);
         },
-        CaptureChEdge::Rising,
+        CaptureChEdge::Falling,
         false,
     );
 
     let pac = embassy_imxrt::pac::Peripherals::take().unwrap();
 
-    pac.iopctl.pio1_0().write(|w| w.fsel().function_4());
-
-    let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveLow);
+    pac.iopctl.pio1_7().modify(|_, w| w.iiena().enabled()); // Active low input polarity
+    pac.iopctl.pio1_7().modify(|_, w| w.ibena().enabled()); // Input buffer enable
+    pac.iopctl.pio1_7().modify(|_, w| w.fsel().function_4()); // Set Function 4
 
     tmr1.start_count(1000000); // 1 sec
     tmr2.start_count(2000000); // 2 sec
@@ -92,7 +92,7 @@ async fn main(_spawner: Spawner) {
     tmr6.start_count(6000000); // 6 sec
     tmr7.start_count(7000000); // 7 sec
 
-    cap_tmr.start_capture(8); // pass the input mux number user is interested in
+    cap_tmr.start_capture(9); // pass the input mux number user is interested in
 
     tmr1.wait().await;
     tmr2.wait().await;
@@ -101,10 +101,11 @@ async fn main(_spawner: Spawner) {
     tmr5.wait().await;
     tmr6.wait().await;
     tmr7.wait().await;
+
     cap_tmr.wait().await;
 
     loop {
-        info!("Pin level is {}", monitor.get_level());
-        Tmr::after_millis(500).await;
+        Tmr::after_millis(1000).await;
+        cap_tmr.wait().await;
     }
 }
