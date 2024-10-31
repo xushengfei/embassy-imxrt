@@ -5,7 +5,7 @@ extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{self, I2cMasterAsync};
+use embassy_imxrt::i2c::{self, master::I2cMasterAsync};
 use embassy_time::Timer;
 
 const ACC_ADDR: u8 = 0x1E;
@@ -82,13 +82,13 @@ async fn main(_spawner: Spawner) {
     let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Inverter::Disabled);
 
     info!("i2c example - I2c::new");
-    let mut i2c = i2c::I2cMaster::new_async(
+    let mut i2c = i2c::master::I2cMaster::new_async(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
         Pull::Down,
-        i2c::Speed::Standard,
-        i2c::TimeoutSettings {
+        i2c::master::Speed::Standard,
+        i2c::master::TimeoutSettings {
             hw_timeout: true,
             sw_timeout: embassy_time::Duration::from_millis(1000),
         },

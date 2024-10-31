@@ -5,12 +5,12 @@ extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{self, I2cSlaveAsync};
+use embassy_imxrt::i2c::{self, slave::I2cSlaveAsync};
 use embassy_imxrt::iopctl::Pull;
 use embassy_imxrt::pac;
 use embassy_time::Timer;
 
-const SLAVE_ADDR: Option<i2c::Address> = i2c::Address::new(0x20);
+const SLAVE_ADDR: Option<i2c::slave::Address> = i2c::slave::Address::new(0x20);
 
 async fn slave_service(i2c: &mut impl I2cSlaveAsync) {
     let magic_code = [0xF0, 0x05, 0xBA, 0x11];
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
     // NOTE: Tested with a raspberry pi 5 as master controller connected FC2 to i2c on Pi5
     //       Test program here: https://github.com/jerrysxie/pi5-i2c-test
     info!("i2cs example - I2c::new");
-    let mut i2c = i2c::I2cSlave::new_async(
+    let mut i2c = i2c::slave::I2cSlave::new_async(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
