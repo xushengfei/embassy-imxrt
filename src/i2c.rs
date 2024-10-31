@@ -918,11 +918,6 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D
             self.block_until_addressed().await?;
         }
 
-        // Verify that we are ready to receive after addressed
-        if !i2c.stat().read().slvstate().is_slave_receive() {
-            return Err(TransferError::ReadFail.into());
-        }
-
         // Enable DMA
         i2c.slvctl().write(|w| w.slvdma().enabled());
 
