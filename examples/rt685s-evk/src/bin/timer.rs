@@ -4,16 +4,20 @@
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-// use embassy_imxrt::bind_interrupts;
+use embassy_imxrt::bind_interrupts;
 use embassy_imxrt::gpio;
 use embassy_imxrt::timer;
 use embassy_imxrt::timer::{CaptureChEdge, Timer};
 use embassy_time::Timer as Tmr;
+use panic_probe as _;
 
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+bind_interrupts!(struct Irqs {
+    CTIMER0 => timer::CtimerInterruptHandler;
+    CTIMER1 => timer::CtimerInterruptHandler;
+    CTIMER2 => timer::CtimerInterruptHandler;
+    CTIMER3 => timer::CtimerInterruptHandler;
+    CTIMER4 => timer::CtimerInterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

@@ -6,13 +6,16 @@ use core::future::poll_fn;
 use core::task::Poll;
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
-//use void::Void;
+
+const COUNT_CHANNEL: usize = 20;
+const CAPTURE_CHANNEL: usize = 20;
+const TOTAL_CHANNELS: usize = COUNT_CHANNEL + CAPTURE_CHANNEL;
+const CHANNEL_PER_MODULE: usize = 4;
 
 static WAKERS: [AtomicWaker; TOTAL_CHANNELS] = [const { AtomicWaker::new() }; TOTAL_CHANNELS];
 
 pub use embedded_hal_02::timer::{Cancel, CountDown, Periodic};
 
-/////// Enums ///////////////////////
 enum TimerType {
     Counting,
     Capture,
@@ -28,15 +31,6 @@ pub enum CaptureChEdge {
     /// Both edges
     Duel,
 }
-
-const COUNT_CHANNEL: usize = 20;
-const CAPTURE_CHANNEL: usize = 20;
-const TOTAL_CHANNELS: usize = COUNT_CHANNEL + CAPTURE_CHANNEL;
-const CHANNEL_PER_MODULE: usize = 4;
-
-// mod private {
-//     pub trait Sealed {}
-// }
 
 #[derive(Copy, Clone)]
 struct Channel {
@@ -84,6 +78,9 @@ struct CountingTimer<F: Fn()> {
     _timeout: u32,
     _periodic: bool,
 }
+
+/// Interrupt handler for the CTimer modules.
+pub struct CtimerInterruptHandler;
 
 macro_rules! irq_handler_impl {
     ($timer:ident, $waker0:expr, $waker1:expr, $waker2:expr, $waker3:expr, $waker4:expr, $waker5:expr, $waker6:expr, $waker7:expr) => {
@@ -733,37 +730,32 @@ fn irq_handler(inst: u32) {
     }
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-#[allow(non_snake_case)]
-fn CTIMER0() {
-    irq_handler(0)
+impl interrupt::typelevel::Handler<crate::interrupt::typelevel::CTIMER0> for CtimerInterruptHandler {
+    unsafe fn on_interrupt() {
+        irq_handler(0);
+    }
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-#[allow(non_snake_case)]
-fn CTIMER1() {
-    irq_handler(1)
+impl interrupt::typelevel::Handler<crate::interrupt::typelevel::CTIMER1> for CtimerInterruptHandler {
+    unsafe fn on_interrupt() {
+        irq_handler(1);
+    }
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-#[allow(non_snake_case)]
-fn CTIMER2() {
-    irq_handler(2)
+impl interrupt::typelevel::Handler<crate::interrupt::typelevel::CTIMER2> for CtimerInterruptHandler {
+    unsafe fn on_interrupt() {
+        irq_handler(2);
+    }
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-#[allow(non_snake_case)]
-fn CTIMER3() {
-    irq_handler(3)
+impl interrupt::typelevel::Handler<crate::interrupt::typelevel::CTIMER3> for CtimerInterruptHandler {
+    unsafe fn on_interrupt() {
+        irq_handler(3);
+    }
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-#[allow(non_snake_case)]
-fn CTIMER4() {
-    irq_handler(4)
+impl interrupt::typelevel::Handler<crate::interrupt::typelevel::CTIMER4> for CtimerInterruptHandler {
+    unsafe fn on_interrupt() {
+        irq_handler(4);
+    }
 }
