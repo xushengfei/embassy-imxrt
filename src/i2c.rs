@@ -540,12 +540,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         self.poll_ready(false).await?;
         self.check_for_bus_errors()?;
 
-        // ensure return to idle state for bus (no stuck SCL/SDA lines)
-        if i2cregs.stat().read().mststate().is_idle() {
-            Ok(())
-        } else {
-            Err(TransferError::OtherBusError.into())
-        }
+        Ok(())
     }
 
     async fn poll_ready(&mut self, dma: bool) -> Result<()> {
