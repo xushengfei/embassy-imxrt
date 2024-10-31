@@ -110,6 +110,5 @@ async fn main(_spawner: Spawner) {
 
     loop {
         Tmr::after_millis(1000).await;
-        cap_tmr.wait().await;
     }
 }
