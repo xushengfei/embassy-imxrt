@@ -91,7 +91,6 @@ async fn main(_spawner: Spawner) {
         i2c::master::Speed::Standard,
         p.DMA0_CH5,
     )
-    .await
     .unwrap();
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)

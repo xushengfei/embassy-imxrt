@@ -110,14 +110,15 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
         let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
-        let mut this = Self::new_inner(bus, scl, sda, pull, speed, None)?;
-        this.poll_ready()?;
+        let this = Self::new_inner(bus, scl, sda, pull, speed, None)?;
 
         Ok(this)
     }
 
     fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
         let i2cregs = self.bus.i2c();
+
+        self.poll_ready()?;
 
         // cannot start if the the bus is already busy
         if i2cregs.stat().read().mstpending().is_in_progress() {
@@ -223,7 +224,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
 
 impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub async fn new_async(
+    pub fn new_async(
         fc: impl Instance<P = FC> + 'a,
         scl: impl SclPin<FC> + 'a,
         sda: impl SdaPin<FC> + 'a,
@@ -236,14 +237,15 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         let clock = crate::flexcomm::Clock::Sfro;
         let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_async(fc, clock)?;
         let ch = dma::Dma::reserve_channel(dma_ch);
-        let mut this = Self::new_inner(bus, scl, sda, pull, speed, Some(ch))?;
-        this.poll_ready().await?;
+        let this = Self::new_inner(bus, scl, sda, pull, speed, Some(ch))?;
 
         Ok(this)
     }
 
     async fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
         let i2cregs = self.bus.i2c();
+
+        self.poll_ready().await?;
 
         // cannot start if not in IDLE state
         if i2cregs.stat().read().mstpending().bit_is_clear() {
