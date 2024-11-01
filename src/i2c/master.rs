@@ -453,9 +453,6 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
     }
 }
 
-// re-export embedded-hal I2c trait
-pub use embedded_hal_1::i2c::{ErrorType as I2cMasterBlockingErrorType, I2c as I2cMasterBlocking};
-
 /// Error Types for I2C communication
 impl embedded_hal_1::i2c::Error for Error {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
@@ -478,12 +475,12 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<FC: Instance, M: Mode, D: dma::Instance> I2cMasterBlockingErrorType for I2cMaster<'_, FC, M, D> {
+impl<FC: Instance, M: Mode, D: dma::Instance> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, FC, M, D> {
     type Error = Error;
 }
 
 // implement generic i2c interface for peripheral master type
-impl<FC: Instance, D: dma::Instance> I2cMasterBlocking for I2cMaster<'_, FC, Blocking, D> {
+impl<FC: Instance, D: dma::Instance> embedded_hal_1::i2c::I2c for I2cMaster<'_, FC, Blocking, D> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read)?;
         self.stop()
@@ -521,9 +518,6 @@ impl<FC: Instance, D: dma::Instance> I2cMasterBlocking for I2cMaster<'_, FC, Blo
         Ok(())
     }
 }
-
-// re-export embedded-hal I2c trait
-pub use embedded_hal_async::i2c::{ErrorType as I2cMasterAsyncErrorType, I2c as I2cMasterAsync};
 
 impl<FC: Instance, D: dma::Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress>
     for I2cMaster<'_, FC, Async, D>
