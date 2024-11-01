@@ -90,10 +90,6 @@ async fn main(_spawner: Spawner) {
         p.PIO0_17,
         Pull::Down,
         i2c::master::Speed::Standard,
-        i2c::master::TimeoutSettings {
-            hw_timeout: true,
-            sw_timeout: embassy_time::Duration::from_millis(1000),
-        },
         p.DMA0_CH5,
     )
     .unwrap();

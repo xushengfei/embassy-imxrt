@@ -3,9 +3,6 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-#[cfg(feature = "time")]
-use embassy_time::{Duration, Instant};
-
 use super::{Async, Blocking, Error, Instance, Mode, Result, SclPin, SdaPin, TransferError};
 use crate::{dma, Peripheral};
 
@@ -27,21 +24,8 @@ pub enum Speed {
 /// use `FCn` as I2C Master controller
 pub struct I2cMaster<'a, FC: Instance, M: Mode, D: dma::Instance> {
     bus: crate::flexcomm::I2cBus<'a, FC>,
-    timeout: TimeoutSettings,
     _phantom: PhantomData<M>,
-    #[cfg(feature = "time")]
-    poll_start: Instant,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
-}
-
-/// configuration struct for i2c master timeout control
-pub struct TimeoutSettings {
-    /// true - enable HW based timeout, false - disable
-    pub hw_timeout: bool,
-
-    /// software driven timeout duration, if time feature is enabled
-    #[cfg(feature = "time")]
-    pub sw_timeout: Duration,
 }
 
 impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, FC, M, D> {
@@ -52,7 +36,6 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, FC, M, D> {
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         speed: Speed,
-        timeout: TimeoutSettings,
         dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
     ) -> Result<Self> {
         sda.as_sda(pull);
@@ -87,14 +70,6 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, FC, M, D> {
             // SAFETY: only unsafe due to .bits usage
             unsafe { w.mstsclhigh().bits(0).mstscllow().bits(1) });
 
-        if timeout.hw_timeout {
-            bus.i2c().timeout().write(|w|
-                    // SAFETY: only unsafe due to .bits usage
-                unsafe { w.to().bits(4096 >> 4) });
-
-            bus.i2c().cfg().modify(|_, w| w.timeouten().enabled());
-        }
-
         bus.i2c().intenset().write(|w|
                 // SAFETY: only unsafe due to .bits usage
                 unsafe { w.bits(0) });
@@ -103,10 +78,7 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, FC, M, D> {
 
         Ok(Self {
             bus,
-            timeout,
             _phantom: PhantomData,
-            #[cfg(feature = "time")]
-            poll_start: Instant::now(),
             dma_ch,
         })
     }
@@ -122,22 +94,6 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, FC, M, D> {
             Ok(())
         }
     }
-
-    fn check_timeout(&mut self) -> Result<()> {
-        let stat = self.bus.i2c().stat().read();
-        if self.timeout.hw_timeout && (stat.scltimeout().bit_is_set() || stat.eventtimeout().is_even_timeout()) {
-            Err(TransferError::Timeout.into())
-        } else {
-            #[cfg(feature = "time")]
-            {
-                if Instant::now() - self.poll_start >= self.timeout.sw_timeout {
-                    return Err(TransferError::Timeout.into());
-                }
-            }
-
-            Ok(())
-        }
-    }
 }
 
 impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
@@ -149,13 +105,12 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         speed: Speed,
-        timeout: TimeoutSettings,
         _dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
         let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
-        let mut this = Self::new_inner(bus, scl, sda, pull, speed, timeout, None)?;
+        let mut this = Self::new_inner(bus, scl, sda, pull, speed, None)?;
         this.poll_ready()?;
 
         Ok(this)
@@ -260,14 +215,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
     }
 
     fn poll_ready(&mut self) -> Result<()> {
-        #[cfg(feature = "time")]
-        {
-            self.poll_start = Instant::now();
-        }
-
-        while self.bus.i2c().stat().read().mstpending().is_in_progress() {
-            self.check_timeout()?;
-        }
+        while self.bus.i2c().stat().read().mstpending().is_in_progress() {}
 
         Ok(())
     }
@@ -282,14 +230,13 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         pull: crate::iopctl::Pull,
         speed: Speed,
-        timeout: TimeoutSettings,
         dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
         let bus: crate::flexcomm::I2cBus<'_, FC> = crate::flexcomm::I2cBus::new_async(fc, clock)?;
         let ch = dma::Dma::reserve_channel(dma_ch);
-        let mut this = Self::new_inner(bus, scl, sda, pull, speed, timeout, Some(ch))?;
+        let mut this = Self::new_inner(bus, scl, sda, pull, speed, Some(ch))?;
         this.poll_ready().await?;
 
         Ok(this)
@@ -412,11 +359,6 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
     }
 
     async fn poll_ready(&mut self) -> Result<()> {
-        #[cfg(feature = "time")]
-        {
-            self.poll_start = Instant::now();
-        }
-
         self.bus.i2c().intenset().write(|w| {
             w.mstpendingen()
                 .set_bit()
@@ -438,7 +380,6 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 || i2c.stat().read().mststate().is_transmit_ready()
                 || i2c.stat().read().mstarbloss().is_arbitration_loss()
                 || i2c.stat().read().mstststperr().is_error()
-                || self.check_timeout().is_err()
             {
                 return Poll::Ready(());
             }
@@ -446,8 +387,6 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
             Poll::Pending
         })
         .await;
-
-        self.check_timeout()?;
 
         Ok(())
     }
