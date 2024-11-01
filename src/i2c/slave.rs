@@ -44,7 +44,8 @@ impl From<Address> for u8 {
 pub struct I2cSlave<'a, FC: Instance, M: Mode, D: dma::Instance> {
     bus: crate::flexcomm::I2cBus<'a, FC>,
     _phantom: PhantomData<M>,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
+    _phantom2: PhantomData<D>,
+    dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
 
 impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
@@ -55,7 +56,7 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
+        dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
     ) -> Result<Self> {
         sda.as_sda();
         scl.as_scl();
@@ -90,6 +91,7 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
         Ok(Self {
             bus,
             _phantom: PhantomData,
+            _phantom2: PhantomData::<D>,
             dma_ch,
         })
     }
