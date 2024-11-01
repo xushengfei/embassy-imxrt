@@ -47,24 +47,6 @@ pub struct I2cSlave<'a, FC: Instance, M: Mode, D: dma::Instance> {
     dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
 }
 
-/// interface trait for generalized I2C slave interactions
-pub trait I2cSlaveBlocking {
-    /// listen for cmd
-    fn listen(&self, cmd: &mut [u8]) -> Result<()>;
-
-    /// respond with data
-    fn respond(&self, response: &[u8]) -> Result<()>;
-}
-
-/// interface trait for generalized I2C slave interactions
-pub trait I2cSlaveAsync {
-    /// listen for cmd
-    async fn listen(&mut self, cmd: &mut [u8], expect_stop: bool) -> Result<()>;
-
-    /// respond with data
-    async fn respond(&mut self, response: &[u8]) -> Result<()>;
-}
-
 impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     fn new_inner(
@@ -206,8 +188,9 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
     }
 }
 
-impl<FC: Instance, D: dma::Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Blocking, D> {
-    fn listen(&self, cmd: &mut [u8]) -> Result<()> {
+impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Blocking, D> {
+    /// Listen for commands from the I2C Master.
+    pub fn listen(&self, cmd: &mut [u8]) -> Result<()> {
         let i2c = self.bus.i2c();
 
         // Skip address phase if we are already in receive mode
@@ -230,7 +213,8 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Block
         Ok(())
     }
 
-    fn respond(&self, response: &[u8]) -> Result<()> {
+    /// Respond to commands from the I2C Master
+    pub fn respond(&self, response: &[u8]) -> Result<()> {
         let i2c = self.bus.i2c();
 
         self.block_until_addressed()?;
@@ -253,8 +237,9 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveBlocking for I2cSlave<'_, FC, Block
     }
 }
 
-impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D> {
-    async fn listen(&mut self, request: &mut [u8], expect_stop: bool) -> Result<()> {
+impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Async, D> {
+    /// Listen for commands from the I2C Master asynchronously
+    pub async fn listen(&mut self, request: &mut [u8], expect_stop: bool) -> Result<()> {
         let i2c = self.bus.i2c();
 
         // Skip address phase if we are already in receive mode
@@ -311,7 +296,8 @@ impl<FC: Instance, D: dma::Instance> I2cSlaveAsync for I2cSlave<'_, FC, Async, D
         Ok(())
     }
 
-    async fn respond(&mut self, response: &[u8]) -> Result<()> {
+    /// Respond to commands from the I2C Master asynchronously
+    pub async fn respond(&mut self, response: &[u8]) -> Result<()> {
         let i2c = self.bus.i2c();
         self.block_until_addressed().await?;
 

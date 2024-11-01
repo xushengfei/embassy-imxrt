@@ -5,39 +5,45 @@ extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{self, slave::I2cSlaveAsync};
+use embassy_imxrt::i2c::{
+    slave::{Address, I2cSlave},
+    Async,
+};
 use embassy_imxrt::iopctl::Pull;
 use embassy_imxrt::pac;
-use embassy_time::Timer;
+use embassy_imxrt::peripherals::{DMA0_CH4, FLEXCOMM2};
 
-const SLAVE_ADDR: Option<i2c::slave::Address> = i2c::slave::Address::new(0x20);
+const SLAVE_ADDR: Option<Address> = Address::new(0x20);
 
-async fn slave_service(i2c: &mut impl I2cSlaveAsync) {
-    let magic_code = [0xF0, 0x05, 0xBA, 0x11];
+#[embassy_executor::task]
+async fn slave_service(mut i2c: I2cSlave<'static, FLEXCOMM2, Async, DMA0_CH4>) {
+    loop {
+        let magic_code = [0xF0, 0x05, 0xBA, 0x11];
 
-    let mut cmd_length: [u8; 1] = [0xAA; 1];
-    info!("i2cs example - wait for cmd - read cmd length first");
-    i2c.listen(&mut cmd_length, false).await.unwrap();
-    info!("cmd length = {:02X}", cmd_length);
+        let mut cmd_length: [u8; 1] = [0xAA; 1];
+        info!("i2cs example - wait for cmd - read cmd length first");
+        i2c.listen(&mut cmd_length, false).await.unwrap();
+        info!("cmd length = {:02X}", cmd_length);
 
-    let mut cmd: [u8; 4] = [0xAA; 4];
-    info!("i2cs example - wait for cmd - read the actual cmd");
-    i2c.listen(&mut cmd, true).await.unwrap();
-    info!("cmd length = {:02X}", cmd_length);
+        let mut cmd: [u8; 4] = [0xAA; 4];
+        info!("i2cs example - wait for cmd - read the actual cmd");
+        i2c.listen(&mut cmd, true).await.unwrap();
+        info!("cmd length = {:02X}", cmd_length);
 
-    if cmd == [0xDE, 0xAD, 0xBE, 0xEF] {
-        info!("i2cs example - receive init cmd");
-    } else if cmd == [0xDE, 0xCA, 0xFB, 0xAD] {
-        info!("i2cs example - receive magic cmd, writing back magic code to host");
-        i2c.respond(&magic_code).await.unwrap();
-    } else {
-        error!("unexpected cmd = {:02X}", cmd);
-        panic!("i2cs example - unexpected cmd");
+        if cmd == [0xDE, 0xAD, 0xBE, 0xEF] {
+            info!("i2cs example - receive init cmd");
+        } else if cmd == [0xDE, 0xCA, 0xFB, 0xAD] {
+            info!("i2cs example - receive magic cmd, writing back magic code to host");
+            i2c.respond(&magic_code).await.unwrap();
+        } else {
+            error!("unexpected cmd = {:02X}", cmd);
+            panic!("i2cs example - unexpected cmd");
+        }
     }
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let pac = pac::Peripherals::take().unwrap();
 
     // Ensure SFRO Clock is set to run (power down is cleared)
@@ -49,7 +55,7 @@ async fn main(_spawner: Spawner) {
     // NOTE: Tested with a raspberry pi 5 as master controller connected FC2 to i2c on Pi5
     //       Test program here: https://github.com/jerrysxie/pi5-i2c-test
     info!("i2cs example - I2c::new");
-    let mut i2c = i2c::slave::I2cSlave::new_async(
+    let i2c = I2cSlave::new_async(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
@@ -59,8 +65,5 @@ async fn main(_spawner: Spawner) {
     )
     .unwrap();
 
-    loop {
-        slave_service(&mut i2c).await;
-        Timer::after_millis(1000).await;
-    }
+    spawner.must_spawn(slave_service(i2c));
 }
