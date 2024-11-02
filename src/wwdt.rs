@@ -219,7 +219,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     }
 }
 
-impl<'d, T: Instance> WindowedWatchdog<'d, T, Unleashed> {
+impl<T: Instance> WindowedWatchdog<'_, T, Unleashed> {
     /// Reloads the watchdog timeout counter to the time set by [`Self::set_timeout`].
     pub fn feed(&mut self) {
         /* Disable interrupts to prevent possibility of watchdog registers from being accessed in between
@@ -233,7 +233,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Unleashed> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> WindowedWatchdog<'d, T, M> {
+impl<T: Instance, M: Mode> WindowedWatchdog<'_, T, M> {
     /// Returns true if the warning flag is set.
     ///
     /// Flag is set if watchdog timeout counter has fallen below the time

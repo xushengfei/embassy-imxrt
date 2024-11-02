@@ -455,7 +455,7 @@ impl<'d> InputFuture<'d> {
     }
 }
 
-impl<'d> Future for InputFuture<'d> {
+impl Future for InputFuture<'_> {
     type Output = ();
 
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -852,7 +852,7 @@ impl<S: Sense> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'_, S>
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
+impl embedded_hal_02::digital::v2::InputPin for Input<'_> {
     type Error = Infallible;
 
     #[inline]
@@ -866,7 +866,7 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
+impl embedded_hal_02::digital::v2::OutputPin for Output<'_> {
     type Error = Infallible;
 
     #[inline]
@@ -882,7 +882,7 @@ impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
+impl embedded_hal_02::digital::v2::StatefulOutputPin for Output<'_> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
@@ -894,7 +894,7 @@ impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
+impl embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'_> {
     type Error = Infallible;
 
     #[inline]
@@ -981,11 +981,11 @@ impl<'d> embedded_hal_async::digital::Wait for Flex<'d, SenseEnabled> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
+impl embedded_hal_1::digital::ErrorType for Input<'_> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for Input<'d> {
+impl embedded_hal_1::digital::InputPin for Input<'_> {
     #[inline]
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
@@ -1029,11 +1029,11 @@ impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
+impl embedded_hal_1::digital::ErrorType for Output<'_> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
+impl embedded_hal_1::digital::OutputPin for Output<'_> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
@@ -1047,7 +1047,7 @@ impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
+impl embedded_hal_1::digital::StatefulOutputPin for Output<'_> {
     #[inline]
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())

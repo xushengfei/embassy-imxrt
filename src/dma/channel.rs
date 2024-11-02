@@ -94,7 +94,7 @@ pub struct Channel<'d, T: Instance> {
     pub inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> Channel<'d, T> {
+impl<T: Instance> Channel<'_, T> {
     /// Prepare the DMA channel for the transfer
     pub fn configure_channel(
         &self,

@@ -100,7 +100,7 @@ pub struct Adc<'p, const N: usize> {
     _adc0: PeripheralRef<'p, peripherals::ADC0>,
 }
 
-impl<'p, const N: usize> Adc<'p, N> {
+impl<const N: usize> Adc<'_, N> {
     #[inline]
     fn regs() -> &'static crate::pac::adc0::RegisterBlock {
         unsafe { &*crate::pac::Adc0::ptr() }
