@@ -87,11 +87,9 @@ async fn main(_spawner: Spawner) {
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
-        Pull::Down,
         i2c::master::Speed::Standard,
         p.DMA0_CH5,
     )
-    .await
     .unwrap();
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)

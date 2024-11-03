@@ -54,12 +54,11 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
-        pull: crate::iopctl::Pull,
         address: Address,
         dma_ch: Option<dma::channel::ChannelAndRequest<'a, D>>,
     ) -> Result<Self> {
-        sda.as_sda(pull);
-        scl.as_scl(pull);
+        sda.as_sda();
+        scl.as_scl();
 
         // this check should be redundant with T::set_mode()? above
         let i2c = bus.i2c();
@@ -103,7 +102,6 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Blocking, D> {
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
-        pull: crate::iopctl::Pull,
         address: Address,
         _dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
@@ -111,7 +109,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Blocking, D> {
         let clock = crate::flexcomm::Clock::Sfro;
         let bus = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
 
-        Self::new_inner(bus, scl, sda, pull, address, None)
+        Self::new_inner(bus, scl, sda, address, None)
     }
 
     fn poll(&self) -> Result<()> {
@@ -143,7 +141,6 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
-        pull: crate::iopctl::Pull,
         address: Address,
         dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
@@ -151,7 +148,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
         let clock = crate::flexcomm::Clock::Sfro;
         let bus = crate::flexcomm::I2cBus::new_async(fc, clock)?;
         let ch = dma::Dma::reserve_channel(dma_ch);
-        Self::new_inner(bus, scl, sda, pull, address, Some(ch))
+        Self::new_inner(bus, scl, sda, address, Some(ch))
     }
 
     async fn block_until_addressed(&self) -> Result<()> {

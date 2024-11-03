@@ -97,13 +97,13 @@ impl Instance for crate::peripherals::FLEXCOMM7 {}
 /// io configuration trait for easier configuration
 pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for SCL usage
-    fn as_scl(&self, pull: crate::iopctl::Pull);
+    fn as_scl(&self);
 }
 
 /// io configuration trait for easier configuration
 pub trait SdaPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for SDA usage
-    fn as_sda(&self, pull: crate::iopctl::Pull);
+    fn as_sda(&self);
 }
 
 /// Driver mode.
@@ -124,15 +124,16 @@ impl Mode for Async {}
 macro_rules! impl_scl {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl SclPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_scl(&self, pull: crate::iopctl::Pull) {
-                // UM11147 table 299 pg 262+
-                self.set_pull(pull)
-                    .set_slew_rate(crate::gpio::SlewRate::Standard)
-                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
-                    .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
-                    .set_input_inverter(crate::gpio::Inverter::Disabled)
+            fn as_scl(&self) {
+                // UM11147 table 556 pg 550
+                self.set_function(crate::iopctl::Function::$fn)
+                    .set_pull(crate::iopctl::Pull::None)
                     .enable_input_buffer()
-                    .set_function(crate::iopctl::Function::$fn);
+                    .set_slew_rate(crate::gpio::SlewRate::Slow)
+                    .set_drive_strength(crate::gpio::DriveStrength::Full)
+                    .disable_analog_multiplex()
+                    .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
+                    .set_input_inverter(crate::gpio::Inverter::Disabled);
             }
         }
     };
@@ -140,15 +141,16 @@ macro_rules! impl_scl {
 macro_rules! impl_sda {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl SdaPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_sda(&self, pull: crate::iopctl::Pull) {
-                // UM11147 table 299 pg 262+
-                self.set_pull(pull)
-                    .set_slew_rate(crate::gpio::SlewRate::Standard)
-                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
-                    .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
-                    .set_input_inverter(crate::gpio::Inverter::Disabled)
+            fn as_sda(&self) {
+                // UM11147 table 556 pg 550
+                self.set_function(crate::iopctl::Function::$fn)
+                    .set_pull(crate::iopctl::Pull::None)
                     .enable_input_buffer()
-                    .set_function(crate::iopctl::Function::$fn);
+                    .set_slew_rate(crate::gpio::SlewRate::Slow)
+                    .set_drive_strength(crate::gpio::DriveStrength::Full)
+                    .disable_analog_multiplex()
+                    .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
+                    .set_input_inverter(crate::gpio::Inverter::Disabled);
             }
         }
     };
