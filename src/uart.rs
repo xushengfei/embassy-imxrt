@@ -22,7 +22,6 @@ use pac::usart0::ctl::Cc;
 /// TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
 /// TODO: Add flow control
 ///
-
 mod sealed {
     /// simply seal a trait
     pub trait Sealed {}

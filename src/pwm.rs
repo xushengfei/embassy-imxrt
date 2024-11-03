@@ -350,7 +350,7 @@ impl<'d, T: sealed::SCTimer> SCTPwm<'d, T> {
     }
 }
 
-impl<'d, T: sealed::SCTimer> Drop for SCTPwm<'d, T> {
+impl<T: sealed::SCTimer> Drop for SCTPwm<'_, T> {
     fn drop(&mut self) {
         // disable resources
         T::set_clock_source(SCTClockSource::None);
@@ -359,7 +359,7 @@ impl<'d, T: sealed::SCTimer> Drop for SCTPwm<'d, T> {
 
 pub use embedded_hal_02::Pwm;
 
-impl<'d, T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'d, T> {
+impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
     type Channel = Channel;
     type Time = MicroSeconds;
     type Duty = CentiPercent;
