@@ -68,6 +68,11 @@ pub trait Timer {
 
     /// Waits for the countdown timer to complete.
     async fn wait(&mut self);
+
+    /// Returns the ID of the timer.
+    /// # Returns
+    /// The ID of the timer.
+    fn get_id(&self) -> usize;
 }
 
 /// A timer that captures events based on a specified edge and calls a user-defined callback.
@@ -91,6 +96,65 @@ struct CountingTimer<F: Fn()> {
 
 /// Interrupt handler for the CTimer modules.
 pub struct CtimerInterruptHandler;
+
+macro_rules! impl_counting_timer_release {
+    ($timer:ident, $id:expr) => {
+        let reg = unsafe { $timer::steal() };
+        let offset = $id % CHANNEL_PER_MODULE;
+
+        match offset {
+            CHANNEL_0 => {
+                reg.mcr().modify(|_, w| w.mr0i().clear_bit());
+            }
+            CHANNEL_1 => {
+                reg.mcr().modify(|_, w| w.mr1i().clear_bit());
+            }
+            CHANNEL_2 => {
+                reg.mcr().modify(|_, w| w.mr2i().clear_bit());
+            }
+            CHANNEL_3 => {
+                reg.mcr().modify(|_, w| w.mr3i().clear_bit());
+            }
+            _ => {
+                panic!("Invalid channel");
+            }
+        }
+        reg.mr(offset).write(|w| unsafe { w.match_().bits(0) });
+    };
+}
+
+macro_rules! impl_capture_timer_release {
+    ($timer:ident, $id:expr) => {
+        let reg = unsafe { $timer::steal() };
+        let offset = $id % CHANNEL_PER_MODULE;
+
+        match offset {
+            CHANNEL_0 => {
+                reg.ccr().modify(|_, w| w.cap0i().clear_bit());
+                reg.ccr().modify(|_, w| w.cap0re().clear_bit());
+                reg.ccr().modify(|_, w| w.cap0fe().clear_bit());
+            }
+            CHANNEL_1 => {
+                reg.ccr().modify(|_, w| w.cap1i().clear_bit());
+                reg.ccr().modify(|_, w| w.cap1re().clear_bit());
+                reg.ccr().modify(|_, w| w.cap1fe().clear_bit());
+            }
+            CHANNEL_2 => {
+                reg.ccr().modify(|_, w| w.cap2i().clear_bit());
+                reg.ccr().modify(|_, w| w.cap2re().clear_bit());
+                reg.ccr().modify(|_, w| w.cap2fe().clear_bit());
+            }
+            CHANNEL_3 => {
+                reg.ccr().modify(|_, w| w.cap3i().clear_bit());
+                reg.ccr().modify(|_, w| w.cap3re().clear_bit());
+                reg.ccr().modify(|_, w| w.cap3fe().clear_bit());
+            }
+            _ => {
+                panic!("Invalid channel");
+            }
+        }
+    };
+}
 
 macro_rules! irq_handler_impl {
     ($timer:ident, $waker0:expr, $waker1:expr, $waker2:expr, $waker3:expr, $waker4:expr, $waker5:expr, $waker6:expr, $waker7:expr) => {
@@ -158,8 +222,7 @@ macro_rules! impl_capture_timer_setup {
                         reg.ccr().modify(|_, w| w.cap0fe().set_bit());
                     }
                     CaptureChEdge::Duel => {
-                        reg.ccr().modify(|_, w| w.cap0re().set_bit());
-                        reg.ccr().modify(|_, w| w.cap0fe().set_bit());
+                        panic!("Duel edge not supported yet");
                     }
                 }
             }
@@ -173,8 +236,7 @@ macro_rules! impl_capture_timer_setup {
                         reg.ccr().modify(|_, w| w.cap1fe().set_bit());
                     }
                     CaptureChEdge::Duel => {
-                        reg.ccr().modify(|_, w| w.cap1re().set_bit());
-                        reg.ccr().modify(|_, w| w.cap1fe().set_bit());
+                        panic!("Duel edge not supported yet");
                     }
                 }
             }
@@ -188,8 +250,7 @@ macro_rules! impl_capture_timer_setup {
                         reg.ccr().modify(|_, w| w.cap2fe().set_bit());
                     }
                     CaptureChEdge::Duel => {
-                        reg.ccr().modify(|_, w| w.cap2re().set_bit());
-                        reg.ccr().modify(|_, w| w.cap2fe().set_bit());
+                        panic!("Duel edge not supported yet");
                     }
                 }
             }
@@ -203,8 +264,7 @@ macro_rules! impl_capture_timer_setup {
                         reg.ccr().modify(|_, w| w.cap3fe().set_bit());
                     }
                     CaptureChEdge::Duel => {
-                        reg.ccr().modify(|_, w| w.cap3re().set_bit());
-                        reg.ccr().modify(|_, w| w.cap3fe().set_bit());
+                        panic!("Duel edge not supported yet");
                     }
                 }
             }
@@ -416,6 +476,9 @@ impl<F: Fn(u32)> CaptureTimer<F> {
 }
 
 impl<F: Fn(u32)> Timer for CaptureTimer<F> {
+    fn get_id(&self) -> usize {
+        self._id
+    }
     async fn wait(&mut self) {
         // Implementation of waiting for the interrupt
         poll_fn(|cx| {
@@ -498,6 +561,9 @@ impl<F> Timer for CountingTimer<F>
 where
     F: Fn(),
 {
+    fn get_id(&self) -> usize {
+        self._id
+    }
     fn start_count(&mut self, duration_us: u32) {
         let module = self._id / CHANNEL_PER_MODULE;
         let dur = (duration_us as u64 * self._clk_freq as u64) / 1000000;
@@ -748,6 +814,72 @@ impl CTimerManager<Initialized> {
             }
         }
         return None;
+    }
+    /// Releases the channel with the specified ID.
+    /// # Arguments
+    /// * `tmr` - The timer instance to release.
+    ///       This function takes timer instance as value to drop it after releasing the channel.
+    pub fn request_timer_release(&mut self, tmr: impl Timer) {
+        let id = tmr.get_id();
+        if id < COUNT_CHANNEL {
+            self.release_counting_channel(id);
+        } else {
+            self.release_capture_channel(id);
+        }
+    }
+
+    fn release_counting_channel(&mut self, id: usize) {
+        // Release the channel
+        self.state.ch_arr[id].allocated = false;
+        let idx = id / CHANNEL_PER_MODULE;
+
+        match idx {
+            CTIMER_0 => {
+                impl_counting_timer_release!(Ctimer0, id);
+            }
+            CTIMER_1 => {
+                impl_counting_timer_release!(Ctimer1, id);
+            }
+            CTIMER_2 => {
+                impl_counting_timer_release!(Ctimer2, id);
+            }
+            CTIMER_3 => {
+                impl_counting_timer_release!(Ctimer3, id);
+            }
+            CTIMER_4 => {
+                impl_counting_timer_release!(Ctimer4, id);
+            }
+            _ => {
+                panic!("Invalid timer instance");
+            }
+        }
+    }
+
+    fn release_capture_channel(&mut self, id: usize) {
+        // Release the channel
+        self.state.ch_arr[id].allocated = false;
+        let idx = (id - COUNT_CHANNEL) / CHANNEL_PER_MODULE;
+
+        match idx {
+            CTIMER_0 => {
+                impl_capture_timer_release!(Ctimer0, id);
+            }
+            CTIMER_1 => {
+                impl_capture_timer_release!(Ctimer1, id);
+            }
+            CTIMER_2 => {
+                impl_capture_timer_release!(Ctimer2, id);
+            }
+            CTIMER_3 => {
+                impl_capture_timer_release!(Ctimer3, id);
+            }
+            CTIMER_4 => {
+                impl_capture_timer_release!(Ctimer4, id);
+            }
+            _ => {
+                panic!("Invalid timer instance");
+            }
+        }
     }
 }
 

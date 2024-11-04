@@ -78,7 +78,7 @@ async fn main(_spawner: Spawner) {
             info!("Capture Timer example - Capture Timer Callback");
             info!("count reg = 0x{:02X}", count_reg);
         },
-        CaptureChEdge::Falling,
+        CaptureChEdge::Rising,
         false,
     );
 
@@ -107,6 +107,15 @@ async fn main(_spawner: Spawner) {
     tmr7.wait().await;
 
     cap_tmr.wait().await;
+
+    timer_manager.request_timer_release(tmr1);
+    timer_manager.request_timer_release(tmr2);
+    timer_manager.request_timer_release(tmr3);
+    timer_manager.request_timer_release(tmr4);
+    timer_manager.request_timer_release(tmr5);
+    timer_manager.request_timer_release(tmr6);
+    timer_manager.request_timer_release(tmr7);
+    timer_manager.request_timer_release(cap_tmr);
 
     loop {
         Tmr::after_millis(1000).await;
