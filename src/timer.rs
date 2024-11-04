@@ -1,11 +1,11 @@
-use crate::interrupt;
-use crate::pac::Clkctl1;
-use crate::pac::Rstctl1;
-use crate::pac::{Ctimer0, Ctimer1, Ctimer2, Ctimer3, Ctimer4, Inputmux};
 use core::future::poll_fn;
 use core::task::Poll;
+
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::interrupt;
+use crate::pac::{Clkctl1, Ctimer0, Ctimer1, Ctimer2, Ctimer3, Ctimer4, Inputmux, Rstctl1};
 
 const COUNT_CHANNEL: usize = 20;
 const CAPTURE_CHANNEL: usize = 20;
@@ -156,6 +156,7 @@ macro_rules! impl_capture_timer_release {
     };
 }
 
+#[cfg(feature = "rt")]
 macro_rules! irq_handler_impl {
     ($timer:ident, $waker0:expr, $waker1:expr, $waker2:expr, $waker3:expr, $waker4:expr, $waker5:expr, $waker6:expr, $waker7:expr) => {
         let reg = unsafe { $timer::steal() };
@@ -798,7 +799,7 @@ impl CTimerManager<Initialized> {
 
     fn allocate_counting_channel(&mut self) -> Option<usize> {
         for i in 0..COUNT_CHANNEL {
-            if self.state.ch_arr[i].allocated == false {
+            if !self.state.ch_arr[i].allocated {
                 self.state.ch_arr[i].allocated = true;
                 return Some(i);
             }
@@ -808,12 +809,12 @@ impl CTimerManager<Initialized> {
 
     fn allocate_capture_channel(&mut self) -> Option<usize> {
         for i in COUNT_CHANNEL..TOTAL_CHANNELS {
-            if self.state.ch_arr[i].allocated == false {
+            if !self.state.ch_arr[i].allocated {
                 self.state.ch_arr[i].allocated = true;
                 return Some(i);
             }
         }
-        return None;
+        None
     }
     /// Releases the channel with the specified ID.
     /// # Arguments

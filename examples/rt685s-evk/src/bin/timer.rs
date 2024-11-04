@@ -2,14 +2,11 @@
 #![no_main]
 
 use defmt::info;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_imxrt::bind_interrupts;
-use embassy_imxrt::gpio;
-use embassy_imxrt::timer;
 use embassy_imxrt::timer::{CaptureChEdge, Timer};
+use embassy_imxrt::{bind_interrupts, gpio, timer};
 use embassy_time::Timer as Tmr;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     CTIMER0 => timer::CtimerInterruptHandler;
