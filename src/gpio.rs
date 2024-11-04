@@ -12,7 +12,7 @@ use sealed::Sealed;
 
 use crate::clocks::enable_and_reset;
 use crate::iopctl::IopctlPin;
-pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Polarity, Pull, SlewRate};
+pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Inverter, Pull, SlewRate};
 use crate::{interrupt, into_ref, peripherals, Peripheral, PeripheralRef};
 
 // This should be unique per IMXRT package
@@ -208,11 +208,13 @@ impl<S: Sense> Flex<'_, S> {
     }
 
     /// Is the output level high?
+    #[must_use]
     pub fn is_set_high(&self) -> bool {
         !self.is_set_low()
     }
 
     /// Is the output level low?
+    #[must_use]
     pub fn is_set_low(&self) -> bool {
         (self.pin.block().set(self.pin.port()).read().setp().bits() & (1 << self.pin.pin())) == 0
     }
@@ -250,8 +252,8 @@ impl<'d> Flex<'d, SenseEnabled> {
     }
 
     /// Converts pin to input pin
-    pub fn set_as_input(&mut self, pull: Pull, polarity: Polarity) {
-        self.pin.set_pull(pull).set_input_polarity(polarity);
+    pub fn set_as_input(&mut self, pull: Pull, inverter: Inverter) {
+        self.pin.set_pull(pull).set_input_inverter(inverter);
 
         self.pin.block().dirclr(self.pin.port()).write(|w|
                     // SAFETY: Writing a 0 to bits in this register has no effect,
@@ -260,17 +262,28 @@ impl<'d> Flex<'d, SenseEnabled> {
                     unsafe { w.dirclrp().bits(1 << self.pin.pin()) });
     }
 
+    /// Converts pin to special function pin
+    /// # Safety
+    /// Unsafe to require justifying change from default to a special function
+    ///
+    pub unsafe fn set_as_special_function(&mut self, func: Function) {
+        self.pin.set_function(func);
+    }
+
     /// Is high?
+    #[must_use]
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
 
     /// Is low?
+    #[must_use]
     pub fn is_low(&self) -> bool {
         self.pin.block().b(self.pin.port()).b_(self.pin.pin()).read() == 0
     }
 
     /// Current level
+    #[must_use]
     pub fn get_level(&self) -> Level {
         self.is_high().into()
     }
@@ -312,6 +325,7 @@ impl<'d> Flex<'d, SenseEnabled> {
     /// Return a new Flex pin instance with level sensing disabled.
     ///
     /// Consumes less power than a flex pin with sensing enabled.
+    #[must_use]
     pub fn disable_sensing(self) -> Flex<'d, SenseDisabled> {
         // Cloning the pin is ok since we consume self immediately
         let new_pin = unsafe { self.pin.clone_unchecked() };
@@ -336,6 +350,7 @@ impl<'d> Flex<'d, SenseDisabled> {
     }
 
     /// Return a new Flex pin instance with level sensing enabled.
+    #[must_use]
     pub fn enable_sensing(self) -> Flex<'d, SenseEnabled> {
         // Cloning the pin is ok since we consume self immediately
         let new_pin = unsafe { self.pin.clone_unchecked() };
@@ -351,23 +366,26 @@ pub struct Input<'d> {
 
 impl<'d> Input<'d> {
     /// New input pin
-    pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd, pull: Pull, polarity: Polarity) -> Self {
+    pub fn new(pin: impl Peripheral<P = impl GpioPin> + 'd, pull: Pull, inverter: Inverter) -> Self {
         let mut pin = Flex::<SenseEnabled>::new(pin);
-        pin.set_as_input(pull, polarity);
+        pin.set_as_input(pull, inverter);
         Self { pin }
     }
 
     /// Is high?
+    #[must_use]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
     /// Is low?
+    #[must_use]
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
 
     /// Input level
+    #[must_use]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
     }
@@ -437,7 +455,7 @@ impl<'d> InputFuture<'d> {
     }
 }
 
-impl<'d> Future for InputFuture<'d> {
+impl Future for InputFuture<'_> {
     type Output = ();
 
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -515,11 +533,13 @@ impl<'d> Output<'d> {
     }
 
     /// Is set high?
+    #[must_use]
     pub fn is_set_high(&self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is set low?
+    #[must_use]
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_low()
     }
@@ -832,7 +852,7 @@ impl<S: Sense> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'_, S>
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
+impl embedded_hal_02::digital::v2::InputPin for Input<'_> {
     type Error = Infallible;
 
     #[inline]
@@ -846,7 +866,7 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
+impl embedded_hal_02::digital::v2::OutputPin for Output<'_> {
     type Error = Infallible;
 
     #[inline]
@@ -862,7 +882,7 @@ impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
+impl embedded_hal_02::digital::v2::StatefulOutputPin for Output<'_> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
@@ -874,7 +894,7 @@ impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
+impl embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'_> {
     type Error = Infallible;
 
     #[inline]
@@ -961,11 +981,11 @@ impl<'d> embedded_hal_async::digital::Wait for Flex<'d, SenseEnabled> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
+impl embedded_hal_1::digital::ErrorType for Input<'_> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for Input<'d> {
+impl embedded_hal_1::digital::InputPin for Input<'_> {
     #[inline]
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
@@ -1009,11 +1029,11 @@ impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
+impl embedded_hal_1::digital::ErrorType for Output<'_> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
+impl embedded_hal_1::digital::OutputPin for Output<'_> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
@@ -1027,7 +1047,7 @@ impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
+impl embedded_hal_1::digital::StatefulOutputPin for Output<'_> {
     #[inline]
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())

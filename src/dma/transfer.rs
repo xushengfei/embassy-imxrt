@@ -1,6 +1,5 @@
 //! DMA transfer management
 
-use super::Instance;
 use crate::dma::channel::{Channel, Request};
 
 /// DMA transfer options
@@ -82,14 +81,14 @@ pub enum Direction {
 
 /// DMA transfer
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Transfer<'d, T: Instance> {
-    _inner: &'d Channel<'d, T>,
+pub struct Transfer<'d> {
+    _inner: &'d Channel<'d>,
 }
 
-impl<'d, T: Instance> Transfer<'d, T> {
+impl<'d> Transfer<'d> {
     /// Reads from a peripheral register into a memory buffer using DMA
     pub fn new_read(
-        channel: &'d Channel<'d, T>,
+        channel: &'d Channel<'d>,
         request: Request,
         peri_addr: *const u8,
         buf: &'d mut [u8],
@@ -108,7 +107,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
 
     /// Writes a memory buffer into a peripheral register using DMA
     pub fn new_write(
-        channel: &'d Channel<'d, T>,
+        channel: &'d Channel<'d>,
         request: Request,
         buf: &'d [u8],
         peri_addr: *mut u8,
@@ -127,7 +126,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
 
     /// Writes a memory buffer into another memory buffer using DMA
     pub fn new_write_mem(
-        channel: &'d Channel<'d, T>,
+        channel: &'d Channel<'d>,
         request: Request,
         src_buf: &'d [u8],
         dst_buf: &'d mut [u8],
@@ -146,7 +145,7 @@ impl<'d, T: Instance> Transfer<'d, T> {
 
     /// Configures the channel and initiates the DMA transfer
     fn new_inner_transfer(
-        channel: &'d Channel<'d, T>,
+        channel: &'d Channel<'d>,
         _request: Request,
         dir: Direction,
         src_buf: *const u32,

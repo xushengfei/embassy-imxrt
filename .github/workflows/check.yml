@@ -37,7 +37,7 @@ jobs:
       run: |
         echo "id0=$GITHUB_SHA" > $GITHUB_OUTPUT
         echo "List of tested commits:" > $GITHUB_STEP_SUMMARY
-        sed -n 's,^id[0-9]\+=\(.*\),- https://github.com/pop-project/embassy-imxrt/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
+        sed -n 's,^id[0-9]\+=\(.*\),- ${{ github.repositoryUrl }}/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
 
     - name: Get commit list (PR)
       id: get_commit_list_pr
@@ -46,7 +46,7 @@ jobs:
         git rev-list --reverse refs/remotes/origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }} | awk '{ print "id" NR "=" $1 }' > $GITHUB_OUTPUT
         git diff --quiet ${{ github.event.pull_request.head.sha }} ${{ github.sha }} || echo "id0=$GITHUB_SHA" >> $GITHUB_OUTPUT
         echo "List of tested commits:" > $GITHUB_STEP_SUMMARY
-        sed -n 's,^id[0-9]\+=\(.*\),- https://github.com/pop-project/embassy-imxrt/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
+        sed -n 's,^id[0-9]\+=\(.*\),- ${{ github.repositoryUrl }}/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
 
     outputs:
       commits: ${{ toJSON(steps.*.outputs.*) }}
@@ -73,7 +73,7 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
-    name: ${{ matrix.toolchain }} / clippy
+    name: ${{ matrix.toolchain }} / clippy (${{ matrix.commit }})
     needs: commit_list
     permissions:
       contents: read
@@ -98,6 +98,7 @@ jobs:
         uses: giraffate/clippy-action@v1
         with:
           reporter: 'github-pr-check'
+          clippy_flags: -- -F clippy::suspicious -F clippy::correctness -F clippy::perf -F clippy::style
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Enable once we have a released crate
@@ -214,7 +215,7 @@ jobs:
                        #
                        # embassy-time requires 1.79 due to
                        # collapse_debuginfo
-    name: ubuntu / ${{ matrix.msrv }}
+    name: ubuntu / ${{ matrix.msrv }} (${{ matrix.commit }})
     steps:
       - uses: actions/checkout@v4
         with:

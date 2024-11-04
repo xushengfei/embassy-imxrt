@@ -1,17 +1,18 @@
 //! Cyclic Redundancy Check (CRC)
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use core::marker::PhantomData;
+
+use embassy_hal_internal::into_ref;
 
 use crate::clocks::enable_and_reset;
-use crate::pac::CrcEngine;
-use crate::peripherals::CRC;
+use crate::peripherals::{self, CRC};
 use crate::Peripheral;
 
 /// CRC driver.
 pub struct Crc<'d> {
-    _peripheral: PeripheralRef<'d, CRC>,
+    info: Info,
     _config: Config,
-    crc_engine: CrcEngine,
+    _lifetime: PhantomData<&'d ()>,
 }
 
 /// CRC configuration
@@ -26,6 +27,7 @@ pub struct Config {
 
 impl Config {
     /// Create a new CRC config.
+    #[must_use]
     pub fn new(
         polynomial: Polynomial,
         bit_order_input_reverse: bool,
@@ -53,7 +55,7 @@ impl Default for Config {
             input_complement: false,
             bit_order_crc_reverse: false,
             crc_complement: false,
-            seed: 0xffffffff,
+            seed: 0xffff_ffff,
         }
     }
 }
@@ -82,16 +84,16 @@ impl From<Polynomial> for u8 {
 
 impl<'d> Crc<'d> {
     /// Instantiates new CRC peripheral and initializes to default values.
-    pub fn new(peripheral: impl Peripheral<P = CRC> + 'd, config: Config) -> Self {
+    pub fn new<T: Instance>(_peripheral: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         // enable CRC clock
         enable_and_reset::<CRC>();
 
-        into_ref!(peripheral);
+        into_ref!(_peripheral);
 
         let mut instance = Self {
-            _peripheral: peripheral,
+            info: T::info(),
             _config: config,
-            crc_engine: unsafe { CrcEngine::steal() },
+            _lifetime: PhantomData,
         };
 
         instance.reconfigure();
@@ -100,7 +102,7 @@ impl<'d> Crc<'d> {
 
     /// Reconfigured the CRC peripheral.
     fn reconfigure(&mut self) {
-        self.crc_engine.mode().write(|w| {
+        self.info.regs.mode().write(|w| {
             if self._config.bit_order_input_reverse {
                 w.bit_rvs_wr().set_bit();
             } else {
@@ -131,68 +133,98 @@ impl<'d> Crc<'d> {
         });
 
         // Init CRC value
-        self.crc_engine
+        self.info
+            .regs
             .seed()
             .write(|w| unsafe { w.crc_seed().bits(self._config.seed) });
     }
 
     /// Feeds a byte into the CRC peripheral. Returns the computed checksum.
     pub fn feed_byte(&mut self, byte: u8) -> u32 {
-        self.crc_engine
+        self.info
+            .regs
             .wr_data()
             .write(|w| unsafe { w.crc_wr_data().bits(u32::from(byte)) });
 
-        self.crc_engine.sum().read().bits()
+        self.info.regs.sum().read().bits()
     }
 
     /// Feeds an slice of bytes into the CRC peripheral. Returns the computed checksum.
     pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
         for byte in bytes {
-            self.crc_engine
+            self.info
+                .regs
                 .wr_data()
                 .write(|w| unsafe { w.crc_wr_data().bits(u32::from(*byte)) });
         }
 
-        self.crc_engine.sum().read().bits()
+        self.info.regs.sum().read().bits()
     }
 
     /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
-        self.crc_engine
+        self.info
+            .regs
             .wr_data()
             .write(|w| unsafe { w.crc_wr_data().bits(u32::from(halfword)) });
 
-        self.crc_engine.sum().read().bits()
+        self.info.regs.sum().read().bits()
     }
 
     /// Feeds an slice of halfwords into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
         for halfword in halfwords {
-            self.crc_engine
+            self.info
+                .regs
                 .wr_data()
                 .write(|w| unsafe { w.crc_wr_data().bits(u32::from(*halfword)) });
         }
 
-        self.crc_engine.sum().read().bits()
+        self.info.regs.sum().read().bits()
     }
 
     /// Feeds a words into the CRC peripheral. Returns the computed checksum.
     pub fn feed_word(&mut self, word: u32) -> u32 {
-        self.crc_engine
+        self.info
+            .regs
             .wr_data()
             .write(|w| unsafe { w.crc_wr_data().bits(word) });
 
-        self.crc_engine.sum().read().bits()
+        self.info.regs.sum().read().bits()
     }
 
     /// Feeds an slice of words into the CRC peripheral. Returns the computed checksum.
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
-            self.crc_engine
+            self.info
+                .regs
                 .wr_data()
                 .write(|w| unsafe { w.crc_wr_data().bits(*word) });
         }
 
-        self.crc_engine.sum().read().bits()
+        self.info.regs.sum().read().bits()
+    }
+}
+
+struct Info {
+    regs: crate::pac::CrcEngine,
+}
+
+trait SealedInstance {
+    fn info() -> Info;
+}
+
+/// CRC instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {}
+
+impl Instance for peripherals::CRC {}
+
+impl SealedInstance for peripherals::CRC {
+    fn info() -> Info {
+        // SAFETY: safe from single executor
+        Info {
+            regs: unsafe { crate::pac::CrcEngine::steal() },
+        }
     }
 }

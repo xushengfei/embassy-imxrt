@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
     assert!(flex.is_low());
 
     // set pin direction to output with reverse polarity
-    flex.set_as_input(gpio::Pull::None, gpio::Polarity::ActiveLow);
+    flex.set_as_input(gpio::Pull::None, gpio::Inverter::Enabled);
 
     // check pin level is high
     assert!(flex.is_high());

@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_futures::block_on;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
 
@@ -29,22 +29,25 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        if T::regs().int_status().read().ent_val().bit_is_set() {
-            T::regs().int_ctrl().modify(|_, w| w.ent_val().clear_bit());
+        let regs = &T::info().regs;
+
+        if regs.int_status().read().ent_val().bit_is_set() {
+            regs.int_ctrl().modify(|_, w| w.ent_val().clear_bit());
             RNG_WAKER.wake();
         }
     }
 }
 
 /// RNG driver.
-pub struct Rng<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+pub struct Rng<'d> {
+    info: Info,
+    _lifetime: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Rng<'d, T> {
+impl<'d> Rng<'d> {
     /// Create a new RNG driver.
-    pub fn new(
-        inner: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        _inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         // SAFETY: safe from single executor
@@ -55,13 +58,16 @@ impl<'d, T: Instance> Rng<'d, T> {
         clkctl0.pscctl0_set().write(|w| w.rng_clk().set_clock());
         rstctl0.prstctl0_clr().write(|w| w.rng().clr_reset());
 
-        into_ref!(inner);
+        into_ref!(_inner);
 
-        let mut random = Self { _inner: inner };
+        let mut random = Self {
+            info: T::info(),
+            _lifetime: PhantomData,
+        };
         random.reset();
 
         // Mask all interrupts
-        T::regs().int_mask().write(|w| {
+        random.info.regs.int_mask().write(|w| {
             w.ent_val()
                 .ent_val_0()
                 .hw_err()
@@ -71,14 +77,16 @@ impl<'d, T: Instance> Rng<'d, T> {
         });
 
         // Switch TRNG to programming mode
-        T::regs().mctl().modify(|_, w| w.prgm().set_bit());
+        random.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
 
         // Enable ENT_VAL interrupt
-        T::regs().int_ctrl().write(|w| w.ent_val().ent_val_1());
-        T::regs().int_mask().write(|w| w.ent_val().ent_val_1());
+        random.info.regs.int_ctrl().write(|w| w.ent_val().ent_val_1());
+        random.info.regs.int_mask().write(|w| w.ent_val().ent_val_1());
 
         // Switch TRNG to Run Mode
-        T::regs()
+        random
+            .info
+            .regs
             .mctl()
             .modify(|_, w| w.trng_acc().set_bit().prgm().clear_bit());
 
@@ -90,7 +98,7 @@ impl<'d, T: Instance> Rng<'d, T> {
 
     /// Reset the RNG.
     pub fn reset(&mut self) {
-        T::regs().mctl().write(|w| w.rst_def().set_bit().prgm().set_bit());
+        self.info.regs.mctl().write(|w| w.rst_def().set_bit().prgm().set_bit());
     }
 
     /// Fill the given slice with random values.
@@ -99,22 +107,22 @@ impl<'d, T: Instance> Rng<'d, T> {
         // disposal. The idea here is to read all bits and copy the
         // necessary bytes to the slice.
         for chunk in dest.chunks_mut(64) {
-            let mut bits = T::regs().mctl().read();
+            let mut bits = self.info.regs.mctl().read();
 
             if bits.ent_val().bit_is_clear() {
                 // wait for interrupt
                 poll_fn(|cx| {
                     // Check if already ready.
-                    if T::regs().int_status().read().ent_val().bit_is_set() {
+                    if self.info.regs.int_status().read().ent_val().bit_is_set() {
                         return Poll::Ready(());
                     }
 
                     RNG_WAKER.register(cx.waker());
 
-                    T::regs().int_mask().modify(|_, w| w.ent_val().ent_val_1());
+                    self.info.regs.int_mask().modify(|_, w| w.ent_val().ent_val_1());
 
                     // Check again if interrupt fired
-                    if T::regs().mctl().read().ent_val().bit_is_set() {
+                    if self.info.regs.mctl().read().ent_val().bit_is_set() {
                         Poll::Ready(())
                     } else {
                         Poll::Pending
@@ -122,18 +130,18 @@ impl<'d, T: Instance> Rng<'d, T> {
                 })
                 .await;
 
-                bits = T::regs().mctl().read();
+                bits = self.info.regs.mctl().read();
             }
 
             if bits.ent_val().bit_is_set() {
                 let mut entropy = [0; 16];
 
                 for (i, item) in entropy.iter_mut().enumerate() {
-                    *item = T::regs().ent(i).read().bits();
+                    *item = self.info.regs.ent(i).read().bits();
                 }
 
                 // Read MCTL after reading ENT15
-                let _ = T::regs().mctl().read();
+                let _ = self.info.regs.mctl().read();
 
                 if entropy.iter().any(|e| *e == 0) {
                     return Err(Error::SeedError);
@@ -145,7 +153,7 @@ impl<'d, T: Instance> Rng<'d, T> {
 
                 // write bytes to chunk
                 for (dest, src) in chunk.iter_mut().zip(entropy.iter()) {
-                    *dest = *src
+                    *dest = *src;
                 }
             }
         }
@@ -154,7 +162,7 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> RngCore for Rng<'d, T> {
+impl RngCore for Rng<'_> {
     fn next_u32(&mut self) -> u32 {
         let mut bytes = [0u8; 4];
         block_on(self.async_fill_bytes(&mut bytes)).unwrap();
@@ -177,10 +185,14 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
+impl CryptoRng for Rng<'_> {}
+
+struct Info {
+    regs: crate::pac::Trng,
+}
 
 trait SealedInstance {
-    fn regs() -> crate::pac::Trng;
+    fn info() -> Info;
 }
 
 /// RNG instance trait.
@@ -195,8 +207,10 @@ impl Instance for peripherals::RNG {
 }
 
 impl SealedInstance for peripherals::RNG {
-    fn regs() -> crate::pac::Trng {
+    fn info() -> Info {
         // SAFETY: safe from single executor
-        unsafe { crate::pac::Trng::steal() }
+        Info {
+            regs: unsafe { crate::pac::Trng::steal() },
+        }
     }
 }

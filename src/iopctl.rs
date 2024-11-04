@@ -80,16 +80,15 @@ pub enum DriveMode {
     OpenDrain,
 }
 
-/// Input polarity of a pin.
+/// Input inverter of a pin.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Polarity {
-    /// Active-high
-    ActiveHigh,
-    /// Active-low, which essentially "inverts" the input signal
-    ///
-    /// e.g. A logic low on an input signal will be interpreted as a logic high
-    ActiveLow,
+pub enum Inverter {
+    /// No inverter
+    Disabled,
+    /// Enable input inverter on the input port. A low signal will be
+    /// seen as a high signal by the pin.
+    Enabled,
 }
 
 trait SealedPin {}
@@ -116,7 +115,7 @@ pub trait IopctlPin: SealedPin {
 
     /// Enables either a pull-up or pull-down resistor on a pin.
     ///
-    /// Setting this to [Pull::None] will disable the resistor.
+    /// Setting this to [`Pull::None`] will disable the resistor.
     fn set_pull(&self, pull: Pull) -> &Self;
 
     /// Enables the input buffer of a pin.
@@ -140,19 +139,19 @@ pub trait IopctlPin: SealedPin {
 
     /// Sets the output drive strength of a pin.
     ///
-    /// A drive strength of [DriveStrength::Full] has twice the
-    /// high and low drive capability of the [DriveStrength::Normal] setting.
+    /// A drive strength of [`DriveStrength::Full`] has twice the
+    /// high and low drive capability of the [`DriveStrength::Normal`] setting.
     fn set_drive_strength(&self, strength: DriveStrength) -> &Self;
 
     /// Enables the analog multiplexer of a pin.
     ///
     /// This must be called to allow analog functionalities of a pin.
     ///
-    /// To protect the analog input, [IopctlPin::set_function] should be
-    /// called with [Function::F0] to disable digital functions.
+    /// To protect the analog input, [`IopctlPin::set_function`] should be
+    /// called with [`Function::F0`] to disable digital functions.
     ///
-    /// Additionally, [IopctlPin::disable_input_buffer] and [IopctlPin::set_pull]
-    /// with [Pull::None] should be called.
+    /// Additionally, [`IopctlPin::disable_input_buffer`] and [`IopctlPin::set_pull`]
+    /// with [`Pull::None`] should be called.
     fn enable_analog_multiplex(&self) -> &Self;
 
     /// Disables the analog multiplexer of a pin.
@@ -160,17 +159,17 @@ pub trait IopctlPin: SealedPin {
 
     /// Sets the ouput drive mode of a pin.
     ///
-    /// A pin configured as [DriveMode::OpenDrain] actually operates in
+    /// A pin configured as [`DriveMode::OpenDrain`] actually operates in
     /// a "pseudo" open-drain mode which is somewhat different than true open-drain.
     ///
     /// See Section 7.4.2.7 of reference manual.
     fn set_drive_mode(&self, mode: DriveMode) -> &Self;
 
-    /// Sets the polarity of an input pin.
+    /// Sets the input inverter of an input pin.
     ///
-    /// Setting this to [Polarity::ActiveLow] will invert
+    /// Setting this to [`Inverter::Enabled`] will invert
     /// the input signal.
-    fn set_input_polarity(&self, polarity: Polarity) -> &Self;
+    fn set_input_inverter(&self, inverter: Inverter) -> &Self;
 
     /// Returns a pin to its reset state.
     fn reset(&self) -> &Self;
@@ -193,13 +192,14 @@ impl AnyPin {
     /// # Safety
     ///
     /// The caller MUST ensure valid port and pin numbers are provided,
-    /// and that multiple instances of [AnyPin] with the same port
+    /// and that multiple instances of [`AnyPin`] with the same port
     /// and pin combination are not being used simultaneously.
     ///
     /// Failure to uphold these requirements will result in undefined behavior.
     ///
     /// See Table 297 in reference manual for a list of valid
     /// pin and port number combinations.
+    #[must_use]
     pub unsafe fn new(port: u8, pin: u8) -> Self {
         // Calculates the offset from the beginning of the IOPCTL register block
         // address to the register address representing the pin.
@@ -208,7 +208,7 @@ impl AnyPin {
         let offset = ((port as usize) << 7) + ((pin as usize) << 2);
 
         // SAFETY: This is safe assuming the caller of this function satisfies the safety requirements above.
-        let reg = unsafe { &*(Iopctl::ptr().byte_offset(offset as isize) as *const _) };
+        let reg = unsafe { &*Iopctl::ptr().byte_offset(offset as isize).cast() };
         Self {
             pin_port: port * 32 + pin,
             reg,
@@ -216,6 +216,7 @@ impl AnyPin {
     }
 
     /// Returns the pin's port and pin combination.
+    #[must_use]
     pub fn pin_port(&self) -> usize {
         self.pin_port as usize
     }
@@ -296,10 +297,10 @@ impl IopctlPin for AnyPin {
         self
     }
 
-    fn set_input_polarity(&self, polarity: Polarity) -> &Self {
-        match polarity {
-            Polarity::ActiveHigh => self.reg.modify(|_, w| w.iiena().disabled()),
-            Polarity::ActiveLow => self.reg.modify(|_, w| w.iiena().enabled()),
+    fn set_input_inverter(&self, inverter: Inverter) -> &Self {
+        match inverter {
+            Inverter::Disabled => self.reg.modify(|_, w| w.iiena().disabled()),
+            Inverter::Enabled => self.reg.modify(|_, w| w.iiena().enabled()),
         }
         self
     }
@@ -370,8 +371,8 @@ macro_rules! impl_pin {
             }
 
             #[inline]
-            fn set_input_polarity(&self, polarity: Polarity) -> &Self {
-                Self::to_raw($pin_port, $pin_no).set_input_polarity(polarity);
+            fn set_input_inverter(&self, inverter: Inverter) -> &Self {
+                Self::to_raw($pin_port, $pin_no).set_input_inverter(inverter);
                 self
             }
 

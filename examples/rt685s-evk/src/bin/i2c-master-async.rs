@@ -5,8 +5,9 @@ extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{self, I2cMasterAsync};
+use embassy_imxrt::i2c;
 use embassy_time::Timer;
+use embedded_hal_async::i2c::I2c;
 
 const ACC_ADDR: u8 = 0x1E;
 
@@ -79,21 +80,16 @@ async fn main(_spawner: Spawner) {
     // Pseudo Output Drain is disabled
     // Input function is not inverted
     info!("Configuring GPIO1_5 as input");
-    let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Polarity::ActiveHigh);
+    let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Inverter::Disabled);
 
     info!("i2c example - I2c::new");
-    let mut i2c = i2c::I2cMaster::new_async(
+    let mut i2c = i2c::master::I2cMaster::new_async(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
-        Pull::Down,
-        i2c::Speed::Standard,
-        i2c::TimeoutSettings {
-            hw_timeout: true,
-            sw_timeout: embassy_time::Duration::from_millis(1000),
-        },
+        i2c::master::Speed::Standard,
+        p.DMA0_CH5,
     )
-    .await
     .unwrap();
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)

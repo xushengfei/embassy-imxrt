@@ -29,32 +29,32 @@ use embassy_hal_internal::{Peripheral, PeripheralRef};
 /// include pac definitions for instancing
 use mimxrt685s_pac as pac; // TODO: generalize for other chipsets
 
-/// clock source indicator for selecting while powering on the SCTimer
+/// clock source indicator for selecting while powering on the `SCTimer`
 #[derive(Copy, Clone, Debug)]
 pub enum SCTClockSource {
     /// main clock
     Main,
 
-    /// main PLL clock (main_pll_clk)
+    /// main PLL clock (`main_pll_clk`)
     MainPLL,
 
-    /// aux0_pll_clk
+    /// `aux0_pll_clk`
     AUX0PLL,
 
-    /// 48/60m_irc
+    /// `48/60m_irc`
     FFRO,
 
-    /// aux1_pll_clk
+    /// `aux1_pll_clk`
     AUX1PLL,
 
-    /// audio_pll_clk
+    /// `audio_pll_clk`
     AudioPLL,
 
     /// lowest power selection
     None,
 }
 
-/// SCTimer based PWM Interface Constraints
+/// `SCTimer` based PWM Interface Constraints
 #[derive(Copy, Clone, Debug)]
 pub enum Channel {
     /// Channel 0
@@ -95,23 +95,23 @@ static CHANNELS: [Channel; 10] = [
 
 impl Channel {
     fn bit(&self) -> u32 {
-        use Channel::*;
+        use Channel::{Ch0, Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9};
         match self {
             Ch0 => 0b1,
             Ch1 => 0b10,
             Ch2 => 0b100,
             Ch3 => 0b1000,
             Ch4 => 0b10000,
-            Ch5 => 0b100000,
-            Ch6 => 0b1000000,
-            Ch7 => 0b10000000,
-            Ch8 => 0b100000000,
-            Ch9 => 0b1000000000,
+            Ch5 => 0b10_0000,
+            Ch6 => 0b100_0000,
+            Ch7 => 0b1000_0000,
+            Ch8 => 0b1_0000_0000,
+            Ch9 => 0b10_0000_0000,
         }
     }
 
     fn number(&self) -> usize {
-        use Channel::*;
+        use Channel::{Ch0, Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9};
         match self {
             Ch0 => 0,
             Ch1 => 1,
@@ -156,17 +156,19 @@ impl CentiPercent {
     /// 00.00%
     pub const MIN: CentiPercent = CentiPercent(0, 0);
 
-    /// Convert from this CentiPercent into a u32 (X) / max
+    /// Convert from this `CentiPercent` into a u32 (X) / max
+    #[must_use]
     pub fn as_scaled(&self, max: u32) -> u32 {
-        ((self.0 as u64) * (max as u64) / 100 + (self.1 as u64) * (max as u64) / 10_000) as u32
+        (u64::from(self.0) * u64::from(max) / 100 + u64::from(self.1) * u64::from(max) / 10_000) as u32
     }
 
-    /// Convert from a u32 ratio (value / max) to a CentiPercent (PCT.pp%)
+    /// Convert from a u32 ratio (value / max) to a `CentiPercent` (PCT.pp%)
+    #[must_use]
     pub fn from_scaled(value: u32, max: u32) -> CentiPercent {
         // extract percentage
-        let pct = (((value as u64) * 100) / (max as u64)) as u8;
-        let dec = ((value as u64) * 10_000) / (max as u64);
-        let dec = (dec - (pct as u64) * 100) as u8;
+        let pct = ((u64::from(value) * 100) / u64::from(max)) as u8;
+        let dec = (u64::from(value) * 10_000) / u64::from(max);
+        let dec = (dec - u64::from(pct) * 100) as u8;
 
         CentiPercent(pct, dec)
     }
@@ -182,7 +184,7 @@ impl From<MicroSeconds> for Hertz {
 // only allow specified instances to SCTPwm construct
 impl sealed::SCTimer for crate::peripherals::SCT0 {
     fn set_clock_source(clock: self::SCTClockSource) {
-        use SCTClockSource::*;
+        use SCTClockSource::{AudioPLL, Main, MainPLL, None, AUX0PLL, AUX1PLL, FFRO};
 
         // SAFETY: safe so long as executed from single executor context or during initialization only
         let clkctl0 = unsafe { pac::Clkctl0::steal() };
@@ -219,7 +221,7 @@ impl sealed::SCTimer for crate::peripherals::SCT0 {
     }
 
     fn get_clock_rate(clock: self::SCTClockSource) -> Hertz {
-        use SCTClockSource::*;
+        use SCTClockSource::{AudioPLL, Main, MainPLL, None, AUX0PLL, AUX1PLL, FFRO};
 
         // TODO - fix these
         match clock {
@@ -296,7 +298,7 @@ impl sealed::SCTimer for crate::peripherals::SCT0 {
     }
 }
 
-/// Basic PWM Object, Consumes a SCTimer peripheral hardware instance on construction
+/// Basic PWM Object, Consumes a `SCTimer` peripheral hardware instance on construction
 pub struct SCTPwm<'d, T: sealed::SCTimer> {
     _p: PeripheralRef<'d, T>,
     period: MicroSeconds,
@@ -305,7 +307,7 @@ pub struct SCTPwm<'d, T: sealed::SCTimer> {
 }
 
 impl<'d, T: sealed::SCTimer> SCTPwm<'d, T> {
-    /// Take the SCTimer instance supplied and use it as a simple PWM driver. Function returns constructed Pwm instance.
+    /// Take the `SCTimer` instance supplied and use it as a simple PWM driver. Function returns constructed Pwm instance.
     pub fn new(sct: impl Peripheral<P = T> + 'd, period: MicroSeconds, clock: SCTClockSource) -> Self {
         // requested period must be possible with configured clock selection (within bounds of u8 divisor)!
 
@@ -348,7 +350,7 @@ impl<'d, T: sealed::SCTimer> SCTPwm<'d, T> {
     }
 }
 
-impl<'d, T: sealed::SCTimer> Drop for SCTPwm<'d, T> {
+impl<T: sealed::SCTimer> Drop for SCTPwm<'_, T> {
     fn drop(&mut self) {
         // disable resources
         T::set_clock_source(SCTClockSource::None);
@@ -357,7 +359,7 @@ impl<'d, T: sealed::SCTimer> Drop for SCTPwm<'d, T> {
 
 pub use embedded_hal_02::Pwm;
 
-impl<'d, T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'d, T> {
+impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
     type Channel = Channel;
     type Time = MicroSeconds;
     type Duty = CentiPercent;
@@ -469,7 +471,7 @@ impl<'d, T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'d, T> {
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        use Channel::*;
+        use Channel::{Ch0, Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9};
         // SAFETY: safe so long as SCTPwm is not used across multiple executors
         let sct0 = unsafe { pac::Sct0::steal() };
 
@@ -500,7 +502,7 @@ impl<'d, T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'d, T> {
         // SAFETY: safe so long as SCTPwm is not used across multiple executors
         let sct0 = unsafe { pac::Sct0::steal() };
 
-        use Channel::*;
+        use Channel::{Ch0, Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9};
 
         match channel {
             Ch0 => sct0.matchrel0().write(|w|

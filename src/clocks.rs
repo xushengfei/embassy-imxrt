@@ -1,4 +1,4 @@
-//! Clock configuration for the RT6xx
+//! Clock configuration for the `RT6xx`
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 #[cfg(feature = "defmt")]
@@ -63,6 +63,7 @@ pub struct ClockConfig {
 
 impl ClockConfig {
     /// Clock configuration derived from external crystal.
+    #[must_use]
     pub fn crystal() -> Self {
         const CORE_CPU_FREQ: u32 = 500_000_000;
         const PLL_CLK_FREQ: u32 = 528_000_000;
@@ -134,7 +135,7 @@ pub enum State {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Low Power Oscillator valid frequencies
 pub enum LposcFreq {
-    /// 1 MHz oscillator
+    /// 1 `MHz` oscillator
     Lp1m,
     /// 32kHz oscillator
     Lp32k,
@@ -242,7 +243,7 @@ pub struct RtcClkConfig {
 pub enum FfroFreq {
     /// 48 Mhz Internal Oscillator
     Ffro48m,
-    /// 60 MHz Internal Oscillator
+    /// 60 `MHz` Internal Oscillator
     Ffro60m,
 }
 
@@ -527,7 +528,7 @@ impl FfroConfig {
 
         // No FFRO enable/disable control in CLKCTL.
         // Delay enough for FFRO to be stable in case it was just powered on
-        delay_loop_clocks(50, 12_000_000)
+        delay_loop_clocks(50, 12_000_000);
     }
 }
 
@@ -760,7 +761,7 @@ impl ConfigurableClock for MainPllClkConfig {
                             clkctl0.syspll0clksel().write(|w| w.sel().sfro_clk());
                         }
                     };
-                    base_rate *= mult as u32;
+                    base_rate *= u32::from(mult);
                     trace!("calculated base rate at: {:#}", base_rate);
                     if base_rate != freq {
                         // make sure to power syspll back up before returning the error
@@ -975,9 +976,9 @@ impl MultiSourceClock for MainClkConfig {
                         let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
                         if self.src == MainClkSrc::PllMain && clkctl0.syspll0ctl0().read().bypass().bit_is_clear() {
                             let mut temp;
-                            temp =
-                                self.freq.load(Ordering::Relaxed) * (clkctl0.syspll0ctl0().read().mult().bits() as u32);
-                            temp = ((temp as u64) * 18 / (clkctl0.syspll0pfd().read().pfd0().bits() as u64)) as u32;
+                            temp = self.freq.load(Ordering::Relaxed)
+                                * u32::from(clkctl0.syspll0ctl0().read().mult().bits());
+                            temp = (u64::from(temp) * 18 / u64::from(clkctl0.syspll0pfd().read().pfd0().bits())) as u32;
                             return Ok((converted_clock, temp));
                         }
                         Ok((converted_clock, self.freq.load(Ordering::Relaxed) / div))
@@ -1291,8 +1292,8 @@ impl ConfigurableClock for SysOscConfig {
 /// Method to delay for a certain number of microseconds given a clock rate
 pub fn delay_loop_clocks(usec: u64, freq_mhz: u64) {
     let mut ticks = usec * freq_mhz / 1_000_000 / 4;
-    if ticks > (u32::MAX as u64) {
-        ticks = u32::MAX as u64;
+    if ticks > u64::from(u32::MAX) {
+        ticks = u64::from(u32::MAX);
     }
     // won't panic since we check value above
     cortex_m::asm::delay(ticks as u32);
@@ -1322,16 +1323,16 @@ fn init_syscpuahb_clk() {
     while clkctl0.syscpuahbclkdiv().read().reqflag().bit_is_set() {}
 }
 
-/// ClockOut config
+/// `ClockOut` config
 pub struct ClockOutConfig {
     src: ClkOutSrc,
     div: u8,
 }
 
-/// ClockOut sources
+/// `ClockOut` sources
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// ClockOut sources
+/// `ClockOut` sources
 pub enum ClkOutSrc {
     /// No Source, reduce power consumption
     None,
@@ -1349,21 +1350,22 @@ pub enum ClkOutSrc {
     DspMainClk,
     /// Main Pll clock
     MainPllClk,
-    /// SysPll Aux0 clock
+    /// `SysPll` Aux0 clock
     Aux0PllClk,
-    /// SysPll DSP clock
+    /// `SysPll` DSP clock
     DspPllClk,
-    /// SysPll Aux1 clock
+    /// `SysPll` Aux1 clock
     Aux1PllClk,
     /// Audio Pll clock
     AudioPllClk,
-    /// 32 KHz RTC
+    /// 32 `KHz` RTC
     RTC32k,
 }
 
-/// Initialize the ClkOutConfig
+/// Initialize the `ClkOutConfig`
 impl ClockOutConfig {
     /// Default configuration for Clock out
+    #[must_use]
     pub fn default_config() -> Self {
         Self {
             src: ClkOutSrc::None,

@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
     info!("Initializing GPIO");
     unsafe { gpio::init() };
 
-    let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Polarity::ActiveHigh);
+    let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Inverter::Disabled);
 
     loop {
         info!("Pin level is {}", monitor.get_level());

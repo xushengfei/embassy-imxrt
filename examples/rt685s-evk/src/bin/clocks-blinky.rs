@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
         .disable_input_buffer()
         .set_drive_mode(embassy_imxrt::gpio::DriveMode::PushPull)
         .set_drive_strength(embassy_imxrt::gpio::DriveStrength::Normal)
-        .set_input_polarity(embassy_imxrt::gpio::Polarity::ActiveHigh)
+        .set_input_inverter(embassy_imxrt::gpio::Inverter::Disabled)
         .set_function(embassy_imxrt::gpio::Function::F7)
         .set_slew_rate(embassy_imxrt::gpio::SlewRate::Standard)
         .set_pull(embassy_imxrt::gpio::Pull::None);
