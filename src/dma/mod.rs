@@ -3,10 +3,10 @@
 pub mod channel;
 pub mod transfer;
 
+use core::marker::PhantomData;
 use core::ptr;
 
 use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_hal_internal::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::channel::{Channel, ChannelAndRequest, Request};
@@ -141,16 +141,22 @@ pub fn init() {
 }
 
 /// DMA device
-pub struct Dma<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+pub struct Dma<'d> {
+    _lifetime: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Dma<'d, T> {
+struct DmaInfo {
+    regs: crate::pac::Dma0,
+    ch_num: usize,
+}
+
+impl<'d> Dma<'d> {
     /// Reserves a DMA channel for exclusive use
-    pub fn reserve_channel(channel: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d, T> {
+    pub fn reserve_channel<T: Instance>(_inner: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d> {
         let request: Request = 0; //
         let channel = Channel {
-            inner: channel.into_ref(),
+            info: T::info(),
+            _lifetime: PhantomData,
         };
 
         ChannelAndRequest { channel, request }
@@ -158,8 +164,7 @@ impl<'d, T: Instance> Dma<'d, T> {
 }
 
 trait SealedInstance {
-    fn regs() -> crate::pac::Dma0;
-    fn get_channel_number() -> usize;
+    fn info() -> DmaInfo;
 }
 
 /// DMA instance trait
@@ -176,12 +181,12 @@ macro_rules! dma_channel_instance {
         }
 
         impl SealedInstance for peripherals::$instance {
-            fn regs() -> crate::pac::$controller {
-                // SAFETY: safe from single executor
-                unsafe { crate::pac::$controller::steal() }
-            }
-            fn get_channel_number() -> usize {
-                $number
+            fn info() -> DmaInfo {
+                DmaInfo {
+                    // SAFETY: safe from single executor
+                    regs: unsafe { crate::pac::$controller::steal() },
+                    ch_num: $number,
+                }
             }
         }
     };

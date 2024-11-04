@@ -1,43 +1,39 @@
 //! DMA channel & request
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::{Instance, DESCRIPTORS, DMA_WAKERS};
+use super::{DESCRIPTORS, DMA_WAKERS};
 use crate::dma::transfer::{Direction, Transfer, TransferOptions};
+use crate::dma::DmaInfo;
 
 /// DMA request identifier
 pub type Request = u8;
 
 /// Convenience wrapper, contains a DMA channel and a request
-pub struct ChannelAndRequest<'d, T: Instance> {
+pub struct ChannelAndRequest<'d> {
     /// DMA channel
-    pub channel: Channel<'d, T>,
+    pub channel: Channel<'d>,
     /// DMA request
     pub request: Request,
 }
 
-impl<'d, T: Instance> ChannelAndRequest<'d, T> {
+impl<'d> ChannelAndRequest<'d> {
     /// Reads from a peripheral into a memory buffer
     pub fn read_from_peripheral(
         &'d self,
         peri_addr: *const u8,
         buf: &'d mut [u8],
         options: TransferOptions,
-    ) -> Transfer<'d, T> {
+    ) -> Transfer<'d> {
         Transfer::new_read(&self.channel, self.request, peri_addr, buf, options)
     }
 
     /// Writes from a memory buffer to a peripheral
-    pub fn write_to_peripheral(
-        &'d self,
-        buf: &'d [u8],
-        peri_addr: *mut u8,
-        options: TransferOptions,
-    ) -> Transfer<'d, T> {
+    pub fn write_to_peripheral(&'d self, buf: &'d [u8], peri_addr: *mut u8, options: TransferOptions) -> Transfer<'d> {
         Transfer::new_write(&self.channel, self.request, buf, peri_addr, options)
     }
 
@@ -47,7 +43,7 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
         src_buf: &'d [u8],
         dst_buf: &'d mut [u8],
         options: TransferOptions,
-    ) -> Transfer<'d, T> {
+    ) -> Transfer<'d> {
         let transfer = Transfer::new_write_mem(&self.channel, self.request, src_buf, dst_buf, options);
         self.poll_transfer_complete().await;
         transfer
@@ -55,30 +51,30 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
 
     /// Return a reference to the channel's waker
     pub fn get_waker(&self) -> &'d AtomicWaker {
-        &DMA_WAKERS[T::get_channel_number()]
+        &DMA_WAKERS[self.channel.info.ch_num]
     }
 
     /// Check whether DMA is busy
     pub fn is_active(&self) -> bool {
-        let channel = T::get_channel_number();
-        T::regs().active0().read().act().bits() & (1 << channel) != 0
+        let channel = self.channel.info.ch_num;
+        self.channel.info.regs.active0().read().act().bits() & (1 << channel) != 0
     }
 
     async fn poll_transfer_complete(&'d self) {
         poll_fn(|cx| {
             // TODO - handle transfer failure
 
-            let channel = T::get_channel_number();
+            let channel = self.channel.info.ch_num;
 
             // Has the transfer already completed?
-            if T::regs().active0().read().act().bits() & (1 << channel) == 0 {
+            if self.channel.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
                 return Poll::Ready(());
             }
 
             DMA_WAKERS[channel].register(cx.waker());
 
             // Has the transfer completed now?
-            if T::regs().active0().read().act().bits() & (1 << channel) == 0 {
+            if self.channel.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -89,12 +85,14 @@ impl<'d, T: Instance> ChannelAndRequest<'d, T> {
 }
 
 /// DMA channel
-pub struct Channel<'d, T: Instance> {
+pub struct Channel<'d> {
     /// DMA channel peripheral reference
-    pub inner: PeripheralRef<'d, T>,
+    pub(super) info: DmaInfo,
+    /// Keep track of lifetime for Channel within the DMA module
+    pub(super) _lifetime: PhantomData<&'d ()>,
 }
 
-impl<T: Instance> Channel<'_, T> {
+impl Channel<'_> {
     /// Prepare the DMA channel for the transfer
     pub fn configure_channel(
         &self,
@@ -106,7 +104,7 @@ impl<T: Instance> Channel<'_, T> {
     ) {
         let xfercount = mem_len - 1;
         let xferwidth = 1;
-        let channel = T::get_channel_number();
+        let channel = self.info.ch_num;
 
         // Configure the channel descriptor
         // NOTE: the DMA controller expects the memory buffer end address but peripheral address is actual
@@ -128,7 +126,7 @@ impl<T: Instance> Channel<'_, T> {
 
         // Configure for transfer type, no hardware triggering (we'll trigger via software), high priority
         // SAFETY: unsafe due to .bits usage
-        T::regs().channel(channel).cfg().write(|w| unsafe {
+        self.info.regs.channel(channel).cfg().write(|w| unsafe {
             if dir == Direction::MemoryToMemory {
                 w.periphreqen().clear_bit();
             } else {
@@ -139,11 +137,14 @@ impl<T: Instance> Channel<'_, T> {
         });
 
         // Enable the interrupt on this channel
-        T::regs().intenset0().write(|w| unsafe { w.inten().bits(1 << channel) });
+        self.info
+            .regs
+            .intenset0()
+            .write(|w| unsafe { w.inten().bits(1 << channel) });
 
         // Mark configuration valid, clear trigger on complete, width is 1 byte, source & destination increments are width x 1 (1 byte), no reload
         // SAFETY: unsafe due to .bits usage
-        T::regs().channel(channel).xfercfg().write(|w| unsafe {
+        self.info.regs.channel(channel).xfercfg().write(|w| unsafe {
             w.cfgvalid().set_bit();
             w.clrtrig().set_bit();
             w.reload().clear_bit();
@@ -166,15 +167,20 @@ impl<T: Instance> Channel<'_, T> {
     /// Enable the DMA channel (only after configuring)
     // SAFETY: unsafe due to .bits usage
     pub fn enable_channel(&self) {
-        let channel = T::get_channel_number();
-        T::regs()
+        let channel = self.info.ch_num;
+        self.info
+            .regs
             .enableset0()
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
     }
 
     /// Trigger the DMA channel
     pub fn trigger_channel(&self) {
-        let channel = T::get_channel_number();
-        T::regs().channel(channel).xfercfg().modify(|_, w| w.swtrig().set_bit());
+        let channel = self.info.ch_num;
+        self.info
+            .regs
+            .channel(channel)
+            .xfercfg()
+            .modify(|_, w| w.swtrig().set_bit());
     }
 }

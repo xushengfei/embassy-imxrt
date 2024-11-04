@@ -5,7 +5,11 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_imxrt::dma::transfer::TransferOptions;
 use embassy_imxrt::dma::Dma;
-use embassy_imxrt::{bind_interrupts, peripherals, rng};
+use embassy_imxrt::{
+    bind_interrupts,
+    peripherals::{self, *},
+    rng,
+};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -14,7 +18,7 @@ bind_interrupts!(struct Irqs {
 
 macro_rules! test_dma_channel {
     ($peripherals: expr, $rng: expr, $instance: ident, $number: expr) => {
-        let ch = Dma::reserve_channel($peripherals.$instance);
+        let ch = Dma::reserve_channel::<$instance>($peripherals.$instance);
         let mut srcbuf = [0u8; 10];
         let mut dstbuf = [1u8; 10];
 
