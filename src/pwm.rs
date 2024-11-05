@@ -129,7 +129,11 @@ impl Channel {
 
 // non-reexported (sealed) traits
 mod sealed {
-    pub trait SCTimer {
+    use embassy_hal_internal::Peripheral;
+
+    use crate::clocks::SysconPeripheral;
+
+    pub trait SCTimer: Peripheral<P = Self> + SysconPeripheral + 'static + Send {
         fn set_clock_source(clock: super::SCTClockSource);
         fn get_clock_rate(clock: super::SCTClockSource) -> super::Hertz;
         fn set_divisor(divisor: u8);
@@ -188,36 +192,32 @@ impl sealed::SCTimer for crate::peripherals::SCT0 {
 
         // SAFETY: safe so long as executed from single executor context or during initialization only
         let clkctl0 = unsafe { pac::Clkctl0::steal() };
-        // SAFETY: same constraints on safety: should only be done from single executor context or during init
-        let rstctl0 = unsafe { pac::Rstctl0::steal() };
 
         match clock {
-            None => (),
-
-            // enable clock
-            _ => {
-                clkctl0.pscctl0_set().write(|w| w.sct_clk().set_clock());
+            Main => {
+                clkctl0.sctfclksel().write(|w| w.sel().main_clk());
             }
-        }
-
-        match clock {
-            Main => clkctl0.sctfclksel().write(|w| w.sel().main_clk()),
-            MainPLL => clkctl0.sctfclksel().write(|w| w.sel().main_sys_pll_clk()),
-            AUX0PLL => clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux0_pll_clock()),
-            FFRO => clkctl0.sctfclksel().write(|w| w.sel().ffro_clk()),
-            AUX1PLL => clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux1_pll_clock()),
-            AudioPLL => clkctl0.sctfclksel().write(|w| w.sel().audio_pll_clk()),
-            None => clkctl0.sctfclksel().write(|w| w.sel().none()),
-        }
-
-        match clock {
-            // disable clock
+            MainPLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().main_sys_pll_clk());
+            }
+            AUX0PLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux0_pll_clock());
+            }
+            FFRO => {
+                clkctl0.sctfclksel().write(|w| w.sel().ffro_clk());
+            }
+            AUX1PLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux1_pll_clock());
+            }
+            AudioPLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().audio_pll_clk());
+            }
             None => {
-                clkctl0.pscctl0_clr().write(|w| w.sct_clk().clr_clock());
-                rstctl0.prstctl0_set().write(|w| w.sct().set_reset());
+                clkctl0.sctfclksel().write(|w| w.sel().none());
             }
-            _ => rstctl0.prstctl0_clr().write(|w| w.sct().clr_reset()),
         }
+
+        enable_and_reset::<SCT0>();
     }
 
     fn get_clock_rate(clock: self::SCTClockSource) -> Hertz {
@@ -358,6 +358,9 @@ impl<T: sealed::SCTimer> Drop for SCTPwm<'_, T> {
 }
 
 pub use embedded_hal_02::Pwm;
+
+use crate::clocks::enable_and_reset;
+use crate::peripherals::SCT0;
 
 impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
     type Channel = Channel;
@@ -505,36 +508,56 @@ impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
         use Channel::{Ch0, Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9};
 
         match channel {
-            Ch0 => sct0.matchrel0().write(|w|
+            Ch0 => {
+                sct0.matchrel0().write(|w|
                 // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch1 => sct0.matchrel1().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch1 => {
+                sct0.matchrel1().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch2 => sct0.matchrel2().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch2 => {
+                sct0.matchrel2().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch3 => sct0.matchrel3().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch3 => {
+                sct0.matchrel3().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch4 => sct0.matchrel4().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch4 => {
+                sct0.matchrel4().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch5 => sct0.matchrel5().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch5 => {
+                sct0.matchrel5().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch6 => sct0.matchrel6().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch6 => {
+                sct0.matchrel6().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch7 => sct0.matchrel7().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch7 => {
+                sct0.matchrel7().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch8 => sct0.matchrel8().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch8 => {
+                sct0.matchrel8().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch9 => sct0.matchrel9().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch9 => {
+                sct0.matchrel9().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
+                unsafe { w.bits(scaled) });
+            }
         }
     }
 

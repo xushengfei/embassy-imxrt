@@ -15,13 +15,18 @@ pub mod crc;
 pub mod dma;
 pub mod flexcomm;
 pub mod gpio;
+pub mod hashcrypt;
 pub mod i2c;
 pub mod iopctl;
 pub mod pwm;
 pub mod rng;
-/// Time driver for the iMX RT600 series.
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
+/// NXP Timer Driver for handling timer-related functionalities.
+/// Module provides functionality for
+/// - Counting Timer
+/// - Capture Timer
+pub mod timer;
 pub mod uart;
 pub mod wwdt;
 
@@ -142,11 +147,46 @@ embassy_hal_internal::peripherals!(
     ADC0,
     CASPER,
     CRC,
-    CTIMER0,
-    CTIMER1,
-    CTIMER2,
-    CTIMER3,
-    CTIMER4,
+    CTIMER0_COUNT_CHANNEL0,
+    CTIMER0_COUNT_CHANNEL1,
+    CTIMER0_COUNT_CHANNEL2,
+    CTIMER0_COUNT_CHANNEL3,
+    CTIMER0_CAPTURE_CHANNEL0,
+    CTIMER0_CAPTURE_CHANNEL1,
+    CTIMER0_CAPTURE_CHANNEL2,
+    CTIMER0_CAPTURE_CHANNEL3,
+    CTIMER1_COUNT_CHANNEL0,
+    CTIMER1_COUNT_CHANNEL1,
+    CTIMER1_COUNT_CHANNEL2,
+    CTIMER1_COUNT_CHANNEL3,
+    CTIMER1_CAPTURE_CHANNEL0,
+    CTIMER1_CAPTURE_CHANNEL1,
+    CTIMER1_CAPTURE_CHANNEL2,
+    CTIMER1_CAPTURE_CHANNEL3,
+    CTIMER2_COUNT_CHANNEL0,
+    CTIMER2_COUNT_CHANNEL1,
+    CTIMER2_COUNT_CHANNEL2,
+    CTIMER2_COUNT_CHANNEL3,
+    CTIMER2_CAPTURE_CHANNEL0,
+    CTIMER2_CAPTURE_CHANNEL1,
+    CTIMER2_CAPTURE_CHANNEL2,
+    CTIMER2_CAPTURE_CHANNEL3,
+    CTIMER3_COUNT_CHANNEL0,
+    CTIMER3_COUNT_CHANNEL1,
+    CTIMER3_COUNT_CHANNEL2,
+    CTIMER3_COUNT_CHANNEL3,
+    CTIMER3_CAPTURE_CHANNEL0,
+    CTIMER3_CAPTURE_CHANNEL1,
+    CTIMER3_CAPTURE_CHANNEL2,
+    CTIMER3_CAPTURE_CHANNEL3,
+    CTIMER4_COUNT_CHANNEL0,
+    CTIMER4_COUNT_CHANNEL1,
+    CTIMER4_COUNT_CHANNEL2,
+    CTIMER4_COUNT_CHANNEL3,
+    CTIMER4_CAPTURE_CHANNEL0,
+    CTIMER4_CAPTURE_CHANNEL1,
+    CTIMER4_CAPTURE_CHANNEL2,
+    CTIMER4_CAPTURE_CHANNEL3,
     DMA0,
     DMA0_CH0,
     DMA0_CH1,
@@ -228,6 +268,7 @@ embassy_hal_internal::peripherals!(
     FLEXCOMM6,
     FLEXCOMM7,
     FLEXSPI,
+    FREQME,
     GPIO_INTA,
     GPIO_INTB,
     HASHCRYPT,
@@ -406,11 +447,14 @@ embassy_hal_internal::peripherals!(
     RNG,
     RTC,
     SCT0,
+    SECGPIO,
     SECUREVIOLATION,
+    SEMA42,
     SGPIO_INTA,
     SGPIO_INTB,
-    USB,
-    USBPHY_DCD,
+    USBHSD,
+    USBHSH,
+    USBPHY,
     USB_WAKEUP,
     USDHC0,
     USDHC1,
@@ -473,6 +517,7 @@ pub fn init(config: config::Config) -> Peripherals {
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
         dma::init();
+        timer::init_timer_modules();
     }
 
     peripherals

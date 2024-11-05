@@ -3,49 +3,57 @@
 
 extern crate embassy_imxrt_examples;
 
-use defmt::{error, info};
+use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{
-    slave::{Address, I2cSlave},
-    Blocking,
-};
-use embassy_imxrt::pac;
-use embassy_imxrt::peripherals::{DMA0_CH4, FLEXCOMM2};
+use embassy_imxrt::i2c::slave::{Address, Command, I2cSlave, Response};
+use embassy_imxrt::i2c::Blocking;
 
 const SLAVE_ADDR: Option<Address> = Address::new(0x20);
+const BUFLEN: usize = 8;
 
 #[embassy_executor::task]
-async fn slave_service(i2c: I2cSlave<'static, FLEXCOMM2, Blocking, DMA0_CH4>) {
+async fn slave_service(i2c: I2cSlave<'static, Blocking>) {
     loop {
-        let magic_code = [0xF0, 0x05, 0xBA, 0x11];
+        let mut buf: [u8; BUFLEN] = [0xAA; BUFLEN];
 
-        let mut cmd_length: [u8; 1] = [0xAA; 1];
-        info!("i2cs example - wait for cmd - read cmd length first");
-        i2c.listen(&mut cmd_length).unwrap();
+        for (i, e) in buf.iter_mut().enumerate() {
+            *e = i as u8;
+        }
 
-        let mut cmd: [u8; 4] = [0xAA; 4];
-        info!("i2cs example - wait for cmd - read the actual cmd");
-        i2c.listen(&mut cmd).unwrap();
-
-        if cmd == [0xDE, 0xAD, 0xBE, 0xEF] {
-            info!("i2cs example - receive init cmd");
-        } else if cmd == [0xDE, 0xCA, 0xFB, 0xAD] {
-            info!("i2cs example - receive magic cmd, writing back magic code to host");
-            i2c.respond(&magic_code).unwrap();
-        } else {
-            error!("unexpected cmd = {:02X}", cmd);
-            panic!("i2cs example - unexpected cmd");
+        match i2c.listen().unwrap() {
+            Command::Probe => {
+                info!("Probe, nothing to do");
+            }
+            Command::Read => {
+                info!("Read");
+                loop {
+                    match i2c.respond_to_read(&buf).unwrap() {
+                        Response::Complete(n) => {
+                            info!("Response complete read with {} bytes", n);
+                            break;
+                        }
+                        Response::Pending(n) => info!("Response to read got {} bytes, more bytes to fill", n),
+                    }
+                }
+            }
+            Command::Write => {
+                info!("Write");
+                loop {
+                    match i2c.respond_to_write(&mut buf).unwrap() {
+                        Response::Complete(n) => {
+                            info!("Response complete write with {} bytes", n);
+                            break;
+                        }
+                        Response::Pending(n) => info!("Response to write got {} bytes, more bytes pending", n),
+                    }
+                }
+            }
         }
     }
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let pac = pac::Peripherals::take().unwrap();
-
-    // Ensure SFRO Clock is set to run (power down is cleared)
-    pac.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
-
     info!("i2cs example - embassy_imxrt::init");
     let p = embassy_imxrt::init(Default::default());
 

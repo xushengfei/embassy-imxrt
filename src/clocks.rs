@@ -782,12 +782,24 @@ impl ConfigurableClock for MainPllClkConfig {
                     self.mult.store(mult, Ordering::Relaxed);
                     trace!("setting self.mult as: {:#}", mult);
                     match mult {
-                        16 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_16()),
-                        17 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_17()),
-                        20 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_20()),
-                        22 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_22()),
-                        27 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_27()),
-                        33 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_33()),
+                        16 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_16());
+                        }
+                        17 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_17());
+                        }
+                        20 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_20());
+                        }
+                        22 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_22());
+                        }
+                        27 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_27());
+                        }
+                        33 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_33());
+                        }
                         _ => return Err(ClockError::InvalidMult),
                     }
                     trace!("clear syspll reset");
@@ -1556,39 +1568,97 @@ pub fn disable<T: SysconPeripheral>() {
     T::disable_perph_clock();
 }
 macro_rules! impl_perph_clk {
-    ($port:ident) => {
-        impl SealedSysconPeripheral for crate::peripherals::$port {
+    ($peripheral:ident, $clkctl:ident, $clkreg:ident, $rstctl:ident, $rstreg:ident, $bit:expr) => {
+        impl SealedSysconPeripheral for crate::peripherals::$peripheral {
             fn enable_and_reset_perph_clock() {
                 // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let cc1 = unsafe { pac::Clkctl1::steal() };
-                let rc1 = unsafe { pac::Rstctl1::steal() };
+                let cc1 = unsafe { pac::$clkctl::steal() };
+                let rc1 = unsafe { pac::$rstctl::steal() };
 
                 paste! {
-                    cc1.pscctl1().modify(|_r, w| w.[<$port:lower _clk>]().enable_clock());
-                    rc1.prstctl1().modify(|_r, w| w.[<$port:lower _rst>]().clear_reset());
+                    // SAFETY: unsafe due to the use of bits()
+                    cc1.[<$clkreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
+
+                    // SAFETY: unsafe due to the use of bits()
+                    rc1.[<$rstreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
                 }
             }
+
             fn disable_perph_clock() {
                 // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let cc1 = unsafe { pac::Clkctl1::steal() };
-                let rc1 = unsafe { pac::Rstctl1::steal() };
+                let cc1 = unsafe { pac::$clkctl::steal() };
+                let rc1 = unsafe { pac::$rstctl::steal() };
 
                 paste! {
-                    rc1.prstctl1().modify(|_r, w| w.[<$port:lower _rst>]().set_reset());
-                    cc1.pscctl1().modify(|_r, w| w.[<$port:lower _clk>]().disable_clock());
+                    // SAFETY: unsafe due to the use of bits()
+                    rc1.[<$rstreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
+
+                    // SAFETY: unsafe due to the use of bits()
+                    cc1.[<$clkreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
                 }
             }
         }
-        impl SysconPeripheral for crate::peripherals::$port {}
+
+        impl SysconPeripheral for crate::peripherals::$peripheral {}
     };
 }
 
-impl_perph_clk!(HSGPIO0);
-impl_perph_clk!(HSGPIO1);
-impl_perph_clk!(HSGPIO2);
-impl_perph_clk!(HSGPIO3);
-impl_perph_clk!(HSGPIO4);
-impl_perph_clk!(HSGPIO5);
-impl_perph_clk!(HSGPIO6);
-impl_perph_clk!(HSGPIO7);
-impl_perph_clk!(CRC);
+// These should enabled once the relevant peripherals are implemented.
+// impl_perph_clk!(GPIOINTCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 30);
+// impl_perph_clk!(OTP, Clkctl0, pscctl0, Rstctl0, prstctl0, 17);
+// impl_perph_clk!(PIMCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 31);
+// impl_perph_clk!(ROM_CTL_128KB, Clkctl0, pscctl0, Rstctl0, prstctl0, 2);
+// impl_perph_clk!(USBHS_SRAM, Clkctl0, pscctl0, Rstctl0, prstctl0, 23);
+
+impl_perph_clk!(ACMP, Clkctl0, pscctl1, Rstctl0, prstctl1, 15);
+impl_perph_clk!(ADC0, Clkctl0, pscctl1, Rstctl0, prstctl1, 16);
+impl_perph_clk!(CASPER, Clkctl0, pscctl0, Rstctl0, prstctl0, 9);
+impl_perph_clk!(CRC, Clkctl1, pscctl1, Rstctl1, prstctl1, 16);
+impl_perph_clk!(CTIMER0, Clkctl1, pscctl2, Rstctl1, prstctl2, 0);
+impl_perph_clk!(CTIMER1, Clkctl1, pscctl2, Rstctl1, prstctl2, 1);
+impl_perph_clk!(CTIMER2, Clkctl1, pscctl2, Rstctl1, prstctl2, 2);
+impl_perph_clk!(CTIMER3, Clkctl1, pscctl2, Rstctl1, prstctl2, 3);
+impl_perph_clk!(CTIMER4, Clkctl1, pscctl2, Rstctl1, prstctl2, 4);
+impl_perph_clk!(DMA0, Clkctl1, pscctl1, Rstctl1, prstctl1, 23);
+impl_perph_clk!(DMA1, Clkctl1, pscctl1, Rstctl1, prstctl1, 24);
+impl_perph_clk!(DMIC0, Clkctl1, pscctl0, Rstctl1, prstctl0, 24);
+impl_perph_clk!(FLEXCOMM0, Clkctl1, pscctl0, Rstctl1, prstctl0, 8);
+impl_perph_clk!(FLEXCOMM1, Clkctl1, pscctl0, Rstctl1, prstctl0, 9);
+impl_perph_clk!(FLEXCOMM14, Clkctl1, pscctl0, Rstctl1, prstctl0, 22);
+impl_perph_clk!(FLEXCOMM15, Clkctl1, pscctl0, Rstctl1, prstctl0, 23);
+impl_perph_clk!(FLEXCOMM2, Clkctl1, pscctl0, Rstctl1, prstctl0, 10);
+impl_perph_clk!(FLEXCOMM3, Clkctl1, pscctl0, Rstctl1, prstctl0, 11);
+impl_perph_clk!(FLEXCOMM4, Clkctl1, pscctl0, Rstctl1, prstctl0, 12);
+impl_perph_clk!(FLEXCOMM5, Clkctl1, pscctl0, Rstctl1, prstctl0, 13);
+impl_perph_clk!(FLEXCOMM6, Clkctl1, pscctl0, Rstctl1, prstctl0, 14);
+impl_perph_clk!(FLEXCOMM7, Clkctl1, pscctl0, Rstctl1, prstctl0, 15);
+impl_perph_clk!(FLEXSPI, Clkctl0, pscctl0, Rstctl0, prstctl0, 16);
+impl_perph_clk!(FREQME, Clkctl1, pscctl1, Rstctl1, prstctl1, 31);
+impl_perph_clk!(HASHCRYPT, Clkctl0, pscctl0, Rstctl0, prstctl0, 10);
+impl_perph_clk!(HSGPIO0, Clkctl1, pscctl1, Rstctl1, prstctl1, 0);
+impl_perph_clk!(HSGPIO1, Clkctl1, pscctl1, Rstctl1, prstctl1, 1);
+impl_perph_clk!(HSGPIO2, Clkctl1, pscctl1, Rstctl1, prstctl1, 2);
+impl_perph_clk!(HSGPIO3, Clkctl1, pscctl1, Rstctl1, prstctl1, 3);
+impl_perph_clk!(HSGPIO4, Clkctl1, pscctl1, Rstctl1, prstctl1, 4);
+impl_perph_clk!(HSGPIO5, Clkctl1, pscctl1, Rstctl1, prstctl1, 5);
+impl_perph_clk!(HSGPIO6, Clkctl1, pscctl1, Rstctl1, prstctl1, 6);
+impl_perph_clk!(HSGPIO7, Clkctl1, pscctl1, Rstctl1, prstctl1, 7);
+impl_perph_clk!(I3C0, Clkctl1, pscctl2, Rstctl1, prstctl2, 16);
+impl_perph_clk!(MRT0, Clkctl1, pscctl2, Rstctl1, prstctl2, 8);
+impl_perph_clk!(MU_A, Clkctl1, pscctl1, Rstctl1, prstctl1, 28);
+impl_perph_clk!(OS_EVENT, Clkctl1, pscctl0, Rstctl1, prstctl0, 27);
+impl_perph_clk!(POWERQUAD, Clkctl0, pscctl0, Rstctl0, prstctl0, 8);
+impl_perph_clk!(PUF, Clkctl0, pscctl0, Rstctl0, prstctl0, 11);
+impl_perph_clk!(RNG, Clkctl0, pscctl0, Rstctl0, prstctl0, 12);
+impl_perph_clk!(RTC, Clkctl1, pscctl2, Rstctl1, prstctl2, 7);
+impl_perph_clk!(SCT0, Clkctl0, pscctl0, Rstctl0, prstctl0, 24);
+impl_perph_clk!(SECGPIO, Clkctl0, pscctl1, Rstctl0, prstctl1, 24);
+impl_perph_clk!(SEMA42, Clkctl1, pscctl1, Rstctl1, prstctl1, 29);
+impl_perph_clk!(USBHSD, Clkctl0, pscctl0, Rstctl0, prstctl0, 21);
+impl_perph_clk!(USBHSH, Clkctl0, pscctl0, Rstctl0, prstctl0, 22);
+impl_perph_clk!(USBPHY, Clkctl0, pscctl0, Rstctl0, prstctl0, 20);
+impl_perph_clk!(USDHC0, Clkctl0, pscctl1, Rstctl0, prstctl1, 2);
+impl_perph_clk!(USDHC1, Clkctl0, pscctl1, Rstctl0, prstctl1, 3);
+impl_perph_clk!(UTICK0, Clkctl0, pscctl2, Rstctl0, prstctl2, 0);
+impl_perph_clk!(WDT0, Clkctl0, pscctl2, Rstctl0, prstctl2, 1);
+impl_perph_clk!(WDT1, Clkctl1, pscctl2, Rstctl1, prstctl2, 10);

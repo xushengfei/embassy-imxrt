@@ -3,15 +3,18 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::clocks::enable_and_reset;
 use crate::interrupt::typelevel::Binding;
 use crate::iopctl::{DriveMode, DriveStrength, Function, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::adc0;
+use crate::peripherals::ADC0;
 use crate::{interrupt, peripherals};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -97,38 +100,35 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ADC0> for InterruptHand
 
 /// ADC driver
 pub struct Adc<'p, const N: usize> {
-    _adc0: PeripheralRef<'p, peripherals::ADC0>,
+    info: Info,
+    _lifetime: PhantomData<&'p ()>,
+}
+
+struct Info {
+    regs: crate::pac::Adc0,
 }
 
 impl<const N: usize> Adc<'_, N> {
-    #[inline]
-    fn regs() -> &'static crate::pac::adc0::RegisterBlock {
-        unsafe { &*crate::pac::Adc0::ptr() }
-    }
-
     fn init() {
-        init_lposc();
         init_adc_clk();
     }
 
-    fn configure_adc(config: Config) {
-        let reg = Self::regs();
-
+    fn configure_adc(&mut self, config: Config) {
         // Reset ADC
-        reg.ctrl().modify(|_, w| w.rst().rst_1());
-        reg.ctrl().modify(|_, w| w.rst().rst_0());
+        self.info.regs.ctrl().modify(|_, w| w.rst().rst_1());
+        self.info.regs.ctrl().modify(|_, w| w.rst().rst_0());
 
         // Reset ADC fifo
-        reg.ctrl().modify(|_, w| w.rstfifo().rstfifo_1());
+        self.info.regs.ctrl().modify(|_, w| w.rstfifo().rstfifo_1());
 
         // Disable ADC before configuration
-        reg.ctrl().modify(|_, w| w.adcen().adcen_0());
+        self.info.regs.ctrl().modify(|_, w| w.adcen().adcen_0());
 
         // Disable ADC in doze Mode
-        reg.ctrl().modify(|_, w| w.dozen().dozen_1());
+        self.info.regs.ctrl().modify(|_, w| w.dozen().dozen_1());
 
         // Configure ADC
-        reg.cfg().write(|w| unsafe {
+        self.info.regs.cfg().write(|w| unsafe {
             w.tprictrl()
                 .tprictrl_1() /* Allow current conversion to finish */
                 /* even if a higher priority trigger is received */
@@ -143,17 +143,16 @@ impl<const N: usize> Adc<'_, N> {
         });
 
         // No pause delay between conversion
-        reg.pause().write(|w| w.pauseen().pauseen_0());
+        self.info.regs.pause().write(|w| w.pauseen().pauseen_0());
 
         // Re-enable ADC after configuration
-        reg.ctrl().modify(|_, w| w.adcen().adcen_1());
+        self.info.regs.ctrl().modify(|_, w| w.adcen().adcen_1());
 
         // Reset ADC fifo
-        reg.ctrl().modify(|_, w| w.rstfifo().rstfifo_1());
+        self.info.regs.ctrl().modify(|_, w| w.rstfifo().rstfifo_1());
     }
 
-    fn configure_channels(channel_config: &[ChannelConfig; N]) {
-        let reg = Self::regs();
+    fn configure_channels(&mut self, channel_config: &[ChannelConfig; N]) {
         let mut cmd = channel_config.len();
 
         // Configure conversion CMD configuration
@@ -169,7 +168,7 @@ impl<const N: usize> Adc<'_, N> {
                 Some(_) => adc0::cmdl::Diff::Diff1,
             };
 
-            reg.cmdl(cmd_index).write(|w| {
+            self.info.regs.cmdl(cmd_index).write(|w| {
                 w.adch()
                     .variant(p.ch) /* Analog channel number */
                     .absel()
@@ -180,7 +179,7 @@ impl<const N: usize> Adc<'_, N> {
                     .cscale_1() /* Full scale */
             });
 
-            reg.cmdh(cmd_index).write(|w| unsafe {
+            self.info.regs.cmdh(cmd_index).write(|w| unsafe {
                 w.cmpen()
                     .cmpen_0() /* Disable analog comparator */
                     .lwi()
@@ -200,7 +199,7 @@ impl<const N: usize> Adc<'_, N> {
         }
 
         /* Set trigger configuration. */
-        reg.tctrl(0).write(|w| unsafe {
+        self.info.regs.tctrl(0).write(|w| unsafe {
             w.hten()
                 .clear_bit()
                 .tpri()
@@ -215,23 +214,28 @@ impl<const N: usize> Adc<'_, N> {
 
 impl<'p, const N: usize> Adc<'p, N> {
     /// Create ADC driver.
-    pub fn new(
-        adc: impl Peripheral<P = peripherals::ADC0> + 'p,
+    pub fn new<T: Instance>(
+        _adc: impl Peripheral<P = T> + 'p,
         _irq: impl Binding<interrupt::typelevel::ADC0, InterruptHandler>,
         config: Config,
         channel_config: [ChannelConfig; N],
     ) -> Self {
-        into_ref!(adc);
+        into_ref!(_adc);
+
+        let mut inst = Self {
+            info: T::info(),
+            _lifetime: PhantomData,
+        };
 
         Self::init();
-        Self::configure_adc(config);
-        Self::configure_channels(&channel_config);
+        inst.configure_adc(config);
+        inst.configure_channels(&channel_config);
 
         // Enable interrupt
         interrupt::ADC0.unpend();
         unsafe { interrupt::ADC0.enable() };
 
-        Self { _adc0: adc }
+        inst
     }
 
     /// One shot sampling. The buffer must be the same size as the number of channels configured.
@@ -239,29 +243,28 @@ impl<'p, const N: usize> Adc<'p, N> {
     /// consumption remains higher if sampling is not stopped explicitly). Cancellation will
     /// also cause the sampling to be stopped.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
-        let reg = Self::regs();
-
         // Reset ADC fifo
-        reg.ctrl().modify(|_, w| w.rstfifo().rstfifo_1());
+        self.info.regs.ctrl().modify(|_, w| w.rstfifo().rstfifo_1());
 
         // Set fifo watermark
-        reg.fctrl().write(|w| unsafe { w.fwmark().bits((buf.len() - 1) as u8) });
+        self.info
+            .regs
+            .fctrl()
+            .write(|w| unsafe { w.fwmark().bits((buf.len() - 1) as u8) });
 
         // Enable the watermark interrupt
-        reg.ie().write(|w| w.fwmie().fwmie_1());
+        self.info.regs.ie().write(|w| w.fwmie().fwmie_1());
 
         // Send software trigger
-        reg.swtrig().write(|w| w.swt0().swt0_1());
+        self.info.regs.swtrig().write(|w| w.swt0().swt0_1());
 
         // Wait for fifo watermark interrupt.
         poll_fn(|cx| {
-            let reg = Self::regs();
-
             WAKER.register(cx.waker());
 
             // Make sure there is at least one sample from each channel
             //   in the fifo
-            if reg.fctrl().read().fcount().bits() >= buf.len() as u8 {
+            if self.info.regs.fctrl().read().fcount().bits() >= buf.len() as u8 {
                 return Poll::Ready(());
             }
 
@@ -270,46 +273,41 @@ impl<'p, const N: usize> Adc<'p, N> {
         .await;
 
         for e in buf {
-            *e = reg.resfifo().read().d().bits() as i16;
+            *e = self.info.regs.resfifo().read().d().bits() as i16;
         }
 
         // Disable the watermark interrupt
-        reg.ie().write(|w| w.fwmie().fwmie_0());
+        self.info.regs.ie().write(|w| w.fwmie().fwmie_0());
     }
 }
 
-/// Initializes low-power oscillator.
-fn init_lposc() {
-    // Enable low power oscillator
-    let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-    sysctl0.pdruncfg0_clr().write(|w| w.lposc_pd().set_bit());
+trait SealedInstance {
+    fn info() -> Info;
+}
 
-    // Wait for low-power oscillator to be ready (typically 64 us)
-    // Busy loop seems better here than trying to shoe-in an async delay
-    let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-    while clkctl0.lposcctl0().read().clkrdy().bit_is_clear() {}
+/// ADC instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {}
+
+impl Instance for peripherals::ADC0 {}
+
+impl SealedInstance for peripherals::ADC0 {
+    fn info() -> Info {
+        // SAFETY: safe from single executor
+        Info {
+            regs: unsafe { crate::pac::Adc0::steal() },
+        }
+    }
 }
 
 fn init_adc_clk() {
     let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-    let rstctl0 = unsafe { crate::pac::Rstctl0::steal() };
-
-    // Enable clock to ADC block
-    clkctl0.pscctl1().write(|w| w.adc0_clk().enable_clock());
 
     // Power up ADC block
     sysctl0
         .pdruncfg0_clr()
         .write(|w| w.adc_pd().set_bit().adc_lp().set_bit());
-
-    // Reset ADC block
-    rstctl0.prstctl1_set().write(|w| w.adc0().set_reset());
-    while rstctl0.prstctl1().read().adc0().bit_is_clear() {}
-
-    // Clear ADC block reset
-    rstctl0.prstctl1_clr().write(|w| w.adc0().clr_reset());
-    while rstctl0.prstctl1().read().adc0().bit_is_set() {}
 
     // Configure ADC clock mux
     // Select LPOSC for now, unless we want to speed up the clocks
@@ -322,6 +320,8 @@ fn init_adc_clk() {
         .adc0fclkdiv()
         .write(|w| unsafe { w.div().bits(0x0).halt().clear_bit() });
     while clkctl0.adc0fclkdiv().read().reqflag().bit_is_set() {}
+
+    enable_and_reset::<ADC0>();
 }
 
 /// Voltage Reference

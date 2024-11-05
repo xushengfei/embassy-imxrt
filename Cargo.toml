@@ -65,6 +65,7 @@ embedded-hal-nb = { version = "1.0" }
 
 document-features = "0.2.7"
 paste = "1.0"
+seq-macro = "0.3.5"
 
 [dev-dependencies]
 embassy-executor = { git = "https://github.com/embassy-rs/embassy" }

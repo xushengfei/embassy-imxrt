@@ -18,8 +18,8 @@
     "rust-analyzer.cargo.features": [
         // Comment out these features when working on the examples.
         // Most example crates do not have any cargo features.
-        "defmt",
-        "time",
-        "time-driver",
+        // "defmt",
+        // "time",
+        // "time-driver",
     ]
 }

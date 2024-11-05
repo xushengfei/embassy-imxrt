@@ -3,43 +3,40 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::transfer::TransferOptions;
+use embassy_imxrt::dma::transfer::{Priority, TransferOptions, Width};
 use embassy_imxrt::dma::Dma;
-use embassy_imxrt::{
-    bind_interrupts,
-    peripherals::{self, *},
-    rng,
-};
+use embassy_imxrt::peripherals::*;
 use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<peripherals::RNG>;
-});
+const TEST_LEN: usize = 16;
 
 macro_rules! test_dma_channel {
     ($peripherals: expr, $rng: expr, $instance: ident, $number: expr) => {
         let ch = Dma::reserve_channel::<$instance>($peripherals.$instance);
-        let mut srcbuf = [0u8; 10];
-        let mut dstbuf = [1u8; 10];
 
-        // Test the same channel multiple times.
-        for idx in 1..4 {
-            unwrap!($rng.async_fill_bytes(&mut srcbuf).await);
-            srcbuf[0] = idx;
-            srcbuf[1] = $number;
+        for width in [Width::Bit8, Width::Bit16, Width::Bit32] {
+            let mut srcbuf: [u8; TEST_LEN] = [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+            let mut dstbuf = [0u8; TEST_LEN];
+            srcbuf[0] = $number;
 
-            ch.write_to_memory(&srcbuf[..], &mut dstbuf[..], TransferOptions::default())
-                .await;
+            let mut options = TransferOptions::default();
+            options.width = width;
+            options.priority = Priority::Priority0;
+            ch.write_to_memory(&srcbuf[..], &mut dstbuf[..], options).await;
 
             if srcbuf == dstbuf {
                 info!(
-                    "DMA transfer {} on channel {} completed successfully: {:02x}",
-                    idx,
+                    "DMA transfer width: {}, on channel {} completed successfully: {:02x}",
+                    width.byte_width(),
                     $number,
                     dstbuf.iter().as_slice()
                 );
             } else {
-                info!("DMA transfer {} on channel {} failed!", idx, $number);
+                info!(
+                    "DMA transfer width: {}, on channel {} failed!",
+                    width.byte_width(),
+                    $number
+                );
             }
         }
     };
@@ -48,7 +45,6 @@ macro_rules! test_dma_channel {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
-    let mut rng = rng::Rng::new(p.RNG, Irqs);
 
     info!("Test memory-to-memory DMA transfers");
 
