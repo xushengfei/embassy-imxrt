@@ -244,12 +244,32 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
     async fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
         let i2cregs = self.bus.i2c();
 
-        self.poll_ready().await?;
+        self.wait_on(
+            |me| {
+                let stat = me.bus.i2c().stat().read();
 
-        // cannot start if not in IDLE state
-        if i2cregs.stat().read().mstpending().bit_is_clear() {
-            return Err(TransferError::OtherBusError.into());
-        }
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.bus.i2c().intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                })
+            },
+        )
+        .await?;
 
         i2cregs.mstdat().write(|w|
             // SAFETY: only unsafe due to .bits usage
@@ -257,24 +277,36 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
 
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 
-        self.poll_ready().await?;
+        self.wait_on(
+            |me| {
+                let stat = me.bus.i2c().stat().read();
 
-        if i2cregs.stat().read().mststate().is_nack_address() {
-            // STOP bit to complete the attempted transfer
-            self.stop().await?;
-
-            return Err(TransferError::AddressNack.into());
-        }
-
-        if is_read && !i2cregs.stat().read().mststate().is_receive_ready() {
-            return Err(TransferError::ReadFail.into());
-        }
-
-        if !is_read && !i2cregs.stat().read().mststate().is_transmit_ready() {
-            return Err(TransferError::WriteFail.into());
-        }
-
-        self.check_for_bus_errors()
+                if is_read && stat.mststate().is_receive_ready() || !is_read && stat.mststate().is_transmit_ready() {
+                    Poll::Ready(Ok(()))
+                } else if stat.mststate().is_nack_address() {
+                    Poll::Ready(Err(TransferError::AddressNack.into()))
+                } else if is_read && stat.mstpending().is_pending() && !stat.mststate().is_receive_ready() {
+                    Poll::Ready(Err(TransferError::ReadFail.into()))
+                } else if !is_read && stat.mstpending().is_pending() && !stat.mststate().is_transmit_ready() {
+                    Poll::Ready(Err(TransferError::WriteFail.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.bus.i2c().intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                })
+            },
+        )
+        .await
     }
 
     async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
@@ -292,20 +324,45 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 .as_mut()
                 .unwrap()
                 .read_from_peripheral(i2cregs.mstdat().as_ptr() as *mut u8, read, options);
-
-            self.poll_ready().await?;
-            self.check_for_bus_errors()?;
-
-            // Disable DMA
-            i2cregs.mstctl().write(|w| w.mstdma().disabled());
         } else {
             read[0] = i2cregs.mstdat().read().data().bits();
-
-            self.poll_ready().await?;
-            self.check_for_bus_errors()?;
         }
 
-        Ok(())
+        let res = self
+            .wait_on(
+                |me| {
+                    let stat = me.bus.i2c().stat().read();
+
+                    if stat.mststate().is_receive_ready() {
+                        Poll::Ready(Ok(()))
+                    } else if stat.mstarbloss().is_arbitration_loss() {
+                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                    } else if stat.mstststperr().is_error() {
+                        Poll::Ready(Err(TransferError::StartStopError.into()))
+                    } else {
+                        Poll::Pending
+                    }
+                },
+                |me| {
+                    me.bus.i2c().intenset().write(|w| {
+                        w.mstpendingen()
+                            .set_bit()
+                            .mstarblossen()
+                            .set_bit()
+                            .mstststperren()
+                            .set_bit()
+                    })
+                },
+            )
+            .await;
+
+        // Here we're unconditionally disabling DMA, even if we have
+        // not used it. The only reason for doing this is to avoid an extra
+        // branch. We're assuming it's always okay to clear `MSTDMA' even if
+        // it's already cleared.
+        i2cregs.mstctl().write(|w| w.mstdma().disabled());
+
+        res
     }
 
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
@@ -323,24 +380,49 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 .as_mut()
                 .unwrap()
                 .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
-
-            self.poll_ready().await?;
-            self.check_for_bus_errors()?;
-
-            // Disable DMA
-            i2cregs.mstctl().write(|w| w.mstdma().disabled());
         } else {
             i2cregs.mstdat().write(|w|
                 // SAFETY: unsafe only due to .bits usage
                 unsafe { w.data().bits(write[0]) });
 
             i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-
-            self.poll_ready().await?;
-            self.check_for_bus_errors()?;
         }
 
-        Ok(())
+        let res = self
+            .wait_on(
+                |me| {
+                    let stat = me.bus.i2c().stat().read();
+
+                    if stat.mststate().is_transmit_ready() {
+                        Poll::Ready(Ok(()))
+                    } else if stat.mstarbloss().is_arbitration_loss() {
+                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                    } else if stat.mstststperr().is_error() {
+                        Poll::Ready(Err(TransferError::StartStopError.into()))
+                    } else {
+                        Poll::Pending
+                    }
+                },
+                |me| {
+                    me.bus.i2c().intenset().write(|w| {
+                        w.mstpendingen()
+                            .set_bit()
+                            .mstarblossen()
+                            .set_bit()
+                            .mstststperren()
+                            .set_bit()
+                    })
+                },
+            )
+            .await;
+
+        // Here we're unconditionally disabling DMA, even if we have
+        // not used it. The only reason for doing this is to avoid an extra
+        // branch. We're assuming it's always okay to clear `MSTDMA' even if
+        // it's already cleared.
+        i2cregs.mstctl().write(|w| w.mstdma().disabled());
+
+        res
     }
 
     async fn stop(&mut self) -> Result<()> {
@@ -348,48 +430,55 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         let i2cregs = self.bus.i2c();
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
-        self.poll_ready().await?;
-        self.check_for_bus_errors()?;
 
-        // ensure return to idle state for bus (no stuck SCL/SDA lines)
-        if i2cregs.stat().read().mststate().is_idle() {
-            Ok(())
-        } else {
-            Err(TransferError::OtherBusError.into())
-        }
+        self.wait_on(
+            |me| {
+                let stat = me.bus.i2c().stat().read();
+
+                if stat.mststate().is_idle() {
+                    Poll::Ready(Ok(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.bus.i2c().intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await
     }
 
-    async fn poll_ready(&mut self) -> Result<()> {
-        self.bus.i2c().intenset().write(|w| {
-            w.mstpendingen()
-                .set_bit()
-                .mstarblossen()
-                .set_bit()
-                .mstststperren()
-                .set_bit()
-        });
-
-        // Wait for fifo watermark interrupt.
+    /// Calls `f` to check if we are ready or not.
+    /// If not, `g` is called once the waker is set (to eg enable the required interrupts).
+    async fn wait_on<F, U, G>(&mut self, mut f: F, mut g: G) -> U
+    where
+        F: FnMut(&mut Self) -> Poll<U>,
+        G: FnMut(&mut Self),
+    {
         poll_fn(|cx| {
-            let i2c = self.bus.i2c();
-            self.bus.waker().register(cx.waker());
-            self.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
+            let r = f(self);
 
-            //check for readyness
-            if i2c.stat().read().mstpending().bit_is_set()
-                || i2c.stat().read().mststate().is_receive_ready()
-                || i2c.stat().read().mststate().is_transmit_ready()
-                || i2c.stat().read().mstarbloss().is_arbitration_loss()
-                || i2c.stat().read().mstststperr().is_error()
-            {
-                return Poll::Ready(());
+            if r.is_pending() {
+                self.bus.waker().register(cx.waker());
+                self.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
+
+                g(self);
             }
 
-            Poll::Pending
+            r
         })
-        .await;
-
-        Ok(())
+        .await
     }
 }
 
