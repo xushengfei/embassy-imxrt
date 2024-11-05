@@ -368,6 +368,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.bus.i2c();
+        let mut is_dma = false;
 
         self.start(address, false).await?;
 
@@ -380,6 +381,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 .as_mut()
                 .unwrap()
                 .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
+            is_dma = true;
         } else {
             i2cregs.mstdat().write(|w|
                 // SAFETY: unsafe only due to .bits usage
@@ -393,7 +395,7 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
                 |me| {
                     let stat = me.bus.i2c().stat().read();
 
-                    if stat.mststate().is_transmit_ready() {
+                    if !is_dma && stat.mstpending().is_pending() || is_dma && stat.mststate().is_transmit_ready() {
                         Poll::Ready(Ok(()))
                     } else if stat.mstarbloss().is_arbitration_loss() {
                         Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
