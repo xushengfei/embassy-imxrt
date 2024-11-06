@@ -5,7 +5,7 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::uart::{self, Uart};
+use embassy_imxrt::uart::Uart;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -18,14 +18,7 @@ async fn main(_spawner: Spawner) {
     info!("UART test start");
 
     // Validating read on FC1
-    let usart = Uart::new(
-        p.FLEXCOMM1,
-        p.PIO0_8,
-        p.PIO0_9,
-        uart::GeneralConfig::default(),
-        uart::UartMcuSpecificConfig::default(),
-    )
-    .unwrap();
+    let usart = Uart::new(p.FLEXCOMM1, p.PIO0_8, p.PIO0_9, Default::default(), Default::default()).unwrap();
 
     // To test read send the data on tera term / putty and verify from the buffer
     let mut buf = [0; 5];
@@ -44,13 +37,7 @@ async fn main(_spawner: Spawner) {
     let _ = usart.deinit();
 
     // Validating write on FC2
-    let usart = Uart::new_tx_only(
-        p.FLEXCOMM2,
-        p.PIO0_15,
-        uart::GeneralConfig::default(),
-        uart::UartMcuSpecificConfig::default(),
-    )
-    .unwrap();
+    let usart = Uart::new_tx_only(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
 
     let mut data = [74, 70, 71, 72, 73];
     let result = usart.write_blocking(&mut data, 5);
