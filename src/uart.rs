@@ -33,13 +33,13 @@ impl Instance for crate::peripherals::FLEXCOMM6 {}
 impl Instance for crate::peripherals::FLEXCOMM7 {}
 
 /// io configuration trait for Uart Tx configuration
-pub trait UartTx<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait TxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for Uart Tx  usage
     fn as_tx(&self);
 }
 
 /// io configuration trait for Uart Rx configuration
-pub trait UartRx<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
     /// convert the pin to appropriate function for Uart Rx  usage
     fn as_rx(&self);
 }
@@ -156,8 +156,8 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// Bidirectional uart
     pub fn new(
         fc: impl Instance<P = FC> + 'a,
-        tx: impl UartTx<FC>,
-        rx: impl UartRx<FC>,
+        tx: impl TxPin<FC>,
+        rx: impl RxPin<FC>,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
@@ -184,7 +184,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// Unidirectional Uart - Tx only
     pub fn new_tx_only(
         fc: impl Instance<P = FC> + 'a,
-        tx: impl UartTx<FC>,
+        tx: impl TxPin<FC>,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
@@ -207,7 +207,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// Unidirectional Uart - Rx only
     pub fn new_rx_only(
         fc: impl Instance<P = FC> + 'a,
-        rx: impl UartRx<FC>,
+        rx: impl RxPin<FC>,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
@@ -482,7 +482,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
 
 macro_rules! impl_uart_tx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
-        impl UartTx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
+        impl TxPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_tx(&self) {
                 // UM11147 table 507 pg 495
                 self.set_function(crate::iopctl::Function::$fn)
@@ -500,7 +500,7 @@ macro_rules! impl_uart_tx {
 
 macro_rules! impl_uart_rx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
-        impl UartRx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
+        impl RxPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_rx(&self) {
                 // UM11147 table 507 pg 495
                 self.set_function(crate::iopctl::Function::$fn)
