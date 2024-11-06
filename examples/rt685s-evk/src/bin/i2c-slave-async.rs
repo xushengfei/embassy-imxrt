@@ -32,7 +32,7 @@ async fn slave_service(mut i2c: I2cSlave<'static, FLEXCOMM2, Async, DMA0_CH4>) {
                 info!("Read");
                 loop {
                     match i2c.respond_to_read(&buf).await.unwrap() {
-                        Response::Complete(_) => {
+                        Response::Complete(n) => {
                             info!("Response complete read with {} bytes", n);
                             break;
                         }
@@ -44,7 +44,7 @@ async fn slave_service(mut i2c: I2cSlave<'static, FLEXCOMM2, Async, DMA0_CH4>) {
                 info!("Write");
                 loop {
                     match i2c.respond_to_write(&mut buf).await.unwrap() {
-                        Response::Complete(_) => {
+                        Response::Complete(n) => {
                             info!("Response complete write with {} bytes", n);
                             break;
                         }
