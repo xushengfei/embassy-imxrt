@@ -13,59 +13,57 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
-    {
-        board_init_sfro_clocks();
+    board_init_sfro_clocks();
 
-        info!("UART test start");
+    info!("UART test start");
 
-        // Validating read on FC1
-        let usart = Uart::new(
-            p.FLEXCOMM1,
-            p.PIO0_8,
-            p.PIO0_9,
-            uart::GeneralConfig::default(),
-            uart::UartMcuSpecificConfig::default(),
-        )
-        .unwrap();
+    // Validating read on FC1
+    let usart = Uart::new(
+        p.FLEXCOMM1,
+        p.PIO0_8,
+        p.PIO0_9,
+        uart::GeneralConfig::default(),
+        uart::UartMcuSpecificConfig::default(),
+    )
+    .unwrap();
 
-        // To test read send the data on tera term / putty and verify from the buffer
-        let mut buf = [0; 5];
+    // To test read send the data on tera term / putty and verify from the buffer
+    let mut buf = [0; 5];
 
-        let result = usart.read_blocking(&mut buf, 5);
-        match result {
-            Ok(()) => {
-                for i in &buf {
-                    info!("{} ", *i as char);
-                }
-                info!("UART test read_blocking() done");
+    let result = usart.read_blocking(&mut buf, 5);
+    match result {
+        Ok(()) => {
+            for i in &buf {
+                info!("{} ", *i as char);
             }
-            Err(e) => info!("UART test read_blocking() failed, result: {:?}", e),
+            info!("UART test read_blocking() done");
         }
+        Err(e) => info!("UART test read_blocking() failed, result: {:?}", e),
+    }
 
-        let _ = usart.deinit();
+    let _ = usart.deinit();
 
-        // Validating write on FC2
-        let usart = Uart::new_tx_only(
-            p.FLEXCOMM2,
-            p.PIO0_15,
-            uart::GeneralConfig::default(),
-            uart::UartMcuSpecificConfig::default(),
-        )
-        .unwrap();
+    // Validating write on FC2
+    let usart = Uart::new_tx_only(
+        p.FLEXCOMM2,
+        p.PIO0_15,
+        uart::GeneralConfig::default(),
+        uart::UartMcuSpecificConfig::default(),
+    )
+    .unwrap();
 
-        let mut data = [74, 70, 71, 72, 73];
-        let result = usart.write_blocking(&mut data, 5);
-        match result {
-            Ok(()) => info!("UART test write_blocking() done"),
-            Err(e) => info!("UART test write_blocking failed, result: {:?}", e),
-        }
+    let mut data = [74, 70, 71, 72, 73];
+    let result = usart.write_blocking(&mut data, 5);
+    match result {
+        Ok(()) => info!("UART test write_blocking() done"),
+        Err(e) => info!("UART test write_blocking failed, result: {:?}", e),
+    }
 
-        let _ = usart.deinit();
-        info!("UART test done");
+    let _ = usart.deinit();
+    info!("UART test done");
 
-        loop {
-            Timer::after_millis(1000).await;
-        }
+    loop {
+        Timer::after_millis(1000).await;
     }
 }
 
