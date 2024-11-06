@@ -473,7 +473,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// to have room and writes data to the TX buffer.
     /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
     /// The actual data expected to be sent should be sent as "len"
-    pub fn write_blocking(&self, buf: &mut [u8], len: u32) -> Result<()> {
+    pub fn write_blocking(&self, buf: &[u8], len: u32) -> Result<()> {
         let bus = &self.bus;
         // Check whether txFIFO is enabled
         if bus.usart().fifocfg().read().enabletx().is_disabled() {

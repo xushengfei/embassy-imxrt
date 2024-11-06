@@ -29,10 +29,10 @@ async fn usart2_task(uart: Uart<'static, FLEXCOMM2>) {
     info!("TX Task");
 
     loop {
-        let mut buf = [74, 70, 71, 72, 73];
+        let buf = [74, 70, 71, 72, 73];
         let len = buf.len() as u32;
 
-        uart.write_blocking(&mut buf, len).unwrap();
+        uart.write_blocking(&buf, len).unwrap();
 
         Timer::after_millis(1000).await;
     }
