@@ -5,20 +5,48 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_imxrt::peripherals::{FLEXCOMM2, FLEXCOMM4};
 use embassy_imxrt::uart::Uart;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
+#[embassy_executor::task]
+async fn usart4_task(uart: Uart<'static, FLEXCOMM4>) {
+    info!("RX Task");
+
+    loop {
+        let mut buf = [0; 5];
+        let len = buf.len() as u32;
+
+        uart.read_blocking(&mut buf, len).unwrap();
+
+        info!("Received {:?}", buf);
+    }
+}
+
+#[embassy_executor::task]
+async fn usart2_task(uart: Uart<'static, FLEXCOMM2>) {
+    info!("TX Task");
+
+    loop {
+        let mut buf = [74, 70, 71, 72, 73];
+        let len = buf.len() as u32;
+
+        uart.write_blocking(&mut buf, len).unwrap();
+
+        Timer::after_millis(1000).await;
+    }
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
     board_init_sfro_clocks();
 
     info!("UART test start");
 
-    // Validating read on FC4
-    let usart = Uart::new(
+    let usart4 = Uart::new(
         p.FLEXCOMM4,
         p.PIO0_29,
         p.PIO0_30,
@@ -26,39 +54,12 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     )
     .unwrap();
+    spawner.must_spawn(usart4_task(usart4));
 
-    // To test read send the data on tera term / putty and verify from the buffer
-    let mut buf = [0; 5];
+    Timer::after_millis(1000).await;
 
-    let result = usart.read_blocking(&mut buf, 5);
-    match result {
-        Ok(()) => {
-            for i in &buf {
-                info!("{} ", *i as char);
-            }
-            info!("UART test read_blocking() done");
-        }
-        Err(e) => info!("UART test read_blocking() failed, result: {:?}", e),
-    }
-
-    let _ = usart.deinit();
-
-    // Validating write on FC2
-    let usart = Uart::new_tx_only(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
-
-    let mut data = [74, 70, 71, 72, 73];
-    let result = usart.write_blocking(&mut data, 5);
-    match result {
-        Ok(()) => info!("UART test write_blocking() done"),
-        Err(e) => info!("UART test write_blocking failed, result: {:?}", e),
-    }
-
-    let _ = usart.deinit();
-    info!("UART test done");
-
-    loop {
-        Timer::after_millis(1000).await;
-    }
+    let usart2 = Uart::new_tx_only(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
+    spawner.must_spawn(usart2_task(usart2));
 }
 
 fn board_init_sfro_clocks() {
