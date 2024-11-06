@@ -239,8 +239,8 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     fn get_fc_freq(&self) -> u32 {
         // Todo: Make it generic for any clock
         // Since the FC clock is hardcoded to Sfro, this freq is returned.
-        // sfro : 0xf42400, //ffro: 0x2dc6c00
-        0x00f4_2400
+        // sfro : 16MHz, // ffro: 48MHz
+        16_000_000
     }
 
     fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> Result<()> {
