@@ -418,7 +418,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// have data and read data from the TX register.
     /// Note for testing purpose : Blocking read API, that can receive a max of data of 8 bytes.
     /// The actual data expected to be received should be sent as "len"
-    pub fn read_blocking(&self, buf: &mut [u8], len: u32) -> Result<()> {
+    pub fn read_blocking(&self, buf: &mut [u8]) -> Result<()> {
         let bus = &self.bus;
 
         // Check if rxFifo is not enabled
@@ -426,7 +426,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
             return Err(Error::Fail);
         } else {
             // rxfifo is enabled
-            for i in 0..len {
+            for b in buf.iter_mut() {
                 // loop until rxFifo has some data to read
                 while bus.usart().fifostat().read().rxnotempty().bit_is_clear() {}
 
@@ -458,7 +458,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
 
                 if read_status {
                     // read the data from the rxFifo
-                    buf[i as usize] = bus.usart().fiford().read().rxdata().bits() as u8;
+                    *b = bus.usart().fiford().read().rxdata().bits() as u8;
                 } else {
                     return Err(generic_status);
                 }
@@ -473,18 +473,19 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// to have room and writes data to the TX buffer.
     /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
     /// The actual data expected to be sent should be sent as "len"
-    pub fn write_blocking(&self, buf: &[u8], len: u32) -> Result<()> {
+    pub fn write_blocking(&self, buf: &[u8]) -> Result<()> {
         let bus = &self.bus;
         // Check whether txFIFO is enabled
         if bus.usart().fifocfg().read().enabletx().is_disabled() {
             return Err(Error::Fail);
         } else {
-            for i in 0..len {
+            for x in buf {
                 // Loop until txFIFO get some space for new data
                 while bus.usart().fifostat().read().txnotfull().bit_is_clear() {}
-                let x = buf[i as usize];
                 // SAFETY: unsafe only used for .bits()
-                bus.usart().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(x)) });
+                bus.usart()
+                    .fifowr()
+                    .write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
             }
             // Wait to finish transfer
             while bus.usart().stat().read().txidle().bit_is_clear() {}
