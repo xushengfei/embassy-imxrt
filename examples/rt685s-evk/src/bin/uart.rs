@@ -15,13 +15,15 @@ async fn usart4_task(uart: Uart<'static, FLEXCOMM4>) {
     info!("RX Task");
 
     loop {
-        let mut buf = [0; 5];
+        let mut buf = [0; 8];
 
         Timer::after_millis(10).await;
 
         uart.read_blocking(&mut buf).unwrap();
 
-        info!("Received {:?}", buf);
+        let s = core::str::from_utf8(&buf).unwrap();
+
+        info!("Received '{}'", s);
     }
 }
 
@@ -30,7 +32,7 @@ async fn usart2_task(uart: Uart<'static, FLEXCOMM2>) {
     info!("TX Task");
 
     loop {
-        let buf = [74, 70, 71, 72, 73];
+        let buf = "Testing\0".as_bytes();
 
         uart.write_blocking(&buf).unwrap();
 
