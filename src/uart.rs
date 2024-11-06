@@ -6,7 +6,7 @@ use mimxrt685s_pac as pac;
 use pac::usart0::cfg::Datalen;
 use pac::usart0::cfg::{Paritysel as Parity, Stoplen};
 
-use crate::iopctl::{DriveMode, DriveStrength, IopctlPin as Pin, Pull, SlewRate};
+use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin as Pin, Pull, SlewRate};
 type Baudrate = u32;
 
 /// Syncen : Sync/ Async mode selection
@@ -498,14 +498,15 @@ macro_rules! impl_uart_tx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl UartTx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_tx(&self) {
-                // UM11147 table 299 pg 262+
+                // UM11147 table 507 pg 495
                 self.set_function(crate::iopctl::Function::$fn)
-                    .set_drive_mode(DriveMode::PushPull)
                     .set_pull(Pull::None)
-                    .set_slew_rate(SlewRate::Slow)
+                    .enable_input_buffer()
+                    .set_slew_rate(SlewRate::Standard)
                     .set_drive_strength(DriveStrength::Normal)
                     .disable_analog_multiplex()
-                    .enable_input_buffer();
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_input_inverter(Inverter::Disabled);
             }
         }
     };
@@ -515,14 +516,15 @@ macro_rules! impl_uart_rx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl UartRx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_rx(&self) {
-                // UM11147 table 299 pg 262+
+                // UM11147 table 507 pg 495
                 self.set_function(crate::iopctl::Function::$fn)
-                    .set_drive_mode(DriveMode::PushPull)
                     .set_pull(Pull::None)
-                    .set_slew_rate(SlewRate::Slow)
+                    .enable_input_buffer()
+                    .set_slew_rate(SlewRate::Standard)
                     .set_drive_strength(DriveStrength::Normal)
                     .disable_analog_multiplex()
-                    .enable_input_buffer();
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_input_inverter(Inverter::Disabled);
             }
         }
     };
