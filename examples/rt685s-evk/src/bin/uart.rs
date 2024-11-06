@@ -17,8 +17,15 @@ async fn main(_spawner: Spawner) {
 
     info!("UART test start");
 
-    // Validating read on FC1
-    let usart = Uart::new(p.FLEXCOMM1, p.PIO0_8, p.PIO0_9, Default::default(), Default::default()).unwrap();
+    // Validating read on FC4
+    let usart = Uart::new(
+        p.FLEXCOMM4,
+        p.PIO0_29,
+        p.PIO0_30,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
 
     // To test read send the data on tera term / putty and verify from the buffer
     let mut buf = [0; 5];
