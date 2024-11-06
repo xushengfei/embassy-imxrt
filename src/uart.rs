@@ -1,7 +1,10 @@
 //! Universal Asynchronous Receiver Transmitter (UART) driver.
 //!
 
-use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin as Pin, Pull, SlewRate};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+
+use crate::gpio::{AnyPin, GpioPin as Pin};
+use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::pac::usart0::ctl::Cc;
 
@@ -47,6 +50,8 @@ pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
 /// Uart struct to hold the uart configuration
 pub struct Uart<'a, FC: Instance> {
     bus: crate::flexcomm::UsartBus<'a, FC>,
+    _tx: Option<PeripheralRef<'a, AnyPin>>,
+    _rx: Option<PeripheralRef<'a, AnyPin>>,
 }
 
 /// UART general config
@@ -156,26 +161,30 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// Bidirectional uart
     pub fn new(
         fc: impl Instance<P = FC> + 'a,
-        tx: impl TxPin<FC>,
-        rx: impl RxPin<FC>,
+        tx: impl Peripheral<P = impl TxPin<FC>> + 'a,
+        rx: impl Peripheral<P = impl RxPin<FC>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
 
-        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
-
-        let this = Self { bus };
+        into_ref!(tx);
+        into_ref!(rx);
 
         tx.as_tx();
-        this.set_uart_tx_fifo();
-
         rx.as_rx();
+
+        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
+        let this = Self {
+            bus,
+            _tx: Some(tx.map_into()),
+            _rx: Some(rx.map_into()),
+        };
+
+        this.set_uart_tx_fifo();
         this.set_uart_rx_fifo();
-
         this.set_uart_baudrate(&general_config)?;
-
         this.set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(this)
@@ -184,20 +193,24 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// Unidirectional Uart - Tx only
     pub fn new_tx_only(
         fc: impl Instance<P = FC> + 'a,
-        tx: impl TxPin<FC>,
+        tx: impl Peripheral<P = impl TxPin<FC>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
 
-        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
-
-        let this = Self { bus };
-
+        into_ref!(tx);
         tx.as_tx();
-        this.set_uart_tx_fifo();
 
+        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
+        let this = Self {
+            bus,
+            _tx: Some(tx.map_into()),
+            _rx: None,
+        };
+
+        this.set_uart_tx_fifo();
         this.set_uart_baudrate(&general_config)?;
         this.set_uart_config(&general_config, &mcu_spec_config);
 
@@ -207,20 +220,24 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// Unidirectional Uart - Rx only
     pub fn new_rx_only(
         fc: impl Instance<P = FC> + 'a,
-        rx: impl RxPin<FC>,
+        rx: impl Peripheral<P = impl RxPin<FC>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
 
-        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
-
-        let this = Self { bus };
-
+        into_ref!(rx);
         rx.as_rx();
-        this.set_uart_rx_fifo();
 
+        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
+        let this = Self {
+            bus,
+            _tx: None,
+            _rx: Some(rx.map_into()),
+        };
+
+        this.set_uart_rx_fifo();
         this.set_uart_baudrate(&general_config)?;
         this.set_uart_config(&general_config, &mcu_spec_config);
 
