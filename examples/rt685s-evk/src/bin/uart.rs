@@ -17,6 +17,8 @@ async fn usart4_task(uart: Uart<'static, FLEXCOMM4>) {
     loop {
         let mut buf = [0; 5];
 
+        Timer::after_millis(10).await;
+
         uart.read_blocking(&mut buf).unwrap();
 
         info!("Received {:?}", buf);
@@ -32,7 +34,7 @@ async fn usart2_task(uart: Uart<'static, FLEXCOMM2>) {
 
         uart.write_blocking(&buf).unwrap();
 
-        Timer::after_millis(1000).await;
+        Timer::after_millis(10).await;
     }
 }
 
@@ -51,8 +53,6 @@ async fn main(spawner: Spawner) {
     )
     .unwrap();
     spawner.must_spawn(usart4_task(usart4));
-
-    Timer::after_millis(1000).await;
 
     let usart2 = Uart::new_tx_only(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
     spawner.must_spawn(usart2_task(usart2));
