@@ -248,11 +248,6 @@ impl<'a, FC: Instance> Uart<'a, FC> {
         let baudrate_bps = gen_config.baudrate;
         let source_clock_hz = self.get_fc_freq(); // TODO: replace this with the call to flexcomm_getClkFreq()
 
-        let mut best_diff: u32 = 0xFFFF_FFFF;
-        let mut best_osrval: u32 = 0xF;
-        let mut best_brgval: u32 = 0xFFFF_FFFF;
-        let mut diff: u32;
-
         if baudrate_bps == 0 || source_clock_hz == 0 {
             return Err(Error::InvalidArgument);
         }
@@ -262,50 +257,50 @@ impl<'a, FC: Instance> Uart<'a, FC> {
             // Master
             if bus.usart().cfg().read().syncmst().is_master() {
                 // Calculate the BRG value
-                let mut brgval = source_clock_hz / baudrate_bps;
-                brgval -= 1u32;
+                let brgval = (source_clock_hz / baudrate_bps) - 1;
+
                 // SAFETY: unsafe only used for .bits()
                 bus.usart().brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
             }
         } else {
             // Smaller values of OSR can make the sampling position within a data bit less accurate and may
             // potentially cause more noise errors or incorrect data.
-            for osrval in (8..=0xF).rev() {
-                let brgval = (source_clock_hz / ((osrval + 1u32) * baudrate_bps)) - 1u32;
-                if brgval > 0xFFFFu32 {
-                    continue;
-                }
-                // Calculate the baud rate based on the BRG value
-                let baudrate = source_clock_hz / ((osrval + 1u32) * (brgval + 1u32));
+            let (_, osr, brg) = (8..16).rev().fold(
+                (u32::MAX, u32::MAX, u32::MAX),
+                |(best_diff, best_osr, best_brg), osrval| {
+                    let brgval = (source_clock_hz / ((osrval + 1) * baudrate_bps)) - 1;
+                    let diff;
 
-                // Calculate the difference between the current baud rate and the desired baud rate
-                if baudrate > baudrate_bps {
-                    diff = baudrate - baudrate_bps;
-                } else {
-                    diff = baudrate_bps - baudrate;
-                }
+                    if brgval > 65535 {
+                        (best_diff, best_osr, best_brg)
+                    } else {
+                        // Calculate the baud rate based on the BRG value
+                        let baudrate = source_clock_hz / ((osrval + 1) * (brgval + 1));
 
-                // Check if the current calculated difference is the best so far
-                if diff < best_diff {
-                    best_diff = diff;
-                    best_osrval = osrval;
-                    best_brgval = brgval;
-                }
-            }
+                        // Calculate the difference between the
+                        // current baud rate and the desired baud rate
+                        diff = (baudrate as i32 - baudrate_bps as i32).unsigned_abs();
+
+                        // Check if the current calculated difference is the best so far
+                        if diff < best_diff {
+                            (diff, osrval, brgval)
+                        } else {
+                            (best_diff, best_osr, best_brg)
+                        }
+                    }
+                },
+            );
 
             // Value over range
-            if best_brgval > 0xFFFFu32 {
+            if brg > 65535 {
                 return Err(Error::UsartBaudrateNotSupported);
             }
 
             // SAFETY: unsafe only used for .bits()
-            bus.usart()
-                .osr()
-                .write(|w| unsafe { w.osrval().bits(best_osrval as u8) });
+            bus.usart().osr().write(|w| unsafe { w.osrval().bits(osr as u8) });
+
             // SAFETY: unsafe only used for .bits()
-            bus.usart()
-                .brg()
-                .write(|w| unsafe { w.brgval().bits(best_brgval as u16) });
+            bus.usart().brg().write(|w| unsafe { w.brgval().bits(brg as u16) });
         }
 
         Ok(())
