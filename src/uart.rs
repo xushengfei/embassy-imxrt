@@ -499,13 +499,13 @@ macro_rules! impl_uart_tx {
         impl UartTx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_tx(&self) {
                 // UM11147 table 299 pg 262+
-                self.set_function(crate::iopctl::Function::$fn);
-                self.set_drive_mode(DriveMode::PushPull);
-                self.set_pull(Pull::None);
-                self.set_slew_rate(SlewRate::Slow);
-                self.set_drive_strength(DriveStrength::Normal);
-                self.disable_analog_multiplex();
-                self.enable_input_buffer();
+                self.set_function(crate::iopctl::Function::$fn)
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_pull(Pull::None)
+                    .set_slew_rate(SlewRate::Slow)
+                    .set_drive_strength(DriveStrength::Normal)
+                    .disable_analog_multiplex()
+                    .enable_input_buffer();
             }
         }
     };
@@ -516,13 +516,13 @@ macro_rules! impl_uart_rx {
         impl UartRx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_rx(&self) {
                 // UM11147 table 299 pg 262+
-                self.set_function(crate::iopctl::Function::$fn);
-                self.set_drive_mode(DriveMode::PushPull);
-                self.set_pull(Pull::None);
-                self.set_slew_rate(SlewRate::Slow);
-                self.set_drive_strength(DriveStrength::Normal);
-                self.disable_analog_multiplex();
-                self.enable_input_buffer();
+                self.set_function(crate::iopctl::Function::$fn)
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_pull(Pull::None)
+                    .set_slew_rate(SlewRate::Slow)
+                    .set_drive_strength(DriveStrength::Normal)
+                    .disable_analog_multiplex()
+                    .enable_input_buffer();
             }
         }
     };
