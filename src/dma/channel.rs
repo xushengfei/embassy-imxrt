@@ -54,10 +54,40 @@ impl<'d> ChannelAndRequest<'d> {
         &DMA_WAKERS[self.channel.info.ch_num]
     }
 
-    /// Check whether DMA is busy
+    /// Check whether DMA is active
     pub fn is_active(&self) -> bool {
         let channel = self.channel.info.ch_num;
         self.channel.info.regs.active0().read().act().bits() & (1 << channel) != 0
+    }
+
+    /// Check whether DMA is busy
+    pub fn is_busy(&self) -> bool {
+        let channel = self.channel.info.ch_num;
+        self.channel.info.regs.busy0().read().bsy().bits() & (1 << channel) != 0
+    }
+
+    /// Return DMA remaining transfer count
+    /// To get number of bytes, do `(XFERCOUNT + 1) x data width`
+    pub fn get_xfer_count(&self) -> u16 {
+        let channel = self.channel.info.ch_num;
+        self.channel
+            .info
+            .regs
+            .channel(channel)
+            .xfercfg()
+            .read()
+            .xfercount()
+            .bits()
+    }
+
+    /// Abort DMA operation
+    pub fn abort(&self) {
+        let channel = self.channel.info.ch_num;
+        self.channel.disable_channel();
+        while self.is_busy() {}
+        self.channel.info.regs.abort0().write(|w|
+            // SAFETY: unsafe due to .bits usage
+            unsafe { w.abortctrl().bits(1 << channel) });
     }
 
     async fn poll_transfer_complete(&'d self) {
@@ -172,6 +202,14 @@ impl Channel<'_> {
             .regs
             .enableset0()
             .modify(|_, w| unsafe { w.ena().bits(1 << channel) });
+    }
+
+    /// Disable the DMA channel
+    pub fn disable_channel(&self) {
+        let channel = self.info.ch_num;
+        self.info.regs.enableclr0().write(|w|
+            // SAFETY: unsafe due to .bits usage
+            unsafe { w.clr().bits(1 << channel) });
     }
 
     /// Trigger the DMA channel
