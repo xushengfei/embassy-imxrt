@@ -22,6 +22,8 @@ pub mod rng;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 pub mod uart;
+//pub mod uart_async;
+pub mod uart_mod;
 pub mod wwdt;
 
 // Reexports

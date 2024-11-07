@@ -233,15 +233,38 @@ pub struct UsartBus<'p, F: UsartPeripheral> {
 #[allow(private_bounds)]
 impl<'p, F: UsartPeripheral> UsartBus<'p, F> {
     /// use Flexcomm fc as an USART Bus
+    /// TODO: remove after testing as new_blocking() is used
     pub fn new(fc: impl UsartPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::Usart)?;
         Ok(Self { _fc: fc.into_ref() })
     }
 
+    /// use Flexcomm fc as a blocking Usart Bus
+    pub fn new_blocking(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+        F::enable(clk);
+        F::set_mode(Mode::Usart)?;
+        Ok(Self { _fc: fc.into_ref() })
+    }
+
+    /// use Flexcomm fc as an async Usart Bus
+    pub fn new_async(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+        F::enable(clk);
+        F::set_mode(Mode::Usart)?;
+        // SAFETY: flexcomm interrupt should be managed through this
+        //         interface only
+        unsafe { F::enable_interrupt() };
+        Ok(Self { _fc: fc.into_ref() })
+    }
+
     /// retrieve active bus registers
     pub fn usart(&self) -> &'static UsartRegisters {
         F::usart()
+    }
+
+    /// return a waker
+    pub fn waker(&self) -> &'static AtomicWaker {
+        F::waker()
     }
 }
 
