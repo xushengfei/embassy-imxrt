@@ -48,8 +48,8 @@ pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
 }
 
 /// Uart struct to hold the uart configuration
-pub struct Uart<'a, FC: Instance> {
-    bus: crate::flexcomm::UsartBus<'a, FC>,
+pub struct Uart<'a, T: Instance> {
+    bus: crate::flexcomm::UsartBus<'a, T>,
     _tx: Option<PeripheralRef<'a, AnyPin>>,
     _rx: Option<PeripheralRef<'a, AnyPin>>,
 }
@@ -157,12 +157,12 @@ impl From<TransferError> for Error {
     }
 }
 
-impl<'a, FC: Instance> Uart<'a, FC> {
+impl<'a, T: Instance> Uart<'a, T> {
     /// Bidirectional uart
     pub fn new(
-        fc: impl Instance<P = FC> + 'a,
-        tx: impl Peripheral<P = impl TxPin<FC>> + 'a,
-        rx: impl Peripheral<P = impl RxPin<FC>> + 'a,
+        fc: impl Instance<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
@@ -192,8 +192,8 @@ impl<'a, FC: Instance> Uart<'a, FC> {
 
     /// Unidirectional Uart - Tx only
     pub fn new_tx_only(
-        fc: impl Instance<P = FC> + 'a,
-        tx: impl Peripheral<P = impl TxPin<FC>> + 'a,
+        fc: impl Instance<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
@@ -219,8 +219,8 @@ impl<'a, FC: Instance> Uart<'a, FC> {
 
     /// Unidirectional Uart - Rx only
     pub fn new_rx_only(
-        fc: impl Instance<P = FC> + 'a,
-        rx: impl Peripheral<P = impl RxPin<FC>> + 'a,
+        fc: impl Instance<P = T> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
