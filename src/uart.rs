@@ -323,7 +323,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         }
 
         Self::set_baudrate_inner(config.baudrate)?;
-        Self::set_uart_config(&config);
+        Self::set_uart_config(config);
 
         Ok(())
     }
@@ -396,7 +396,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         Ok(())
     }
 
-    fn set_uart_config(config: &Config) {
+    fn set_uart_config(config: Config) {
         T::regs().cfg().write(|w| w.enable().disabled());
 
         T::regs().cfg().modify(|_, w| {
