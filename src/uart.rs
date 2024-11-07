@@ -216,19 +216,15 @@ impl<'a, T: Instance> UartTx<'a, T> {
 
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
-        // Check whether txFIFO is enabled
-        if T::regs().fifocfg().read().enabletx().is_disabled() {
-            return Err(Error::Fail);
-        } else {
-            for x in buf {
-                // Loop until txFIFO get some space for new data
-                while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
-                // SAFETY: unsafe only used for .bits()
-                T::regs().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
-            }
-            // Wait to finish transfer
-            while T::regs().stat().read().txidle().bit_is_clear() {}
+        for x in buf {
+            // Loop until txFIFO get some space for new data
+            while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
+            // SAFETY: unsafe only used for .bits()
+            T::regs().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
         }
+
+        // Wait to finish transfer
+        while T::regs().stat().read().txidle().bit_is_clear() {}
 
         Ok(())
     }
@@ -260,47 +256,41 @@ impl<'a, T: Instance> UartRx<'a, T> {
 
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
-        // Check if rxFifo is not enabled
-        if T::regs().fifocfg().read().enablerx().is_disabled() {
-            return Err(Error::Fail);
-        } else {
-            // rxfifo is enabled
-            for b in buf.iter_mut() {
-                // loop until rxFifo has some data to read
-                while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
+        for b in buf.iter_mut() {
+            // loop until rxFifo has some data to read
+            while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
 
-                // Now that there is some data in the rxFifo, read it
-                // Let's verify the rxFifo status flags
-                if T::regs().fifostat().read().rxerr().bit_is_set() {
-                    T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
-                    T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
-                    return Err(Error::Transfer(TransferError::UsartRxError));
-                }
+            // Now that there is some data in the rxFifo, read it
+            // Let's verify the rxFifo status flags
+            if T::regs().fifostat().read().rxerr().bit_is_set() {
+                T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
+                T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
+                return Err(Error::Transfer(TransferError::UsartRxError));
+            }
 
-                let mut read_status = false; // false implies failure
-                let mut generic_status = Error::Fail;
+            let mut read_status = false; // false implies failure
+            let mut generic_status = Error::Fail;
 
-                // clear all status flags
-                if T::regs().stat().read().parityerrint().bit_is_set() {
-                    T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
-                    generic_status = Error::Transfer(TransferError::UsartParityError);
-                } else if T::regs().stat().read().framerrint().bit_is_set() {
-                    T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
-                    generic_status = Error::Transfer(TransferError::UsartFramingError);
-                } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
-                    T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
-                    generic_status = Error::Transfer(TransferError::UsartNoiseError);
-                } else {
-                    // No error, proceed with read
-                    read_status = true;
-                }
+            // clear all status flags
+            if T::regs().stat().read().parityerrint().bit_is_set() {
+                T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
+                generic_status = Error::Transfer(TransferError::UsartParityError);
+            } else if T::regs().stat().read().framerrint().bit_is_set() {
+                T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
+                generic_status = Error::Transfer(TransferError::UsartFramingError);
+            } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
+                T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
+                generic_status = Error::Transfer(TransferError::UsartNoiseError);
+            } else {
+                // No error, proceed with read
+                read_status = true;
+            }
 
-                if read_status {
-                    // read the data from the rxFifo
-                    *b = T::regs().fiford().read().rxdata().bits() as u8;
-                } else {
-                    return Err(generic_status);
-                }
+            if read_status {
+                // read the data from the rxFifo
+                *b = T::regs().fiford().read().rxdata().bits() as u8;
+            } else {
+                return Err(generic_status);
             }
         }
 
