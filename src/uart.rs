@@ -184,11 +184,6 @@ impl<'a, T: Instance> Uart<'a, T> {
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
-        // TODO - clock integration
-        let clock = crate::flexcomm::Clock::Sfro;
-        T::enable(clock);
-        T::set_mode(Mode::Usart)?;
-
         into_ref!(_inner);
         into_ref!(tx);
         into_ref!(rx);
@@ -196,18 +191,21 @@ impl<'a, T: Instance> Uart<'a, T> {
         tx.as_tx();
         rx.as_rx();
 
-        let this = Self {
+        let mut tx = tx.map_into();
+        let mut rx = rx.map_into();
+
+        Self::init(
+            Some(tx.reborrow()),
+            Some(rx.reborrow()),
+            general_config,
+            mcu_spec_config,
+        )?;
+
+        Ok(Self {
             _inner,
-            _tx: Some(tx.map_into()),
-            _rx: Some(rx.map_into()),
-        };
-
-        Self::set_uart_tx_fifo();
-        Self::set_uart_rx_fifo();
-        Self::set_uart_baudrate(&general_config)?;
-        Self::set_uart_config(&general_config, &mcu_spec_config);
-
-        Ok(this)
+            _tx: Some(tx),
+            _rx: Some(rx),
+        })
     }
 
     /// Unidirectional Uart - Tx only
@@ -217,26 +215,19 @@ impl<'a, T: Instance> Uart<'a, T> {
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
-        // TODO - clock integration
-        let clock = crate::flexcomm::Clock::Sfro;
-        T::enable(clock);
-        T::set_mode(Mode::Usart)?;
-
         into_ref!(_inner);
         into_ref!(tx);
         tx.as_tx();
 
-        let this = Self {
+        let mut tx = tx.map_into();
+
+        Self::init(Some(tx.reborrow()), None, general_config, mcu_spec_config)?;
+
+        Ok(Self {
             _inner,
-            _tx: Some(tx.map_into()),
+            _tx: Some(tx),
             _rx: None,
-        };
-
-        Self::set_uart_tx_fifo();
-        Self::set_uart_baudrate(&general_config)?;
-        Self::set_uart_config(&general_config, &mcu_spec_config);
-
-        Ok(this)
+        })
     }
 
     /// Unidirectional Uart - Rx only
@@ -246,26 +237,44 @@ impl<'a, T: Instance> Uart<'a, T> {
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(rx);
+        rx.as_rx();
+
+        let mut rx = rx.map_into();
+
+        Self::init(None, Some(rx.reborrow()), general_config, mcu_spec_config)?;
+
+        Ok(Self {
+            _inner,
+            _tx: None,
+            _rx: Some(rx),
+        })
+    }
+
+    fn init(
+        tx: Option<PeripheralRef<'_, AnyPin>>,
+        rx: Option<PeripheralRef<'_, AnyPin>>,
+        general_config: GeneralConfig,
+        mcu_spec_config: UartMcuSpecificConfig,
+    ) -> Result<()> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
         T::enable(clock);
         T::set_mode(Mode::Usart)?;
 
-        into_ref!(_inner);
-        into_ref!(rx);
-        rx.as_rx();
+        if tx.is_some() {
+            Self::set_uart_tx_fifo();
+        }
 
-        let this = Self {
-            _inner,
-            _tx: None,
-            _rx: Some(rx.map_into()),
-        };
+        if rx.is_some() {
+            Self::set_uart_rx_fifo();
+        }
 
-        Self::set_uart_rx_fifo();
         Self::set_uart_baudrate(&general_config)?;
         Self::set_uart_config(&general_config, &mcu_spec_config);
 
-        Ok(this)
+        Ok(())
     }
 
     fn get_fc_freq() -> u32 {
