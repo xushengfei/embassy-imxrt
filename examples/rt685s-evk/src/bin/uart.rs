@@ -6,12 +6,12 @@ extern crate embassy_imxrt_examples;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::peripherals::{FLEXCOMM2, FLEXCOMM4};
-use embassy_imxrt::uart::Uart;
+use embassy_imxrt::uart::{Uart, UartTx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn usart4_task(uart: Uart<'static, FLEXCOMM4>) {
+async fn usart4_task(mut uart: Uart<'static, FLEXCOMM4>) {
     info!("RX Task");
 
     loop {
@@ -19,7 +19,7 @@ async fn usart4_task(uart: Uart<'static, FLEXCOMM4>) {
 
         Timer::after_millis(10).await;
 
-        uart.read_blocking(&mut buf).unwrap();
+        uart.blocking_read(&mut buf).unwrap();
 
         let s = core::str::from_utf8(&buf).unwrap();
 
@@ -28,13 +28,13 @@ async fn usart4_task(uart: Uart<'static, FLEXCOMM4>) {
 }
 
 #[embassy_executor::task]
-async fn usart2_task(uart: Uart<'static, FLEXCOMM2>) {
+async fn usart2_task(mut uart: UartTx<'static, FLEXCOMM2>) {
     info!("TX Task");
 
     loop {
         let buf = "Testing\0".as_bytes();
 
-        uart.write_blocking(&buf).unwrap();
+        uart.blocking_write(&buf).unwrap();
 
         Timer::after_millis(10).await;
     }
@@ -56,6 +56,6 @@ async fn main(spawner: Spawner) {
     .unwrap();
     spawner.must_spawn(usart4_task(usart4));
 
-    let usart2 = Uart::new_tx_only(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
+    let usart2 = UartTx::new(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
     spawner.must_spawn(usart2_task(usart2));
 }

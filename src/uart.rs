@@ -1,6 +1,8 @@
 //! Universal Asynchronous Receiver Transmitter (UART) driver.
 //!
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 use crate::flexcomm::Mode;
@@ -65,11 +67,23 @@ pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
     fn as_rx(&self);
 }
 
-/// Uart struct to hold the uart configuration
+/// Uart driver.
 pub struct Uart<'a, T: Instance> {
     _inner: PeripheralRef<'a, T>,
-    _tx: Option<PeripheralRef<'a, AnyPin>>,
-    _rx: Option<PeripheralRef<'a, AnyPin>>,
+    tx: UartTx<'a, T>,
+    rx: UartRx<'a, T>,
+}
+
+/// Uart TX driver.
+pub struct UartTx<'a, T: Instance> {
+    _tx: PeripheralRef<'a, AnyPin>,
+    _phantom: PhantomData<T>,
+}
+
+/// Uart RX driver.
+pub struct UartRx<'a, T: Instance> {
+    _rx: PeripheralRef<'a, AnyPin>,
+    _phantom: PhantomData<T>,
 }
 
 /// UART general config
@@ -175,8 +189,127 @@ impl From<TransferError> for Error {
     }
 }
 
+impl<'a, T: Instance> UartTx<'a, T> {
+    /// Create a new UART which can only send data
+    /// Unidirectional Uart - Tx only
+    pub fn new(
+        _inner: impl Peripheral<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
+        general_config: GeneralConfig,
+        mcu_spec_config: UartMcuSpecificConfig,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(tx);
+        tx.as_tx();
+
+        let mut _tx = tx.map_into();
+        Uart::<T>::init(Some(_tx.reborrow()), None, general_config, mcu_spec_config)?;
+        Ok(Self::new_inner(_tx))
+    }
+
+    fn new_inner(_tx: PeripheralRef<'a, AnyPin>) -> Self {
+        Self {
+            _tx,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Transmit the provided buffer blocking execution until done.
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+        // Check whether txFIFO is enabled
+        if T::regs().fifocfg().read().enabletx().is_disabled() {
+            return Err(Error::Fail);
+        } else {
+            for x in buf {
+                // Loop until txFIFO get some space for new data
+                while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
+                // SAFETY: unsafe only used for .bits()
+                T::regs().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
+            }
+            // Wait to finish transfer
+            while T::regs().stat().read().txidle().bit_is_clear() {}
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a, T: Instance> UartRx<'a, T> {
+    /// Create a new Uart which can only receive data
+    pub fn new(
+        _inner: impl Peripheral<P = T> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
+        general_config: GeneralConfig,
+        mcu_spec_config: UartMcuSpecificConfig,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(rx);
+        rx.as_rx();
+
+        let mut _rx = rx.map_into();
+        Uart::<T>::init(None, Some(_rx.reborrow()), general_config, mcu_spec_config)?;
+        Ok(Self::new_inner(_rx))
+    }
+
+    fn new_inner(_rx: PeripheralRef<'a, AnyPin>) -> Self {
+        Self {
+            _rx,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Read from UART RX blocking execution until done.
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+        // Check if rxFifo is not enabled
+        if T::regs().fifocfg().read().enablerx().is_disabled() {
+            return Err(Error::Fail);
+        } else {
+            // rxfifo is enabled
+            for b in buf.iter_mut() {
+                // loop until rxFifo has some data to read
+                while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
+
+                // Now that there is some data in the rxFifo, read it
+                // Let's verify the rxFifo status flags
+                if T::regs().fifostat().read().rxerr().bit_is_set() {
+                    T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
+                    T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
+                    return Err(Error::Transfer(TransferError::UsartRxError));
+                }
+
+                let mut read_status = false; // false implies failure
+                let mut generic_status = Error::Fail;
+
+                // clear all status flags
+                if T::regs().stat().read().parityerrint().bit_is_set() {
+                    T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
+                    generic_status = Error::Transfer(TransferError::UsartParityError);
+                } else if T::regs().stat().read().framerrint().bit_is_set() {
+                    T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
+                    generic_status = Error::Transfer(TransferError::UsartFramingError);
+                } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
+                    T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
+                    generic_status = Error::Transfer(TransferError::UsartNoiseError);
+                } else {
+                    // No error, proceed with read
+                    read_status = true;
+                }
+
+                if read_status {
+                    // read the data from the rxFifo
+                    *b = T::regs().fiford().read().rxdata().bits() as u8;
+                } else {
+                    return Err(generic_status);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl<'a, T: Instance> Uart<'a, T> {
-    /// Bidirectional uart
+    /// Create a new UART
     pub fn new(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
@@ -203,52 +336,8 @@ impl<'a, T: Instance> Uart<'a, T> {
 
         Ok(Self {
             _inner,
-            _tx: Some(tx),
-            _rx: Some(rx),
-        })
-    }
-
-    /// Unidirectional Uart - Tx only
-    pub fn new_tx_only(
-        _inner: impl Peripheral<P = T> + 'a,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
-        general_config: GeneralConfig,
-        mcu_spec_config: UartMcuSpecificConfig,
-    ) -> Result<Self> {
-        into_ref!(_inner);
-        into_ref!(tx);
-        tx.as_tx();
-
-        let mut tx = tx.map_into();
-
-        Self::init(Some(tx.reborrow()), None, general_config, mcu_spec_config)?;
-
-        Ok(Self {
-            _inner,
-            _tx: Some(tx),
-            _rx: None,
-        })
-    }
-
-    /// Unidirectional Uart - Rx only
-    pub fn new_rx_only(
-        _inner: impl Peripheral<P = T> + 'a,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
-        general_config: GeneralConfig,
-        mcu_spec_config: UartMcuSpecificConfig,
-    ) -> Result<Self> {
-        into_ref!(_inner);
-        into_ref!(rx);
-        rx.as_rx();
-
-        let mut rx = rx.map_into();
-
-        Self::init(None, Some(rx.reborrow()), general_config, mcu_spec_config)?;
-
-        Ok(Self {
-            _inner,
-            _tx: None,
-            _rx: Some(rx),
+            tx: UartTx::new_inner(tx),
+            rx: UartRx::new_inner(rx),
         })
     }
 
@@ -407,80 +496,14 @@ impl<'a, T: Instance> Uart<'a, T> {
         Ok(())
     }
 
-    /// Read RX data register using a blocking method.
-    /// This function polls the RX register, waits for the RX register to be full or for RX FIFO to
-    /// have data and read data from the TX register.
-    /// Note for testing purpose : Blocking read API, that can receive a max of data of 8 bytes.
-    /// The actual data expected to be received should be sent as "len"
-    pub fn read_blocking(&self, buf: &mut [u8]) -> Result<()> {
-        // Check if rxFifo is not enabled
-        if T::regs().fifocfg().read().enablerx().is_disabled() {
-            return Err(Error::Fail);
-        } else {
-            // rxfifo is enabled
-            for b in buf.iter_mut() {
-                // loop until rxFifo has some data to read
-                while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
-
-                // Now that there is some data in the rxFifo, read it
-                // Let's verify the rxFifo status flags
-                if T::regs().fifostat().read().rxerr().bit_is_set() {
-                    T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
-                    T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
-                    return Err(Error::Transfer(TransferError::UsartRxError));
-                }
-
-                let mut read_status = false; // false implies failure
-                let mut generic_status = Error::Fail;
-
-                // clear all status flags
-                if T::regs().stat().read().parityerrint().bit_is_set() {
-                    T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
-                    generic_status = Error::Transfer(TransferError::UsartParityError);
-                } else if T::regs().stat().read().framerrint().bit_is_set() {
-                    T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
-                    generic_status = Error::Transfer(TransferError::UsartFramingError);
-                } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
-                    T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
-                    generic_status = Error::Transfer(TransferError::UsartNoiseError);
-                } else {
-                    // No error, proceed with read
-                    read_status = true;
-                }
-
-                if read_status {
-                    // read the data from the rxFifo
-                    *b = T::regs().fiford().read().rxdata().bits() as u8;
-                } else {
-                    return Err(generic_status);
-                }
-            }
-        }
-
-        Ok(())
+    /// Read from UART RX blocking execution until done.
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+        self.rx.blocking_read(buf)
     }
 
-    /// Writes to the TX register using a blocking method.
-    /// This function polls the TX register, waits for the TX register to be empty or for the TX FIFO
-    /// to have room and writes data to the TX buffer.
-    /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
-    /// The actual data expected to be sent should be sent as "len"
-    pub fn write_blocking(&self, buf: &[u8]) -> Result<()> {
-        // Check whether txFIFO is enabled
-        if T::regs().fifocfg().read().enabletx().is_disabled() {
-            return Err(Error::Fail);
-        } else {
-            for x in buf {
-                // Loop until txFIFO get some space for new data
-                while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
-                // SAFETY: unsafe only used for .bits()
-                T::regs().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
-            }
-            // Wait to finish transfer
-            while T::regs().stat().read().txidle().bit_is_clear() {}
-        }
-
-        Ok(())
+    /// Transmit the provided buffer blocking execution until done.
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+        self.tx.blocking_write(buf)
     }
 }
 
