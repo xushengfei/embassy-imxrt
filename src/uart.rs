@@ -144,11 +144,21 @@ pub enum Error {
 
     /// Failure
     Fail,
+
     /// Invalid argument
     InvalidArgument,
 
     /// Uart baud rate cannot be supported with the given clock
     UnsupportedBaudrate,
+
+    /// RX FIFO Empty
+    RxFifoEmpty,
+
+    /// TX FIFO Full
+    TxFifoFull,
+
+    /// TX Busy
+    TxBusy,
 }
 /// shorthand for -> Result<T>
 pub type Result<T> = core::result::Result<T, Error>;
@@ -191,6 +201,14 @@ impl<'a, T: Instance> UartTx<'a, T> {
         self.write_byte_internal(byte)
     }
 
+    fn write_byte(&mut self, byte: u8) -> Result<()> {
+        if T::regs().fifostat().read().txnotfull().bit_is_clear() {
+            Err(Error::TxFifoFull)
+        } else {
+            self.write_byte_internal(byte)
+        }
+    }
+
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         for x in buf {
@@ -200,10 +218,28 @@ impl<'a, T: Instance> UartTx<'a, T> {
         Ok(())
     }
 
+    /// Transmit the provided buffer.
+    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
+        for x in buf {
+            self.write_byte(*x)?;
+        }
+
+        Ok(())
+    }
+
     /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<()> {
         while T::regs().stat().read().txidle().bit_is_clear() {}
         Ok(())
+    }
+
+    /// Flush UART TX.
+    pub fn flush(&mut self) -> Result<()> {
+        if T::regs().stat().read().txidle().bit_is_clear() {
+            Err(Error::TxBusy)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -250,9 +286,26 @@ impl<'a, T: Instance> UartRx<'a, T> {
         }
     }
 
+    fn read_byte(&mut self) -> Result<u8> {
+        if T::regs().fifostat().read().rxnotempty().bit_is_clear() {
+            Err(Error::RxFifoEmpty)
+        } else {
+            self.read_byte_internal()
+        }
+    }
+
     fn blocking_read_byte(&mut self) -> Result<u8> {
         while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
         self.read_byte_internal()
+    }
+
+    /// Read from UART RX.
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+        for b in buf.iter_mut() {
+            *b = self.read_byte()?;
+        }
+
+        Ok(())
     }
 
     /// Read from UART RX blocking execution until done.
@@ -351,8 +404,9 @@ impl<'a, T: Instance> Uart<'a, T> {
                 T::regs().brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
             }
         } else {
-            // Smaller values of OSR can make the sampling position within a data bit less accurate and may
-            // potentially cause more noise errors or incorrect data.
+            // Smaller values of OSR can make the sampling position within a
+            // data bit less accurate and may potentially cause more noise
+            // errors or incorrect data.
             let (_, osr, brg) = (8..16).rev().fold(
                 (u32::MAX, u32::MAX, u32::MAX),
                 |(best_diff, best_osr, best_brg), osrval| {
@@ -452,14 +506,29 @@ impl<'a, T: Instance> Uart<'a, T> {
         self.rx.blocking_read(buf)
     }
 
+    /// Read from UART Rx.
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+        self.rx.read(buf)
+    }
+
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         self.tx.blocking_write(buf)
     }
 
+    /// Transmit the provided buffer.
+    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
+        self.tx.write(buf)
+    }
+
     /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<()> {
         self.tx.blocking_flush()
+    }
+
+    /// Flush UART TX.
+    pub fn flush(&mut self) -> Result<()> {
+        self.tx.flush()
     }
 
     /// Split the Uart into a transmitter and receiver, which is particularly
@@ -478,6 +547,204 @@ impl<'a, T: Instance> Uart<'a, T> {
     /// sets baudrate on runtime
     pub fn set_baudrate(&mut self, baudrate: u32) -> Result<()> {
         Self::set_baudrate_inner(baudrate)
+    }
+}
+
+impl<T: Instance> embedded_hal_02::serial::Read<u8> for UartRx<'_, T> {
+    type Error = Error;
+
+    fn read(&mut self) -> core::result::Result<u8, nb::Error<Self::Error>> {
+        let mut buf = [0; 1];
+
+        match self.read(&mut buf) {
+            Ok(_) => Ok(buf[0]),
+            Err(Error::RxFifoEmpty) => Err(nb::Error::WouldBlock),
+            Err(e) => Err(nb::Error::Other(e)),
+        }
+    }
+}
+
+impl<T: Instance> embedded_hal_02::serial::Write<u8> for UartTx<'_, T> {
+    type Error = Error;
+
+    fn write(&mut self, word: u8) -> core::result::Result<(), nb::Error<Self::Error>> {
+        match self.write(&[word]) {
+            Ok(_) => Ok(()),
+            Err(Error::TxFifoFull) => Err(nb::Error::WouldBlock),
+            Err(e) => Err(nb::Error::Other(e)),
+        }
+    }
+
+    fn flush(&mut self) -> core::result::Result<(), nb::Error<Self::Error>> {
+        match self.flush() {
+            Ok(_) => Ok(()),
+            Err(Error::TxBusy) => Err(nb::Error::WouldBlock),
+            Err(e) => Err(nb::Error::Other(e)),
+        }
+    }
+}
+
+impl<T: Instance> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'_, T> {
+    type Error = Error;
+
+    fn bwrite_all(&mut self, buffer: &[u8]) -> core::result::Result<(), Self::Error> {
+        self.blocking_write(buffer)
+    }
+
+    fn bflush(&mut self) -> core::result::Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl<T: Instance> embedded_hal_02::serial::Read<u8> for Uart<'_, T> {
+    type Error = Error;
+
+    fn read(&mut self) -> core::result::Result<u8, nb::Error<Self::Error>> {
+        embedded_hal_02::serial::Read::read(&mut self.rx)
+    }
+}
+
+impl<T: Instance> embedded_hal_02::serial::Write<u8> for Uart<'_, T> {
+    type Error = Error;
+
+    fn write(&mut self, word: u8) -> core::result::Result<(), nb::Error<Self::Error>> {
+        embedded_hal_02::serial::Write::write(&mut self.tx, word)
+    }
+
+    fn flush(&mut self) -> core::result::Result<(), nb::Error<Self::Error>> {
+        embedded_hal_02::serial::Write::flush(&mut self.tx)
+    }
+}
+
+impl<T: Instance> embedded_hal_02::blocking::serial::Write<u8> for Uart<'_, T> {
+    type Error = Error;
+
+    fn bwrite_all(&mut self, buffer: &[u8]) -> core::result::Result<(), Self::Error> {
+        self.blocking_write(buffer)
+    }
+
+    fn bflush(&mut self) -> core::result::Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl embedded_hal_nb::serial::Error for Error {
+    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
+        match *self {
+            Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
+            Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
+            Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
+            Self::Noise => embedded_hal_nb::serial::ErrorKind::Noise,
+            _ => embedded_hal_nb::serial::ErrorKind::Other,
+        }
+    }
+}
+
+impl<T: Instance> embedded_hal_nb::serial::ErrorType for UartRx<'_, T> {
+    type Error = Error;
+}
+
+impl<T: Instance> embedded_hal_nb::serial::ErrorType for UartTx<'_, T> {
+    type Error = Error;
+}
+
+impl<T: Instance> embedded_hal_nb::serial::ErrorType for Uart<'_, T> {
+    type Error = Error;
+}
+
+impl<T: Instance> embedded_hal_nb::serial::Read for UartRx<'_, T> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        let mut buf = [0; 1];
+
+        match self.read(&mut buf) {
+            Ok(_) => Ok(buf[0]),
+            Err(Error::RxFifoEmpty) => Err(nb::Error::WouldBlock),
+            Err(e) => Err(nb::Error::Other(e)),
+        }
+    }
+}
+
+impl<T: Instance> embedded_hal_nb::serial::Write for UartTx<'_, T> {
+    fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> {
+        match self.write(&[word]) {
+            Ok(_) => Ok(()),
+            Err(Error::TxFifoFull) => Err(nb::Error::WouldBlock),
+            Err(e) => Err(nb::Error::Other(e)),
+        }
+    }
+
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        match self.flush() {
+            Ok(_) => Ok(()),
+            Err(Error::TxBusy) => Err(nb::Error::WouldBlock),
+            Err(e) => Err(nb::Error::Other(e)),
+        }
+    }
+}
+
+impl<T: Instance> embedded_hal_nb::serial::Read for Uart<'_, T> {
+    fn read(&mut self) -> core::result::Result<u8, nb::Error<Self::Error>> {
+        embedded_hal_02::serial::Read::read(&mut self.rx)
+    }
+}
+
+impl<T: Instance> embedded_hal_nb::serial::Write for Uart<'_, T> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.blocking_write(&[char]).map_err(nb::Error::Other)
+    }
+
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.blocking_flush().map_err(nb::Error::Other)
+    }
+}
+
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
+
+impl<T: Instance> embedded_io::ErrorType for UartRx<'_, T> {
+    type Error = Error;
+}
+
+impl<T: Instance> embedded_io::ErrorType for UartTx<'_, T> {
+    type Error = Error;
+}
+
+impl<T: Instance> embedded_io::ErrorType for Uart<'_, T> {
+    type Error = Error;
+}
+
+impl<T: Instance> embedded_io::Read for UartRx<'_, T> {
+    fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
+        self.blocking_read(buf).map(|_| buf.len())
+    }
+}
+
+impl<T: Instance> embedded_io::Write for UartTx<'_, T> {
+    fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
+        self.blocking_write(buf).map(|_| buf.len())
+    }
+
+    fn flush(&mut self) -> core::result::Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl<T: Instance> embedded_io::Read for Uart<'_, T> {
+    fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
+        embedded_io::Read::read(&mut self.rx, buf)
+    }
+}
+
+impl<T: Instance> embedded_io::Write for Uart<'_, T> {
+    fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
+        embedded_io::Write::write(&mut self.tx, buf)
+    }
+
+    fn flush(&mut self) -> core::result::Result<(), Self::Error> {
+        embedded_io::Write::flush(&mut self.tx)
     }
 }
 
