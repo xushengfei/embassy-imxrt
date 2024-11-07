@@ -84,9 +84,9 @@ pub struct UartRx<'a, T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-/// UART general config
+/// UART config
 #[derive(Clone, Copy)]
-pub struct GeneralConfig {
+pub struct Config {
     /// Baudrate of the Uart
     pub baudrate: u32,
     /// data length
@@ -95,23 +95,6 @@ pub struct GeneralConfig {
     pub parity: Parity,
     /// Stop bits
     pub stop_bits: Stoplen,
-}
-
-impl Default for GeneralConfig {
-    /// Default configuration for single channel sampling.
-    fn default() -> Self {
-        Self {
-            baudrate: 115_200,
-            data_bits: Datalen::Bit8,
-            parity: Parity::NoParity,
-            stop_bits: Stoplen::Bit1,
-        }
-    }
-}
-
-/// UART `MCU_specific` config
-#[derive(Clone, Copy)]
-pub struct UartMcuSpecificConfig {
     /// Polarity of the clock
     pub clock_polarity: Clkpol,
     /// Sync/ Async operation selection
@@ -124,10 +107,14 @@ pub struct UartMcuSpecificConfig {
     pub loopback_mode: Loop,
 }
 
-impl Default for UartMcuSpecificConfig {
+impl Default for Config {
     /// Default configuration for single channel sampling.
     fn default() -> Self {
         Self {
+            baudrate: 115_200,
+            data_bits: Datalen::Bit8,
+            parity: Parity::NoParity,
+            stop_bits: Stoplen::Bit1,
             clock_polarity: Clkpol::FallingEdge,
             operation: Syncen::AsynchronousMode,
             sync_mode_master_select: Syncmst::Slave,
@@ -193,15 +180,14 @@ impl<'a, T: Instance> UartTx<'a, T> {
     pub fn new(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
-        general_config: GeneralConfig,
-        mcu_spec_config: UartMcuSpecificConfig,
+        config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
         into_ref!(tx);
         tx.as_tx();
 
         let mut _tx = tx.map_into();
-        Uart::<T>::init(Some(_tx.reborrow()), None, general_config, mcu_spec_config)?;
+        Uart::<T>::init(Some(_tx.reborrow()), None, config)?;
         Ok(Self::new_inner(_tx))
     }
 
@@ -233,15 +219,14 @@ impl<'a, T: Instance> UartRx<'a, T> {
     pub fn new(
         _inner: impl Peripheral<P = T> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
-        general_config: GeneralConfig,
-        mcu_spec_config: UartMcuSpecificConfig,
+        config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
         into_ref!(rx);
         rx.as_rx();
 
         let mut _rx = rx.map_into();
-        Uart::<T>::init(None, Some(_rx.reborrow()), general_config, mcu_spec_config)?;
+        Uart::<T>::init(None, Some(_rx.reborrow()), config)?;
         Ok(Self::new_inner(_rx))
     }
 
@@ -288,8 +273,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
-        general_config: GeneralConfig,
-        mcu_spec_config: UartMcuSpecificConfig,
+        config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
         into_ref!(tx);
@@ -301,12 +285,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         let mut tx = tx.map_into();
         let mut rx = rx.map_into();
 
-        Self::init(
-            Some(tx.reborrow()),
-            Some(rx.reborrow()),
-            general_config,
-            mcu_spec_config,
-        )?;
+        Self::init(Some(tx.reborrow()), Some(rx.reborrow()), config)?;
 
         Ok(Self {
             _inner,
@@ -318,8 +297,7 @@ impl<'a, T: Instance> Uart<'a, T> {
     fn init(
         tx: Option<PeripheralRef<'_, AnyPin>>,
         rx: Option<PeripheralRef<'_, AnyPin>>,
-        general_config: GeneralConfig,
-        mcu_spec_config: UartMcuSpecificConfig,
+        config: Config,
     ) -> Result<()> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -344,8 +322,8 @@ impl<'a, T: Instance> Uart<'a, T> {
             T::regs().fifostat().write(|w| w.rxerr().set_bit());
         }
 
-        Self::set_baudrate_inner(general_config.baudrate)?;
-        Self::set_uart_config(&general_config, &mcu_spec_config);
+        Self::set_baudrate_inner(config.baudrate)?;
+        Self::set_uart_config(&config);
 
         Ok(())
     }
@@ -418,22 +396,22 @@ impl<'a, T: Instance> Uart<'a, T> {
         Ok(())
     }
 
-    fn set_uart_config(gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
+    fn set_uart_config(config: &Config) {
         T::regs().cfg().write(|w| w.enable().disabled());
 
         T::regs().cfg().modify(|_, w| {
             w.datalen()
-                .variant(gen_config.data_bits)
+                .variant(config.data_bits)
                 .stoplen()
-                .variant(gen_config.stop_bits)
+                .variant(config.stop_bits)
                 .paritysel()
-                .variant(gen_config.parity)
+                .variant(config.parity)
                 .loop_()
-                .variant(uart_mcu_spec_config.loopback_mode)
+                .variant(config.loopback_mode)
                 .syncen()
-                .variant(uart_mcu_spec_config.operation)
+                .variant(config.operation)
                 .clkpol()
-                .variant(uart_mcu_spec_config.clock_polarity)
+                .variant(config.clock_polarity)
         });
 
         T::regs().cfg().modify(|_, w| w.enable().enabled());

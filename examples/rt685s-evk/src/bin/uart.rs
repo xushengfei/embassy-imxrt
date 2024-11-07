@@ -46,18 +46,11 @@ async fn main(spawner: Spawner) {
 
     info!("UART test start");
 
-    let usart4 = Uart::new(
-        p.FLEXCOMM4,
-        p.PIO0_29,
-        p.PIO0_30,
-        Default::default(),
-        Default::default(),
-    )
-    .unwrap();
+    let usart4 = Uart::new(p.FLEXCOMM4, p.PIO0_29, p.PIO0_30, Default::default()).unwrap();
 
     let (_, usart4) = usart4.split();
     spawner.must_spawn(usart4_task(usart4));
 
-    let usart2 = UartTx::new(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
+    let usart2 = UartTx::new(p.FLEXCOMM2, p.PIO0_15, Default::default()).unwrap();
     spawner.must_spawn(usart2_task(usart2));
 }
