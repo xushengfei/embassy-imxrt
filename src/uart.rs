@@ -3,6 +3,7 @@
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
+use crate::flexcomm::Mode;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
@@ -23,17 +24,34 @@ mod sealed {
 
 impl<T: Pin> sealed::Sealed for T {}
 
+trait SealedInstance {
+    fn regs() -> &'static crate::pac::usart0::RegisterBlock;
+}
+
 /// Uart
 #[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::UsartPeripheral {}
-impl Instance for crate::peripherals::FLEXCOMM0 {}
-impl Instance for crate::peripherals::FLEXCOMM1 {}
-impl Instance for crate::peripherals::FLEXCOMM2 {}
-impl Instance for crate::peripherals::FLEXCOMM3 {}
-impl Instance for crate::peripherals::FLEXCOMM4 {}
-impl Instance for crate::peripherals::FLEXCOMM5 {}
-impl Instance for crate::peripherals::FLEXCOMM6 {}
-impl Instance for crate::peripherals::FLEXCOMM7 {}
+pub trait Instance: crate::flexcomm::UsartPeripheral + SealedInstance + Peripheral<P = Self> + 'static + Send {}
+
+macro_rules! impl_instance {
+    ($fc:ident, $usart:ident) => {
+        impl SealedInstance for crate::peripherals::$fc {
+            fn regs() -> &'static crate::pac::usart0::RegisterBlock {
+                unsafe { &*crate::pac::$usart::ptr() }
+            }
+        }
+
+        impl Instance for crate::peripherals::$fc {}
+    };
+}
+
+impl_instance!(FLEXCOMM0, Usart0);
+impl_instance!(FLEXCOMM1, Usart1);
+impl_instance!(FLEXCOMM2, Usart2);
+impl_instance!(FLEXCOMM3, Usart3);
+impl_instance!(FLEXCOMM4, Usart4);
+impl_instance!(FLEXCOMM5, Usart5);
+impl_instance!(FLEXCOMM6, Usart6);
+impl_instance!(FLEXCOMM7, Usart7);
 
 /// io configuration trait for Uart Tx configuration
 pub trait TxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
@@ -49,7 +67,7 @@ pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
 
 /// Uart struct to hold the uart configuration
 pub struct Uart<'a, T: Instance> {
-    bus: crate::flexcomm::UsartBus<'a, T>,
+    _inner: PeripheralRef<'a, T>,
     _tx: Option<PeripheralRef<'a, AnyPin>>,
     _rx: Option<PeripheralRef<'a, AnyPin>>,
 }
@@ -160,7 +178,7 @@ impl From<TransferError> for Error {
 impl<'a, T: Instance> Uart<'a, T> {
     /// Bidirectional uart
     pub fn new(
-        fc: impl Instance<P = T> + 'a,
+        _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         general_config: GeneralConfig,
@@ -168,16 +186,18 @@ impl<'a, T: Instance> Uart<'a, T> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
+        T::enable(clock);
+        T::set_mode(Mode::Usart)?;
 
+        into_ref!(_inner);
         into_ref!(tx);
         into_ref!(rx);
 
         tx.as_tx();
         rx.as_rx();
 
-        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
         let this = Self {
-            bus,
+            _inner,
             _tx: Some(tx.map_into()),
             _rx: Some(rx.map_into()),
         };
@@ -192,20 +212,22 @@ impl<'a, T: Instance> Uart<'a, T> {
 
     /// Unidirectional Uart - Tx only
     pub fn new_tx_only(
-        fc: impl Instance<P = T> + 'a,
+        _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
+        T::enable(clock);
+        T::set_mode(Mode::Usart)?;
 
+        into_ref!(_inner);
         into_ref!(tx);
         tx.as_tx();
 
-        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
         let this = Self {
-            bus,
+            _inner,
             _tx: Some(tx.map_into()),
             _rx: None,
         };
@@ -219,20 +241,22 @@ impl<'a, T: Instance> Uart<'a, T> {
 
     /// Unidirectional Uart - Rx only
     pub fn new_rx_only(
-        fc: impl Instance<P = T> + 'a,
+        _inner: impl Peripheral<P = T> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         general_config: GeneralConfig,
         mcu_spec_config: UartMcuSpecificConfig,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
+        T::enable(clock);
+        T::set_mode(Mode::Usart)?;
 
+        into_ref!(_inner);
         into_ref!(rx);
         rx.as_rx();
 
-        let bus = crate::flexcomm::UsartBus::new(fc, clock)?;
         let this = Self {
-            bus,
+            _inner,
             _tx: None,
             _rx: Some(rx.map_into()),
         };
@@ -252,7 +276,6 @@ impl<'a, T: Instance> Uart<'a, T> {
     }
 
     fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> Result<()> {
-        let bus = &self.bus;
         let baudrate_bps = gen_config.baudrate;
         let source_clock_hz = self.get_fc_freq(); // TODO: replace this with the call to flexcomm_getClkFreq()
 
@@ -261,14 +284,14 @@ impl<'a, T: Instance> Uart<'a, T> {
         }
 
         // If synchronous master mode is enabled, only configure the BRG value.
-        if bus.usart().cfg().read().syncen().is_synchronous_mode() {
+        if T::regs().cfg().read().syncen().is_synchronous_mode() {
             // Master
-            if bus.usart().cfg().read().syncmst().is_master() {
+            if T::regs().cfg().read().syncmst().is_master() {
                 // Calculate the BRG value
                 let brgval = (source_clock_hz / baudrate_bps) - 1;
 
                 // SAFETY: unsafe only used for .bits()
-                bus.usart().brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
+                T::regs().brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
             }
         } else {
             // Smaller values of OSR can make the sampling position within a data bit less accurate and may
@@ -305,96 +328,90 @@ impl<'a, T: Instance> Uart<'a, T> {
             }
 
             // SAFETY: unsafe only used for .bits()
-            bus.usart().osr().write(|w| unsafe { w.osrval().bits(osr as u8) });
+            T::regs().osr().write(|w| unsafe { w.osrval().bits(osr as u8) });
 
             // SAFETY: unsafe only used for .bits()
-            bus.usart().brg().write(|w| unsafe { w.brgval().bits(brg as u16) });
+            T::regs().brg().write(|w| unsafe { w.brgval().bits(brg as u16) });
         }
 
         Ok(())
     }
 
     fn set_uart_tx_fifo(&self) {
-        let bus = &self.bus;
-        bus.usart()
+        T::regs()
             .fifocfg()
             .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
 
         // clear FIFO error
-        bus.usart().fifostat().write(|w| w.txerr().set_bit());
+        T::regs().fifostat().write(|w| w.txerr().set_bit());
     }
 
     fn set_uart_rx_fifo(&self) {
-        let bus = &self.bus;
-        bus.usart()
+        T::regs()
             .fifocfg()
             .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
 
         // clear FIFO error
-        bus.usart().fifostat().write(|w| w.rxerr().set_bit());
+        T::regs().fifostat().write(|w| w.rxerr().set_bit());
     }
 
     fn set_uart_config(&self, gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
-        let bus = &self.bus;
-        bus.usart().cfg().write(|w| w.enable().disabled());
+        T::regs().cfg().write(|w| w.enable().disabled());
 
         // setting the uart data len
         match gen_config.data_bits {
-            Datalen::Bit8 => bus.usart().cfg().modify(|_, w| w.datalen().bit_8()),
-            Datalen::Bit7 => bus.usart().cfg().modify(|_, w| w.datalen().bit_7()),
-            Datalen::Bit9 => bus.usart().cfg().modify(|_, w| w.datalen().bit_9()),
+            Datalen::Bit8 => T::regs().cfg().modify(|_, w| w.datalen().bit_8()),
+            Datalen::Bit7 => T::regs().cfg().modify(|_, w| w.datalen().bit_7()),
+            Datalen::Bit9 => T::regs().cfg().modify(|_, w| w.datalen().bit_9()),
         }
 
         // setting the uart stop bits
         match gen_config.stop_bits {
-            Stoplen::Bit1 => bus.usart().cfg().modify(|_, w| w.stoplen().bit_1()),
-            Stoplen::Bits2 => bus.usart().cfg().modify(|_, w| w.stoplen().bits_2()),
+            Stoplen::Bit1 => T::regs().cfg().modify(|_, w| w.stoplen().bit_1()),
+            Stoplen::Bits2 => T::regs().cfg().modify(|_, w| w.stoplen().bits_2()),
         }
 
         // setting the uart parity
         match gen_config.parity {
-            Parity::NoParity => bus.usart().cfg().modify(|_, w| w.paritysel().no_parity()),
-            Parity::EvenParity => bus.usart().cfg().modify(|_, w| w.paritysel().even_parity()),
-            Parity::OddParity => bus.usart().cfg().modify(|_, w| w.paritysel().odd_parity()),
+            Parity::NoParity => T::regs().cfg().modify(|_, w| w.paritysel().no_parity()),
+            Parity::EvenParity => T::regs().cfg().modify(|_, w| w.paritysel().even_parity()),
+            Parity::OddParity => T::regs().cfg().modify(|_, w| w.paritysel().odd_parity()),
         }
 
         // setting mcu specific uart config
         match uart_mcu_spec_config.loopback_mode {
-            Loop::Normal => bus.usart().cfg().modify(|_, w| w.loop_().normal()),
-            Loop::Loopback => bus.usart().cfg().modify(|_, w| w.loop_().loopback()),
+            Loop::Normal => T::regs().cfg().modify(|_, w| w.loop_().normal()),
+            Loop::Loopback => T::regs().cfg().modify(|_, w| w.loop_().loopback()),
         }
 
         match uart_mcu_spec_config.operation {
-            Syncen::AsynchronousMode => bus.usart().cfg().modify(|_, w| w.syncen().asynchronous_mode()),
+            Syncen::AsynchronousMode => T::regs().cfg().modify(|_, w| w.syncen().asynchronous_mode()),
             Syncen::SynchronousMode => {
-                bus.usart().cfg().modify(|_, w| w.syncen().synchronous_mode());
+                T::regs().cfg().modify(|_, w| w.syncen().synchronous_mode());
                 match uart_mcu_spec_config.sync_mode_master_select {
-                    Syncmst::Master => bus.usart().cfg().modify(|_, w| w.syncmst().master()),
-                    Syncmst::Slave => bus.usart().cfg().modify(|_, w| w.syncmst().slave()),
+                    Syncmst::Master => T::regs().cfg().modify(|_, w| w.syncmst().master()),
+                    Syncmst::Slave => T::regs().cfg().modify(|_, w| w.syncmst().slave()),
                 }
             }
         }
 
         match uart_mcu_spec_config.clock_polarity {
-            Clkpol::RisingEdge => bus.usart().cfg().modify(|_, w| w.clkpol().rising_edge()),
-            Clkpol::FallingEdge => bus.usart().cfg().modify(|_, w| w.clkpol().falling_edge()),
+            Clkpol::RisingEdge => T::regs().cfg().modify(|_, w| w.clkpol().rising_edge()),
+            Clkpol::FallingEdge => T::regs().cfg().modify(|_, w| w.clkpol().falling_edge()),
         }
 
-        bus.usart().cfg().modify(|_, w| w.enable().enabled());
+        T::regs().cfg().modify(|_, w| w.enable().enabled());
     }
 
     /// Deinitializes a USART instance.
     pub fn deinit(&self) -> Result<()> {
         // This function waits for TX complete, disables TX and RX, and disables the USART clock
-
-        let bus = &self.bus;
-
-        while bus.usart().stat().read().txidle().bit_is_clear() {
+        while T::regs().stat().read().txidle().bit_is_clear() {
             // When 0, indicates that the transmitter is currently in the process of sending data.
         }
 
         // Disable interrupts
-        bus.usart().fifointenclr().modify(|_, w| {
+        T::regs().fifointenclr().modify(|_, w| {
             w.txerr()
                 .set_bit()
                 .rxerr()
@@ -406,12 +423,12 @@ impl<'a, T: Instance> Uart<'a, T> {
         });
 
         // Disable dma requests
-        bus.usart()
+        T::regs()
             .fifocfg()
             .modify(|_, w| w.dmatx().clear_bit().dmarx().clear_bit());
 
         // Disable peripheral
-        bus.usart().cfg().modify(|_, w| w.enable().disabled());
+        T::regs().cfg().modify(|_, w| w.enable().disabled());
 
         Ok(())
     }
@@ -422,22 +439,20 @@ impl<'a, T: Instance> Uart<'a, T> {
     /// Note for testing purpose : Blocking read API, that can receive a max of data of 8 bytes.
     /// The actual data expected to be received should be sent as "len"
     pub fn read_blocking(&self, buf: &mut [u8]) -> Result<()> {
-        let bus = &self.bus;
-
         // Check if rxFifo is not enabled
-        if bus.usart().fifocfg().read().enablerx().is_disabled() {
+        if T::regs().fifocfg().read().enablerx().is_disabled() {
             return Err(Error::Fail);
         } else {
             // rxfifo is enabled
             for b in buf.iter_mut() {
                 // loop until rxFifo has some data to read
-                while bus.usart().fifostat().read().rxnotempty().bit_is_clear() {}
+                while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
 
                 // Now that there is some data in the rxFifo, read it
                 // Let's verify the rxFifo status flags
-                if bus.usart().fifostat().read().rxerr().bit_is_set() {
-                    bus.usart().fifocfg().modify(|_, w| w.emptyrx().set_bit());
-                    bus.usart().fifostat().modify(|_, w| w.rxerr().set_bit());
+                if T::regs().fifostat().read().rxerr().bit_is_set() {
+                    T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
+                    T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
                     return Err(Error::Transfer(TransferError::UsartRxError));
                 }
 
@@ -445,14 +460,14 @@ impl<'a, T: Instance> Uart<'a, T> {
                 let mut generic_status = Error::Fail;
 
                 // clear all status flags
-                if bus.usart().stat().read().parityerrint().bit_is_set() {
-                    bus.usart().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
+                if T::regs().stat().read().parityerrint().bit_is_set() {
+                    T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
                     generic_status = Error::Transfer(TransferError::UsartParityError);
-                } else if bus.usart().stat().read().framerrint().bit_is_set() {
-                    bus.usart().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
+                } else if T::regs().stat().read().framerrint().bit_is_set() {
+                    T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
                     generic_status = Error::Transfer(TransferError::UsartFramingError);
-                } else if bus.usart().stat().read().rxnoiseint().bit_is_set() {
-                    bus.usart().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
+                } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
+                    T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
                     generic_status = Error::Transfer(TransferError::UsartNoiseError);
                 } else {
                     // No error, proceed with read
@@ -461,7 +476,7 @@ impl<'a, T: Instance> Uart<'a, T> {
 
                 if read_status {
                     // read the data from the rxFifo
-                    *b = bus.usart().fiford().read().rxdata().bits() as u8;
+                    *b = T::regs().fiford().read().rxdata().bits() as u8;
                 } else {
                     return Err(generic_status);
                 }
@@ -477,22 +492,20 @@ impl<'a, T: Instance> Uart<'a, T> {
     /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
     /// The actual data expected to be sent should be sent as "len"
     pub fn write_blocking(&self, buf: &[u8]) -> Result<()> {
-        let bus = &self.bus;
         // Check whether txFIFO is enabled
-        if bus.usart().fifocfg().read().enabletx().is_disabled() {
+        if T::regs().fifocfg().read().enabletx().is_disabled() {
             return Err(Error::Fail);
         } else {
             for x in buf {
                 // Loop until txFIFO get some space for new data
-                while bus.usart().fifostat().read().txnotfull().bit_is_clear() {}
+                while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
                 // SAFETY: unsafe only used for .bits()
-                bus.usart()
-                    .fifowr()
-                    .write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
+                T::regs().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
             }
             // Wait to finish transfer
-            while bus.usart().stat().read().txidle().bit_is_clear() {}
+            while T::regs().stat().read().txidle().bit_is_clear() {}
         }
+
         Ok(())
     }
 }

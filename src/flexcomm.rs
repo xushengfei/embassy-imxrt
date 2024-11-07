@@ -85,7 +85,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// primary low-level flexcomm interface
-trait FlexcommLowLevel: sealed::Sealed + Peripheral {
+pub(crate) trait FlexcommLowLevel: sealed::Sealed + Peripheral {
     // fetch the flexcomm register block for direct manipulation
     fn reg() -> &'static FlexcommRegisters;
 
