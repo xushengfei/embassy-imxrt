@@ -154,6 +154,11 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Blocking, D> {
     fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         let i2cregs = self.bus.i2c();
 
+        // read of 0 size is not allowed according to i2c spec
+        if read.is_empty() {
+            return Err(TransferError::OtherBusError.into());
+        }
+
         self.start(address, true)?;
 
         let read_len = read.len();
@@ -312,6 +317,11 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
     async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         let i2cregs = self.bus.i2c();
 
+        // read of 0 size is not allowed according to i2c spec
+        if read.is_empty() {
+            return Err(TransferError::OtherBusError.into());
+        }
+
         self.start(address, true).await?;
 
         if read.len() > 1 {
@@ -371,6 +381,10 @@ impl<'a, FC: Instance, D: dma::Instance> I2cMaster<'a, FC, Async, D> {
         let mut is_dma = false;
 
         self.start(address, false).await?;
+
+        if write.is_empty() {
+            return Ok(());
+        }
 
         if write.len() > 1 {
             // After address is acknowledged, enable DMA
