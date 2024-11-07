@@ -30,7 +30,7 @@ trait SealedInstance {
 
 /// Uart
 #[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::UsartPeripheral + SealedInstance + Peripheral<P = Self> + 'static + Send {}
+pub trait Instance: crate::flexcomm::FlexcommLowLevel + SealedInstance + Peripheral<P = Self> + 'static + Send {}
 
 macro_rules! impl_instance {
     ($fc:ident, $usart:ident) => {
