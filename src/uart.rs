@@ -11,8 +11,6 @@ use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRat
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::pac::usart0::ctl::Cc;
 
-type Baudrate = u32;
-
 /// Summary
 ///
 /// This code implements very basic functionality of the UART.- blocking reading/ writing a single buffer of data
@@ -90,7 +88,7 @@ pub struct UartRx<'a, T: Instance> {
 #[derive(Clone, Copy)]
 pub struct GeneralConfig {
     /// Baudrate of the Uart
-    pub baudrate: Baudrate,
+    pub baudrate: u32,
     /// data length
     pub data_bits: Datalen,
     /// Parity
@@ -346,7 +344,7 @@ impl<'a, T: Instance> Uart<'a, T> {
             T::regs().fifostat().write(|w| w.rxerr().set_bit());
         }
 
-        Self::set_uart_baudrate(&general_config)?;
+        Self::set_uart_baudrate(general_config.baudrate)?;
         Self::set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(())
@@ -359,11 +357,10 @@ impl<'a, T: Instance> Uart<'a, T> {
         16_000_000
     }
 
-    fn set_uart_baudrate(gen_config: &GeneralConfig) -> Result<()> {
-        let baudrate_bps = gen_config.baudrate;
+    fn set_uart_baudrate(baudrate: u32) -> Result<()> {
         let source_clock_hz = Self::get_fc_freq();
 
-        if baudrate_bps == 0 || source_clock_hz == 0 {
+        if baudrate == 0 || source_clock_hz == 0 {
             return Err(Error::InvalidArgument);
         }
 
@@ -372,7 +369,7 @@ impl<'a, T: Instance> Uart<'a, T> {
             // Master
             if T::regs().cfg().read().syncmst().is_master() {
                 // Calculate the BRG value
-                let brgval = (source_clock_hz / baudrate_bps) - 1;
+                let brgval = (source_clock_hz / baudrate) - 1;
 
                 // SAFETY: unsafe only used for .bits()
                 T::regs().brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
@@ -383,18 +380,18 @@ impl<'a, T: Instance> Uart<'a, T> {
             let (_, osr, brg) = (8..16).rev().fold(
                 (u32::MAX, u32::MAX, u32::MAX),
                 |(best_diff, best_osr, best_brg), osrval| {
-                    let brgval = (source_clock_hz / ((osrval + 1) * baudrate_bps)) - 1;
+                    let brgval = (source_clock_hz / ((osrval + 1) * baudrate)) - 1;
                     let diff;
 
                     if brgval > 65535 {
                         (best_diff, best_osr, best_brg)
                     } else {
                         // Calculate the baud rate based on the BRG value
-                        let baudrate = source_clock_hz / ((osrval + 1) * (brgval + 1));
+                        let candidate = source_clock_hz / ((osrval + 1) * (brgval + 1));
 
                         // Calculate the difference between the
                         // current baud rate and the desired baud rate
-                        diff = (baudrate as i32 - baudrate_bps as i32).unsigned_abs();
+                        diff = (candidate as i32 - baudrate as i32).unsigned_abs();
 
                         // Check if the current calculated difference is the best so far
                         if diff < best_diff {
