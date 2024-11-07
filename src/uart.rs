@@ -264,11 +264,21 @@ impl<'a, T: Instance> Uart<'a, T> {
         T::set_mode(Mode::Usart)?;
 
         if tx.is_some() {
-            Self::set_uart_tx_fifo();
+            T::regs()
+                .fifocfg()
+                .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
+
+            // clear FIFO error
+            T::regs().fifostat().write(|w| w.txerr().set_bit());
         }
 
         if rx.is_some() {
-            Self::set_uart_rx_fifo();
+            T::regs()
+                .fifocfg()
+                .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
+
+            // clear FIFO error
+            T::regs().fifostat().write(|w| w.rxerr().set_bit());
         }
 
         Self::set_uart_baudrate(&general_config)?;
@@ -344,24 +354,6 @@ impl<'a, T: Instance> Uart<'a, T> {
         }
 
         Ok(())
-    }
-
-    fn set_uart_tx_fifo() {
-        T::regs()
-            .fifocfg()
-            .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
-
-        // clear FIFO error
-        T::regs().fifostat().write(|w| w.txerr().set_bit());
-    }
-
-    fn set_uart_rx_fifo() {
-        T::regs()
-            .fifocfg()
-            .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
-
-        // clear FIFO error
-        T::regs().fifostat().write(|w| w.rxerr().set_bit());
     }
 
     fn set_uart_config(gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
