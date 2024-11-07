@@ -142,15 +142,15 @@ impl Default for UartMcuSpecificConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TransferError {
     /// Read error
-    UsartRxError,
+    Read,
     /// Buffer overflow
-    UsartRxRingBufferOverrun,
+    Overrun,
     /// Noise error in Rx
-    UsartNoiseError,
+    Noise,
     /// Framing error in Rx
-    UsartFramingError,
+    Framing,
     /// Parity error in Rx
-    UsartParityError,
+    Parity,
 }
 
 /// Uart Errors
@@ -263,16 +263,16 @@ impl<'a, T: Instance> UartRx<'a, T> {
             if T::regs().fifostat().read().rxerr().bit_is_set() {
                 T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
                 T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
-                return Err(Error::Transfer(TransferError::UsartRxError));
+                return Err(Error::Transfer(TransferError::Read));
             } else if T::regs().stat().read().parityerrint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
-                return Err(Error::Transfer(TransferError::UsartParityError));
+                return Err(Error::Transfer(TransferError::Parity));
             } else if T::regs().stat().read().framerrint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
-                return Err(Error::Transfer(TransferError::UsartFramingError));
+                return Err(Error::Transfer(TransferError::Framing));
             } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
-                return Err(Error::Transfer(TransferError::UsartNoiseError));
+                return Err(Error::Transfer(TransferError::Noise));
             } else {
                 *b = T::regs().fiford().read().rxdata().bits() as u8;
             }
