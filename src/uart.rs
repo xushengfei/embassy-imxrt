@@ -471,7 +471,9 @@ impl<'a, T: Instance> Uart<'a, T> {
 
         Ok(())
     }
+}
 
+impl<'a, T: Instance> Uart<'a, T> {
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
         self.rx.blocking_read(buf)
