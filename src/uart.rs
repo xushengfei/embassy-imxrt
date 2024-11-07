@@ -344,7 +344,7 @@ impl<'a, T: Instance> Uart<'a, T> {
             T::regs().fifostat().write(|w| w.rxerr().set_bit());
         }
 
-        Self::set_uart_baudrate(general_config.baudrate)?;
+        Self::set_baudrate_inner(general_config.baudrate)?;
         Self::set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(())
@@ -357,7 +357,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         16_000_000
     }
 
-    fn set_uart_baudrate(baudrate: u32) -> Result<()> {
+    fn set_baudrate_inner(baudrate: u32) -> Result<()> {
         let source_clock_hz = Self::get_fc_freq();
 
         if baudrate == 0 || source_clock_hz == 0 {
@@ -492,6 +492,11 @@ impl<'a, T: Instance> Uart<'a, T> {
     /// transmitting and receiving.
     pub fn split_ref(&mut self) -> (&mut UartTx<'a, T>, &mut UartRx<'a, T>) {
         (&mut self.tx, &mut self.rx)
+    }
+
+    /// sets baudrate on runtime
+    pub fn set_baudrate(&mut self, baudrate: u32) -> Result<()> {
+        Self::set_baudrate_inner(baudrate)
     }
 }
 
