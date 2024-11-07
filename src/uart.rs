@@ -202,10 +202,10 @@ impl<'a, T: Instance> Uart<'a, T> {
             _rx: Some(rx.map_into()),
         };
 
-        this.set_uart_tx_fifo();
-        this.set_uart_rx_fifo();
-        this.set_uart_baudrate(&general_config)?;
-        this.set_uart_config(&general_config, &mcu_spec_config);
+        Self::set_uart_tx_fifo();
+        Self::set_uart_rx_fifo();
+        Self::set_uart_baudrate(&general_config)?;
+        Self::set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(this)
     }
@@ -232,9 +232,9 @@ impl<'a, T: Instance> Uart<'a, T> {
             _rx: None,
         };
 
-        this.set_uart_tx_fifo();
-        this.set_uart_baudrate(&general_config)?;
-        this.set_uart_config(&general_config, &mcu_spec_config);
+        Self::set_uart_tx_fifo();
+        Self::set_uart_baudrate(&general_config)?;
+        Self::set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(this)
     }
@@ -261,23 +261,23 @@ impl<'a, T: Instance> Uart<'a, T> {
             _rx: Some(rx.map_into()),
         };
 
-        this.set_uart_rx_fifo();
-        this.set_uart_baudrate(&general_config)?;
-        this.set_uart_config(&general_config, &mcu_spec_config);
+        Self::set_uart_rx_fifo();
+        Self::set_uart_baudrate(&general_config)?;
+        Self::set_uart_config(&general_config, &mcu_spec_config);
 
         Ok(this)
     }
 
-    fn get_fc_freq(&self) -> u32 {
+    fn get_fc_freq() -> u32 {
         // Todo: Make it generic for any clock
         // Since the FC clock is hardcoded to Sfro, this freq is returned.
         // sfro : 16MHz, // ffro: 48MHz
         16_000_000
     }
 
-    fn set_uart_baudrate(&self, gen_config: &GeneralConfig) -> Result<()> {
+    fn set_uart_baudrate(gen_config: &GeneralConfig) -> Result<()> {
         let baudrate_bps = gen_config.baudrate;
-        let source_clock_hz = self.get_fc_freq(); // TODO: replace this with the call to flexcomm_getClkFreq()
+        let source_clock_hz = Self::get_fc_freq();
 
         if baudrate_bps == 0 || source_clock_hz == 0 {
             return Err(Error::InvalidArgument);
@@ -337,7 +337,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         Ok(())
     }
 
-    fn set_uart_tx_fifo(&self) {
+    fn set_uart_tx_fifo() {
         T::regs()
             .fifocfg()
             .modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
@@ -346,7 +346,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         T::regs().fifostat().write(|w| w.txerr().set_bit());
     }
 
-    fn set_uart_rx_fifo(&self) {
+    fn set_uart_rx_fifo() {
         T::regs()
             .fifocfg()
             .modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
@@ -355,7 +355,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         T::regs().fifostat().write(|w| w.rxerr().set_bit());
     }
 
-    fn set_uart_config(&self, gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
+    fn set_uart_config(gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
         T::regs().cfg().write(|w| w.enable().disabled());
 
         T::regs().cfg().modify(|_, w| {
