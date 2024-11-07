@@ -481,6 +481,19 @@ impl<'a, T: Instance> Uart<'a, T> {
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         self.tx.blocking_write(buf)
     }
+
+    /// Split the Uart into a transmitter and receiver, which is particularly
+    /// useful when having two tasks correlating to transmitting and receiving.
+    pub fn split(self) -> (UartTx<'a, T>, UartRx<'a, T>) {
+        (self.tx, self.rx)
+    }
+
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut UartTx<'a, T>, &mut UartRx<'a, T>) {
+        (&mut self.tx, &mut self.rx)
+    }
 }
 
 macro_rules! impl_uart_tx {

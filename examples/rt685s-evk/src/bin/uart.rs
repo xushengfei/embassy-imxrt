@@ -6,12 +6,12 @@ extern crate embassy_imxrt_examples;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::peripherals::{FLEXCOMM2, FLEXCOMM4};
-use embassy_imxrt::uart::{Uart, UartTx};
+use embassy_imxrt::uart::{Uart, UartRx, UartTx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn usart4_task(mut uart: Uart<'static, FLEXCOMM4>) {
+async fn usart4_task(mut uart: UartRx<'static, FLEXCOMM4>) {
     info!("RX Task");
 
     loop {
@@ -54,6 +54,8 @@ async fn main(spawner: Spawner) {
         Default::default(),
     )
     .unwrap();
+
+    let (_, usart4) = usart4.split();
     spawner.must_spawn(usart4_task(usart4));
 
     let usart2 = UartTx::new(p.FLEXCOMM2, p.PIO0_15, Default::default(), Default::default()).unwrap();
