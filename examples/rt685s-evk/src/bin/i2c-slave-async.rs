@@ -16,7 +16,7 @@ const SLAVE_ADDR: Option<Address> = Address::new(0x20);
 const BUFLEN: usize = 8;
 
 #[embassy_executor::task]
-async fn slave_service(mut i2c: I2cSlave<'static, FLEXCOMM2, Async, DMA0_CH4>) {
+async fn slave_service(mut i2c: I2cSlave<'static, Async>) {
     loop {
         let mut buf: [u8; BUFLEN] = [0xAA; BUFLEN];
 
@@ -69,7 +69,9 @@ async fn main(spawner: Spawner) {
     // NOTE: Tested with a raspberry pi 5 as master controller connected FC2 to i2c on Pi5
     //       Test program here: https://github.com/jerrysxie/pi5-i2c-test
     info!("i2cs example - I2c::new");
-    let i2c = I2cSlave::new_async(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, SLAVE_ADDR.unwrap(), p.DMA0_CH4).unwrap();
+    let i2c =
+        I2cSlave::new_async::<FLEXCOMM2, DMA0_CH4>(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, SLAVE_ADDR.unwrap(), p.DMA0_CH4)
+            .unwrap();
 
     spawner.must_spawn(slave_service(i2c));
 }

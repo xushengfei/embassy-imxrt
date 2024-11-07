@@ -62,17 +62,16 @@ pub enum Response {
 }
 
 /// use `FCn` as I2C Slave controller
-pub struct I2cSlave<'a, FC: Instance, M: Mode, D: dma::Instance> {
-    bus: crate::flexcomm::I2cBus<'a, FC>,
+pub struct I2cSlave<'a, M: Mode> {
+    bus: crate::flexcomm::I2cBus<'a>,
     _phantom: PhantomData<M>,
-    _phantom2: PhantomData<D>,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
 
-impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
+impl<'a, M: Mode> I2cSlave<'a, M> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    fn new_inner(
-        bus: crate::flexcomm::I2cBus<'a, FC>,
+    fn new_inner<FC: Instance>(
+        bus: crate::flexcomm::I2cBus<'a>,
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
@@ -83,7 +82,7 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
         scl.as_scl();
 
         // this check should be redundant with T::set_mode()? above
-        let i2c = bus.i2c();
+        let i2c = bus.info().i2cregs;
 
         // rates taken assuming SFRO:
         //
@@ -112,15 +111,14 @@ impl<'a, FC: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, FC, M, D> {
         Ok(Self {
             bus,
             _phantom: PhantomData,
-            _phantom2: PhantomData::<D>,
             dma_ch,
         })
     }
 }
 
-impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Blocking, D> {
+impl<'a> I2cSlave<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking(
+    pub fn new_blocking<FC: Instance, D: dma::Instance>(
         fc: impl Instance<P = FC> + 'a,
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
@@ -130,13 +128,13 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Blocking, D> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
-        let bus = crate::flexcomm::I2cBus::new_blocking(fc, clock)?;
+        let bus = crate::flexcomm::I2cBus::new_blocking::<FC>(fc, clock)?;
 
         Self::new_inner(bus, scl, sda, address, None)
     }
 
     fn poll(&self) -> Result<()> {
-        let i2c = self.bus.i2c();
+        let i2c = self.bus.info().i2cregs;
 
         while i2c.stat().read().slvpending().is_in_progress() {}
 
@@ -157,9 +155,9 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Blocking, D> {
     }
 }
 
-impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
+impl<'a> I2cSlave<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async(
+    pub fn new_async<FC: Instance, D: dma::Instance>(
         fc: impl Instance<P = FC> + 'a,
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
@@ -169,16 +167,16 @@ impl<'a, FC: Instance, D: dma::Instance> I2cSlave<'a, FC, Async, D> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
-        let bus = crate::flexcomm::I2cBus::new_async(fc, clock)?;
-        let ch = dma::Dma::reserve_channel(dma_ch);
+        let bus = crate::flexcomm::I2cBus::new_async::<FC>(fc, clock)?;
+        let ch = dma::Dma::reserve_channel::<D>(dma_ch);
         Self::new_inner(bus, scl, sda, address, Some(ch))
     }
 }
 
-impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Blocking, D> {
+impl I2cSlave<'_, Blocking> {
     /// Listen for commands from the I2C Master.
     pub fn listen(&self, cmd: &mut [u8]) -> Result<()> {
-        let i2c = self.bus.i2c();
+        let i2c = self.bus.info().i2cregs;
 
         // Skip address phase if we are already in receive mode
         if !i2c.stat().read().slvstate().is_slave_receive() {
@@ -202,7 +200,7 @@ impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Blocking, D> {
 
     /// Respond to commands from the I2C Master
     pub fn respond(&self, response: &[u8]) -> Result<()> {
-        let i2c = self.bus.i2c();
+        let i2c = self.bus.info().i2cregs;
 
         self.block_until_addressed()?;
 
@@ -224,10 +222,10 @@ impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Blocking, D> {
     }
 }
 
-impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Async, D> {
+impl I2cSlave<'_, Async> {
     /// Listen for commands from the I2C Master asynchronously
     pub async fn listen(&mut self) -> Result<Command> {
-        let i2c = self.bus.i2c();
+        let i2c = self.bus.info().i2cregs;
 
         // Disable DMA
         i2c.slvctl().write(|w| w.slvdma().disabled());

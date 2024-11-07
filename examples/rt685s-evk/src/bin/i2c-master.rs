@@ -5,7 +5,7 @@ extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c;
+use embassy_imxrt::{i2c, peripherals as perphs};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
 use {defmt_rtt as _, panic_probe as _};
@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
     let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Inverter::Disabled);
 
     info!("i2c example - I2c::new");
-    let mut i2c = i2c::master::I2cMaster::new_blocking(
+    let mut i2c = i2c::master::I2cMaster::new_blocking::<perphs::FLEXCOMM2, perphs::DMA0_CH5>(
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,

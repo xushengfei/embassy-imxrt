@@ -1,5 +1,7 @@
 //! implements flexcomm interface wrapper for easier usage across modules
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -116,40 +118,69 @@ trait FlexcommLowLevel: sealed::Sealed + Peripheral {
 
 /// internal shared I2C peripheral operations
 #[allow(private_bounds)]
-pub(crate) trait I2cPeripheral: FlexcommLowLevel {}
+pub(crate) trait I2cPeripheral: SealedI2cPeripheral + FlexcommLowLevel {}
 
 /// Flexcomm configured for I2C usage
 #[allow(private_bounds)]
-pub struct I2cBus<'p, F: I2cPeripheral> {
-    _fc: PeripheralRef<'p, F>,
+pub struct I2cBus<'p> {
+    info: I2CBusInfo,
+    _lifetime: PhantomData<&'p ()>,
 }
+
+/// Struct to keep track of all relevant I2C bus info
+/// this allows removal of `<FC: Instance>` from the typestate
+#[derive(Copy, Clone)]
+pub struct I2CBusInfo {
+    /// Pointer to Flexcomm Registers
+    // All flexcomms point to same register block
+    pub regs: &'static FlexcommRegisters,
+    /// Pointer to I2C registers
+    // All I2Cs point to same register block
+    pub i2cregs: &'static I2cRegisters,
+    /// Pointer to instance (`FCn`) specific waker
+    pub waker: &'static AtomicWaker,
+}
+
 #[allow(private_bounds)]
-impl<'p, F: I2cPeripheral> I2cBus<'p, F> {
+impl<'p> I2cBus<'p> {
+    // keep impl peripheral so that we can take mutable references (like when creating GPIOs)
+    // check link from felipe
     /// use Flexcomm fc as a blocking I2c Bus
-    pub fn new_blocking(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+    pub fn new_blocking<F: I2cPeripheral>(_fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::I2c)?;
-        Ok(Self { _fc: fc.into_ref() })
+        Ok(Self {
+            info: F::i2c_bus_info(),
+            _lifetime: PhantomData::<&'p ()>,
+        })
     }
 
     /// use Flexcomm fc as an async I2c Bus
-    pub fn new_async(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
+    pub fn new_async<F: I2cPeripheral>(_fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
         F::enable(clk);
         F::set_mode(Mode::I2c)?;
         // SAFETY: flexcomm interrupt should be managed through this
         //         interface only
         unsafe { F::enable_interrupt() };
-        Ok(Self { _fc: fc.into_ref() })
+        Ok(Self {
+            info: F::i2c_bus_info(),
+            _lifetime: PhantomData::<&'p ()>,
+        })
     }
 
     /// retrieve active bus registers
     pub fn i2c(&self) -> &'static I2cRegisters {
-        F::i2c()
+        self.info.i2cregs
     }
 
     /// return a waker
     pub fn waker(&self) -> &'static AtomicWaker {
-        F::waker()
+        self.info.waker
+    }
+
+    /// return bus info
+    pub fn info(&self) -> I2CBusInfo {
+        self.info
     }
 }
 
@@ -245,6 +276,12 @@ impl<'p, F: UsartPeripheral> UsartBus<'p, F> {
     }
 }
 
+/// Trait to seal away a FC instance specific I2CBus
+pub trait SealedI2cPeripheral {
+    /// returns the Instance specific info for the given I2C bus
+    fn i2c_bus_info() -> I2CBusInfo;
+}
+
 macro_rules! impl_flexcomm {
     ($fcn:expr, $ufc:ident, $lfc:ident, $i2c:ident, $spi:ident, $i2s:ident, $usart:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
         impl sealed::Sealed for crate::peripherals::$ufc {}
@@ -252,6 +289,16 @@ macro_rules! impl_flexcomm {
         impl SpiPeripheral for crate::peripherals::$ufc {}
         impl I2sPeripheral for crate::peripherals::$ufc {}
         impl UsartPeripheral for crate::peripherals::$ufc {}
+
+        impl SealedI2cPeripheral for crate::peripherals::$ufc {
+            fn i2c_bus_info() -> I2CBusInfo {
+                I2CBusInfo {
+                    regs: crate::peripherals::$ufc::reg(),
+                    i2cregs: crate::peripherals::$ufc::i2c(),
+                    waker: crate::peripherals::$ufc::waker(),
+                }
+            }
+        }
 
         impl FlexcommLowLevel for crate::peripherals::$ufc {
             fn reg() -> &'static FlexcommRegisters {
