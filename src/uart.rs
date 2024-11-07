@@ -358,47 +358,20 @@ impl<'a, T: Instance> Uart<'a, T> {
     fn set_uart_config(&self, gen_config: &GeneralConfig, uart_mcu_spec_config: &UartMcuSpecificConfig) {
         T::regs().cfg().write(|w| w.enable().disabled());
 
-        // setting the uart data len
-        match gen_config.data_bits {
-            Datalen::Bit8 => T::regs().cfg().modify(|_, w| w.datalen().bit_8()),
-            Datalen::Bit7 => T::regs().cfg().modify(|_, w| w.datalen().bit_7()),
-            Datalen::Bit9 => T::regs().cfg().modify(|_, w| w.datalen().bit_9()),
-        }
-
-        // setting the uart stop bits
-        match gen_config.stop_bits {
-            Stoplen::Bit1 => T::regs().cfg().modify(|_, w| w.stoplen().bit_1()),
-            Stoplen::Bits2 => T::regs().cfg().modify(|_, w| w.stoplen().bits_2()),
-        }
-
-        // setting the uart parity
-        match gen_config.parity {
-            Parity::NoParity => T::regs().cfg().modify(|_, w| w.paritysel().no_parity()),
-            Parity::EvenParity => T::regs().cfg().modify(|_, w| w.paritysel().even_parity()),
-            Parity::OddParity => T::regs().cfg().modify(|_, w| w.paritysel().odd_parity()),
-        }
-
-        // setting mcu specific uart config
-        match uart_mcu_spec_config.loopback_mode {
-            Loop::Normal => T::regs().cfg().modify(|_, w| w.loop_().normal()),
-            Loop::Loopback => T::regs().cfg().modify(|_, w| w.loop_().loopback()),
-        }
-
-        match uart_mcu_spec_config.operation {
-            Syncen::AsynchronousMode => T::regs().cfg().modify(|_, w| w.syncen().asynchronous_mode()),
-            Syncen::SynchronousMode => {
-                T::regs().cfg().modify(|_, w| w.syncen().synchronous_mode());
-                match uart_mcu_spec_config.sync_mode_master_select {
-                    Syncmst::Master => T::regs().cfg().modify(|_, w| w.syncmst().master()),
-                    Syncmst::Slave => T::regs().cfg().modify(|_, w| w.syncmst().slave()),
-                }
-            }
-        }
-
-        match uart_mcu_spec_config.clock_polarity {
-            Clkpol::RisingEdge => T::regs().cfg().modify(|_, w| w.clkpol().rising_edge()),
-            Clkpol::FallingEdge => T::regs().cfg().modify(|_, w| w.clkpol().falling_edge()),
-        }
+        T::regs().cfg().modify(|_, w| {
+            w.datalen()
+                .variant(gen_config.data_bits)
+                .stoplen()
+                .variant(gen_config.stop_bits)
+                .paritysel()
+                .variant(gen_config.parity)
+                .loop_()
+                .variant(uart_mcu_spec_config.loopback_mode)
+                .syncen()
+                .variant(uart_mcu_spec_config.operation)
+                .clkpol()
+                .variant(uart_mcu_spec_config.clock_polarity)
+        });
 
         T::regs().cfg().modify(|_, w| w.enable().enabled());
     }
