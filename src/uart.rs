@@ -266,31 +266,17 @@ impl<'a, T: Instance> UartRx<'a, T> {
                 T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
                 T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
                 return Err(Error::Transfer(TransferError::UsartRxError));
-            }
-
-            let mut read_status = false; // false implies failure
-            let mut generic_status = Error::Fail;
-
-            // clear all status flags
-            if T::regs().stat().read().parityerrint().bit_is_set() {
+            } else if T::regs().stat().read().parityerrint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
-                generic_status = Error::Transfer(TransferError::UsartParityError);
+                return Err(Error::Transfer(TransferError::UsartParityError));
             } else if T::regs().stat().read().framerrint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
-                generic_status = Error::Transfer(TransferError::UsartFramingError);
+                return Err(Error::Transfer(TransferError::UsartFramingError));
             } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
-                generic_status = Error::Transfer(TransferError::UsartNoiseError);
+                return Err(Error::Transfer(TransferError::UsartNoiseError));
             } else {
-                // No error, proceed with read
-                read_status = true;
-            }
-
-            if read_status {
-                // read the data from the rxFifo
                 *b = T::regs().fiford().read().rxdata().bits() as u8;
-            } else {
-                return Err(generic_status);
             }
         }
 
