@@ -42,63 +42,61 @@ pub(crate) trait FlexcommLowLevel: sealed::Sealed + Peripheral {
 }
 
 macro_rules! impl_flexcomm {
-    ($fcn:expr, $ufc:ident, $lfc:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
-        impl sealed::Sealed for crate::peripherals::$ufc {}
+    ($($idx:expr),*) => {
+	$(
+	    paste!{
+		impl sealed::Sealed for crate::peripherals::[<FLEXCOMM $idx>] {}
 
-        impl FlexcommLowLevel for crate::peripherals::$ufc {
-            fn reg() -> &'static pac::flexcomm0::RegisterBlock {
-                // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
-                unsafe { &*crate::pac::$lfc::ptr() }
-            }
+		impl FlexcommLowLevel for crate::peripherals::[<FLEXCOMM $idx>] {
+		    fn reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
+			// SAFETY: safe from single executor, enforce
+			// via peripheral reference lifetime tracking
+			unsafe {
+			    &*crate::pac::[<Flexcomm $idx>]::ptr()
+			}
+		    }
 
-            fn enable(clk: Clock) {
-                // From Section 21.4 (pg. 544) for Flexcomm in User Manual, enable fc[n]_clk
+		    fn enable(clk: Clock) {
+			// SAFETY: safe from single executor
+			let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
 
-                // SAFETY: safe from single executor
-                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+			clkctl1.pscctl0_set().write(|w| w.[<fc $idx _clk_set>]().set_clock());
 
-                clkctl1.pscctl0_set().write(|w| w.$fc_clk_set().set_clock());
+			clkctl1.flexcomm($idx).fcfclksel().write(|w| match clk {
+			    Clock::Sfro => w.sel().sfro_clk(),
+			    Clock::Ffro => w.sel().ffro_clk(),
+			    Clock::AudioPll => w.sel().audio_pll_clk(),
+			    Clock::Master => w.sel().master_clk(),
+			    Clock::FcnFrg => w.sel().fcn_frg_clk(),
+			    Clock::None => w.sel().none(),
+			});
+			clkctl1.flexcomm($idx).frgclksel().write(|w| match clk {
+			    Clock::Sfro => w.sel().sfro_clk(),
+			    Clock::Ffro => w.sel().ffro_clk(),
+			    Clock::AudioPll => w.sel().frg_pll_clk(),
+			    Clock::Master => w.sel().main_clk(),
+			    Clock::FcnFrg => w.sel().frg_pll_clk(),
+			    Clock::None => w.sel().none(),
+			});
+			clkctl1
+			    .flexcomm($idx)
+			    .frgctl()
+			    .write(|w|
+				   // SAFETY: unsafe only used for .bits() call
+				   unsafe { w.mult().bits(0) });
 
-                clkctl1.flexcomm($fcn).fcfclksel().write(|w| match clk {
-                    Clock::Sfro => w.sel().sfro_clk(),
-                    Clock::Ffro => w.sel().ffro_clk(),
-                    Clock::AudioPll => w.sel().audio_pll_clk(),
-                    Clock::Master => w.sel().master_clk(),
-                    Clock::FcnFrg => w.sel().fcn_frg_clk(),
-                    Clock::None => w.sel().none(),
-                });
-                clkctl1.flexcomm($fcn).frgclksel().write(|w| match clk {
-                    Clock::Sfro => w.sel().sfro_clk(),
-                    Clock::Ffro => w.sel().ffro_clk(),
-                    Clock::AudioPll => w.sel().frg_pll_clk(),
-                    Clock::Master => w.sel().main_clk(),
-                    Clock::FcnFrg => w.sel().frg_pll_clk(),
-                    Clock::None => w.sel().none(),
-                });
-                clkctl1
-                    .flexcomm($fcn)
-                    .frgctl()
-                    .write(|w|
-                        // SAFETY: unsafe only used for .bits() call
-                        unsafe { w.mult().bits(0) });
+			// SAFETY: safe from single executor
+			let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
 
-                // SAFETY: safe from single executor
-                let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
-
-                rstctl1.prstctl0_clr().write(|w| w.$fc_rst_clr().set_bit());
-            }
-        }
-    };
+			rstctl1.prstctl0_clr().write(|w| w.[<flexcomm $idx _rst_clr>]().set_bit());
+		    }
+		}
+	    }
+        )*
+    }
 }
 
-impl_flexcomm!(0, FLEXCOMM0, Flexcomm0, fc0_clk_set, flexcomm0_rst_clr);
-impl_flexcomm!(1, FLEXCOMM1, Flexcomm1, fc1_clk_set, flexcomm1_rst_clr);
-impl_flexcomm!(2, FLEXCOMM2, Flexcomm2, fc2_clk_set, flexcomm2_rst_clr);
-impl_flexcomm!(3, FLEXCOMM3, Flexcomm3, fc3_clk_set, flexcomm3_rst_clr);
-impl_flexcomm!(4, FLEXCOMM4, Flexcomm4, fc4_clk_set, flexcomm4_rst_clr);
-impl_flexcomm!(5, FLEXCOMM5, Flexcomm5, fc5_clk_set, flexcomm5_rst_clr);
-impl_flexcomm!(6, FLEXCOMM6, Flexcomm6, fc6_clk_set, flexcomm6_rst_clr);
-impl_flexcomm!(7, FLEXCOMM7, Flexcomm7, fc7_clk_set, flexcomm7_rst_clr);
+impl_flexcomm!(0, 1, 2, 3, 4, 5, 6, 7);
 
 macro_rules! declare_into_mode {
     ($mode:ident) => {
