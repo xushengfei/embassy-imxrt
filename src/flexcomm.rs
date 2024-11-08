@@ -1,20 +1,8 @@
 //! implements flexcomm interface wrapper for easier usage across modules
 
-use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
-use crate::{interrupt, pac, Peripheral, PeripheralRef};
-
-/// alias for `fc0::Registers`, as layout is the same across all `FCn`
-pub type FlexcommRegisters = pac::flexcomm0::RegisterBlock;
-
-/// alias for `i2c0::Registers`, as layout is the same across all `FCn`
-pub type I2cRegisters = pac::i2c0::RegisterBlock;
-
-const FC_COUNT: usize = 8;
-// One waker per FC
-static FC_WAKERS: [AtomicWaker; FC_COUNT] = [const { AtomicWaker::new() }; FC_COUNT];
+use crate::{pac, Peripheral};
 
 /// clock selection option
 #[derive(Copy, Clone, Debug)]
@@ -38,106 +26,29 @@ pub enum Clock {
     None,
 }
 
-/// what mode to configure this `FCn` to
-pub enum Mode {
-    /// i2c operation
-    I2c,
-
-    /// no peripheral function selected
-    None,
-}
-
 /// do not allow implementation of trait outside this mod
 mod sealed {
     /// trait does not get re-exported outside flexcomm mod, allowing us to safely expose only desired APIs
     pub trait Sealed {}
 }
 
-/// potential configuration error reporting
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    /// feature not present on `FCn` (such as no SPI or I2S support)
-    FeatureNotPresent,
-}
-
-/// shorthand for ->Result<T>
-pub type Result<T> = core::result::Result<T, Error>;
-
 /// primary low-level flexcomm interface
 pub(crate) trait FlexcommLowLevel: sealed::Sealed + Peripheral {
     // fetch the flexcomm register block for direct manipulation
-    fn reg() -> &'static FlexcommRegisters;
-
-    // fetch the i2c peripheral registers for this FCn, if they exist
-    fn i2c() -> &'static I2cRegisters;
+    fn reg() -> &'static pac::flexcomm0::RegisterBlock;
 
     // set the clock select for this flexcomm instance and remove from reset
     fn enable(clk: Clock);
-
-    // attempt to configure bus to operating mode
-    fn set_mode(mode: Mode) -> Result<()>;
-
-    // enable interrupt
-    unsafe fn enable_interrupt();
-
-    // fetch waker
-    fn waker() -> &'static AtomicWaker;
-}
-
-/// internal shared I2C peripheral operations
-#[allow(private_bounds)]
-pub(crate) trait I2cPeripheral: FlexcommLowLevel {}
-
-/// Flexcomm configured for I2C usage
-#[allow(private_bounds)]
-pub struct I2cBus<'p, F: I2cPeripheral> {
-    _fc: PeripheralRef<'p, F>,
-}
-#[allow(private_bounds)]
-impl<'p, F: I2cPeripheral> I2cBus<'p, F> {
-    /// use Flexcomm fc as a blocking I2c Bus
-    pub fn new_blocking(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
-        F::enable(clk);
-        F::set_mode(Mode::I2c)?;
-        Ok(Self { _fc: fc.into_ref() })
-    }
-
-    /// use Flexcomm fc as an async I2c Bus
-    pub fn new_async(fc: impl Peripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
-        F::enable(clk);
-        F::set_mode(Mode::I2c)?;
-        // SAFETY: flexcomm interrupt should be managed through this
-        //         interface only
-        unsafe { F::enable_interrupt() };
-        Ok(Self { _fc: fc.into_ref() })
-    }
-
-    /// retrieve active bus registers
-    pub fn i2c(&self) -> &'static I2cRegisters {
-        F::i2c()
-    }
-
-    /// return a waker
-    pub fn waker(&self) -> &'static AtomicWaker {
-        F::waker()
-    }
 }
 
 macro_rules! impl_flexcomm {
-    ($fcn:expr, $ufc:ident, $lfc:ident, $i2c:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
+    ($fcn:expr, $ufc:ident, $lfc:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
         impl sealed::Sealed for crate::peripherals::$ufc {}
-        impl I2cPeripheral for crate::peripherals::$ufc {}
 
         impl FlexcommLowLevel for crate::peripherals::$ufc {
-            fn reg() -> &'static FlexcommRegisters {
+            fn reg() -> &'static pac::flexcomm0::RegisterBlock {
                 // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
                 unsafe { &*crate::pac::$lfc::ptr() }
-            }
-
-            fn i2c() -> &'static I2cRegisters {
-                // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
-                unsafe { &*crate::pac::$i2c::ptr() }
             }
 
             fn enable(clk: Clock) {
@@ -176,81 +87,18 @@ macro_rules! impl_flexcomm {
 
                 rstctl1.prstctl0_clr().write(|w| w.$fc_rst_clr().set_bit());
             }
-
-            fn set_mode(mode: Mode) -> Result<()> {
-                let fc = Self::reg();
-
-                match mode {
-                    Mode::I2c => {
-                        if fc.pselid().read().i2cpresent().is_present() {
-                            fc.pselid().write(|w| w.persel().i2c());
-                            Ok(())
-                        } else {
-                            Err(Error::FeatureNotPresent)
-                        }
-                    }
-                    Mode::None => {
-                        fc.pselid().write(|w| w.persel().no_periph_selected());
-                        Ok(())
-                    }
-                }
-            }
-
-            unsafe fn enable_interrupt() {
-                interrupt::$ufc.unpend();
-                interrupt::$ufc.enable();
-            }
-
-            fn waker() -> &'static AtomicWaker {
-                &FC_WAKERS[$fcn]
-            }
         }
-
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        #[allow(non_snake_case)]
-        fn $ufc() {
-            let waker = &FC_WAKERS[$fcn];
-
-            // SAFETY: this will be the only accessor to this flexcomm's
-            //         i2c block
-            let i2c = unsafe { &*crate::pac::$i2c::ptr() };
-
-            if i2c.intstat().read().mstpending().bit_is_set() {
-                i2c.intenclr().write(|w| w.mstpendingclr().set_bit());
-            }
-
-            if i2c.intstat().read().mstarbloss().bit_is_set() {
-                i2c.intenclr().write(|w| w.mstarblossclr().set_bit());
-            }
-
-            if i2c.intstat().read().mstststperr().bit_is_set() {
-                i2c.intenclr().write(|w| w.mstststperrclr().set_bit());
-            }
-
-            if i2c.intstat().read().slvpending().bit_is_set() {
-                i2c.intenclr().write(|w| w.slvpendingclr().set_bit());
-            }
-
-            if i2c.intstat().read().slvdesel().bit_is_set() {
-                i2c.intenclr().write(|w| w.slvdeselclr().set_bit());
-            }
-
-            waker.wake();
-        }
-
-
     };
 }
 
-impl_flexcomm!(0, FLEXCOMM0, Flexcomm0, I2c0, fc0_clk_set, flexcomm0_rst_clr);
-impl_flexcomm!(1, FLEXCOMM1, Flexcomm1, I2c1, fc1_clk_set, flexcomm1_rst_clr);
-impl_flexcomm!(2, FLEXCOMM2, Flexcomm2, I2c2, fc2_clk_set, flexcomm2_rst_clr);
-impl_flexcomm!(3, FLEXCOMM3, Flexcomm3, I2c3, fc3_clk_set, flexcomm3_rst_clr);
-impl_flexcomm!(4, FLEXCOMM4, Flexcomm4, I2c4, fc4_clk_set, flexcomm4_rst_clr);
-impl_flexcomm!(5, FLEXCOMM5, Flexcomm5, I2c5, fc5_clk_set, flexcomm5_rst_clr);
-impl_flexcomm!(6, FLEXCOMM6, Flexcomm6, I2c6, fc6_clk_set, flexcomm6_rst_clr);
-impl_flexcomm!(7, FLEXCOMM7, Flexcomm7, I2c7, fc7_clk_set, flexcomm7_rst_clr);
+impl_flexcomm!(0, FLEXCOMM0, Flexcomm0, fc0_clk_set, flexcomm0_rst_clr);
+impl_flexcomm!(1, FLEXCOMM1, Flexcomm1, fc1_clk_set, flexcomm1_rst_clr);
+impl_flexcomm!(2, FLEXCOMM2, Flexcomm2, fc2_clk_set, flexcomm2_rst_clr);
+impl_flexcomm!(3, FLEXCOMM3, Flexcomm3, fc3_clk_set, flexcomm3_rst_clr);
+impl_flexcomm!(4, FLEXCOMM4, Flexcomm4, fc4_clk_set, flexcomm4_rst_clr);
+impl_flexcomm!(5, FLEXCOMM5, Flexcomm5, fc5_clk_set, flexcomm5_rst_clr);
+impl_flexcomm!(6, FLEXCOMM6, Flexcomm6, fc6_clk_set, flexcomm6_rst_clr);
+impl_flexcomm!(7, FLEXCOMM7, Flexcomm7, fc7_clk_set, flexcomm7_rst_clr);
 
 macro_rules! declare_into_mode {
     ($mode:ident) => {

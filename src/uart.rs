@@ -143,9 +143,6 @@ pub enum TransferError {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// propagating a lower level flexcomm error
-    Flex(crate::flexcomm::Error),
-
     /// Failure
     Fail,
     /// Invalid argument
@@ -159,13 +156,6 @@ pub enum Error {
 }
 /// shorthand for -> Result<T>
 pub type Result<T> = core::result::Result<T, Error>;
-
-// implementing from allows ? operator from flexcomm::Result<T>
-impl From<crate::flexcomm::Error> for Error {
-    fn from(value: crate::flexcomm::Error) -> Self {
-        Error::Flex(value)
-    }
-}
 
 impl From<TransferError> for Error {
     fn from(value: TransferError) -> Self {

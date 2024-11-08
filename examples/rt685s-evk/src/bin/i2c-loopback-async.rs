@@ -5,12 +5,17 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c::{
-    master::{I2cMaster, Speed},
-    slave::{Address, Command, I2cSlave, Response},
-    Async,
-};
 use embassy_imxrt::peripherals::{DMA0_CH4, DMA0_CH9, FLEXCOMM2, FLEXCOMM4};
+use embassy_imxrt::{
+    bind_interrupts,
+    i2c::{
+        self,
+        master::{I2cMaster, Speed},
+        slave::{Address, Command, I2cSlave, Response},
+        Async,
+    },
+    peripherals,
+};
 use embedded_hal_async::i2c::I2c;
 
 const ADDR: u8 = 0x20;
@@ -19,6 +24,11 @@ const MASTER_BUFLEN: usize = 8;
 // handle end of read properly
 const SLAVE_BUFLEN: usize = MASTER_BUFLEN + 1;
 const SLAVE_ADDR: Option<Address> = Address::new(ADDR);
+
+bind_interrupts!(struct Irqs {
+    FLEXCOMM2 => i2c::InterruptHandler<peripherals::FLEXCOMM2>;
+    FLEXCOMM4 => i2c::InterruptHandler<peripherals::FLEXCOMM4>;
+});
 
 #[embassy_executor::task]
 async fn slave_service(mut slave: I2cSlave<'static, FLEXCOMM2, Async, DMA0_CH4>) {
@@ -103,9 +113,9 @@ async fn main(spawner: Spawner) {
     info!("i2c loopback example");
     let p = embassy_imxrt::init(Default::default());
 
-    let slave = I2cSlave::new_async(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, SLAVE_ADDR.unwrap(), p.DMA0_CH4).unwrap();
+    let slave = I2cSlave::new_async(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, Irqs, SLAVE_ADDR.unwrap(), p.DMA0_CH4).unwrap();
 
-    let master = I2cMaster::new_async(p.FLEXCOMM4, p.PIO0_29, p.PIO0_30, Speed::Standard, p.DMA0_CH9).unwrap();
+    let master = I2cMaster::new_async(p.FLEXCOMM4, p.PIO0_29, p.PIO0_30, Irqs, Speed::Standard, p.DMA0_CH9).unwrap();
 
     spawner.must_spawn(master_service(master));
     spawner.must_spawn(slave_service(slave));
