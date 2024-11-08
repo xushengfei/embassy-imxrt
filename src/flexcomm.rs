@@ -12,12 +12,6 @@ pub type FlexcommRegisters = pac::flexcomm0::RegisterBlock;
 /// alias for `i2c0::Registers`, as layout is the same across all `FCn`
 pub type I2cRegisters = pac::i2c0::RegisterBlock;
 
-/// alias for `spi0::Registers`, as layout is the same across all `FCn`
-pub type SpiRegisters = pac::spi0::RegisterBlock;
-
-/// alias for `i2s0::Registers`, as layout is the same across all `FCn`
-pub type I2sRegisters = pac::i2s0::RegisterBlock;
-
 const FC_COUNT: usize = 8;
 // One waker per FC
 static FC_WAKERS: [AtomicWaker; FC_COUNT] = [const { AtomicWaker::new() }; FC_COUNT];
@@ -49,15 +43,6 @@ pub enum Mode {
     /// i2c operation
     I2c,
 
-    /// spi operation
-    Spi,
-
-    /// i2s transmit operation
-    I2sTx,
-
-    /// i2s receive operation
-    I2sRx,
-
     /// no peripheral function selected
     None,
 }
@@ -86,12 +71,6 @@ pub(crate) trait FlexcommLowLevel: sealed::Sealed + Peripheral {
 
     // fetch the i2c peripheral registers for this FCn, if they exist
     fn i2c() -> &'static I2cRegisters;
-
-    // fetch the SPI peripheral registers for this FCn, if they exist
-    fn spi() -> &'static SpiRegisters;
-
-    // fetch the I2S peripheral registers for this FCn, if they exist
-    fn i2s() -> &'static I2sRegisters;
 
     // set the clock select for this flexcomm instance and remove from reset
     fn enable(clk: Clock);
@@ -145,80 +124,10 @@ impl<'p, F: I2cPeripheral> I2cBus<'p, F> {
     }
 }
 
-/// internal shared SPI peripheral operations
-#[allow(private_bounds)]
-pub(crate) trait SpiPeripheral: FlexcommLowLevel {}
-
-/// Flexcomm configured for SPI usage
-#[allow(private_bounds)]
-pub struct SpiBus<'p, F: SpiPeripheral> {
-    _fc: PeripheralRef<'p, F>,
-}
-#[allow(private_bounds)]
-impl<'p, F: SpiPeripheral> SpiBus<'p, F> {
-    /// use Flexcomm fc as an SPI Bus
-    pub fn new(fc: impl SpiPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
-        F::enable(clk);
-        F::set_mode(Mode::Spi)?;
-        Ok(Self { _fc: fc.into_ref() })
-    }
-
-    /// retrieve active bus registers
-    pub fn spi(&self) -> &'static SpiRegisters {
-        F::spi()
-    }
-}
-
-/// internal shared I2S peripheral operations
-#[allow(private_bounds)]
-pub(crate) trait I2sPeripheral: FlexcommLowLevel {}
-
-/// Flexcomm configured for `I2sTx` usage
-#[allow(private_bounds)]
-pub struct I2sTransmit<'p, F: I2sPeripheral> {
-    _fc: PeripheralRef<'p, F>,
-}
-#[allow(private_bounds)]
-impl<'p, F: I2sPeripheral> I2sTransmit<'p, F> {
-    /// use Flexcomm fc as an `I2sTx` Bus
-    pub fn new(fc: impl I2sPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
-        F::enable(clk);
-        F::set_mode(Mode::I2sTx)?;
-        Ok(Self { _fc: fc.into_ref() })
-    }
-
-    /// retrieve active bus registers
-    pub fn i2s(&self) -> &'static I2sRegisters {
-        F::i2s()
-    }
-}
-
-/// Flexcomm configured for `I2sRx` usage
-#[allow(private_bounds)]
-pub struct I2sReceive<'p, F: I2sPeripheral> {
-    _fc: PeripheralRef<'p, F>,
-}
-#[allow(private_bounds)]
-impl<'p, F: I2sPeripheral> I2sReceive<'p, F> {
-    /// use Flexcomm fc as an `I2sRx` Bus
-    pub fn new(fc: impl I2sPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
-        F::enable(clk);
-        F::set_mode(Mode::I2sRx)?;
-        Ok(Self { _fc: fc.into_ref() })
-    }
-
-    /// retrieve active bus registers
-    pub fn i2s(&self) -> &'static I2sRegisters {
-        F::i2s()
-    }
-}
-
 macro_rules! impl_flexcomm {
-    ($fcn:expr, $ufc:ident, $lfc:ident, $i2c:ident, $spi:ident, $i2s:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
+    ($fcn:expr, $ufc:ident, $lfc:ident, $i2c:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
         impl sealed::Sealed for crate::peripherals::$ufc {}
         impl I2cPeripheral for crate::peripherals::$ufc {}
-        impl SpiPeripheral for crate::peripherals::$ufc {}
-        impl I2sPeripheral for crate::peripherals::$ufc {}
 
         impl FlexcommLowLevel for crate::peripherals::$ufc {
             fn reg() -> &'static FlexcommRegisters {
@@ -229,16 +138,6 @@ macro_rules! impl_flexcomm {
             fn i2c() -> &'static I2cRegisters {
                 // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
                 unsafe { &*crate::pac::$i2c::ptr() }
-            }
-
-            fn spi() -> &'static SpiRegisters {
-                // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
-                unsafe { &*crate::pac::$spi::ptr() }
-            }
-
-            fn i2s() -> &'static I2sRegisters {
-                // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
-                unsafe { &*crate::pac::$i2s::ptr() }
             }
 
             fn enable(clk: Clock) {
@@ -285,30 +184,6 @@ macro_rules! impl_flexcomm {
                     Mode::I2c => {
                         if fc.pselid().read().i2cpresent().is_present() {
                             fc.pselid().write(|w| w.persel().i2c());
-                            Ok(())
-                        } else {
-                            Err(Error::FeatureNotPresent)
-                        }
-                    }
-                    Mode::Spi => {
-                        if fc.pselid().read().spipresent().is_present() {
-                            fc.pselid().write(|w| w.persel().spi());
-                            Ok(())
-                        } else {
-                            Err(Error::FeatureNotPresent)
-                        }
-                    }
-                    Mode::I2sTx => {
-                        if fc.pselid().read().i2spresent().is_present() {
-                            fc.pselid().write(|w| w.persel().i2s_transmit());
-                            Ok(())
-                        } else {
-                            Err(Error::FeatureNotPresent)
-                        }
-                    }
-                    Mode::I2sRx => {
-                        if fc.pselid().read().i2spresent().is_present() {
-                            fc.pselid().write(|w| w.persel().i2s_receive());
                             Ok(())
                         } else {
                             Err(Error::FeatureNotPresent)
@@ -368,86 +243,14 @@ macro_rules! impl_flexcomm {
     };
 }
 
-impl_flexcomm!(
-    0,
-    FLEXCOMM0,
-    Flexcomm0,
-    I2c0,
-    Spi0,
-    I2s0,
-    fc0_clk_set,
-    flexcomm0_rst_clr
-);
-impl_flexcomm!(
-    1,
-    FLEXCOMM1,
-    Flexcomm1,
-    I2c1,
-    Spi1,
-    I2s1,
-    fc1_clk_set,
-    flexcomm1_rst_clr
-);
-impl_flexcomm!(
-    2,
-    FLEXCOMM2,
-    Flexcomm2,
-    I2c2,
-    Spi2,
-    I2s2,
-    fc2_clk_set,
-    flexcomm2_rst_clr
-);
-impl_flexcomm!(
-    3,
-    FLEXCOMM3,
-    Flexcomm3,
-    I2c3,
-    Spi3,
-    I2s3,
-    fc3_clk_set,
-    flexcomm3_rst_clr
-);
-impl_flexcomm!(
-    4,
-    FLEXCOMM4,
-    Flexcomm4,
-    I2c4,
-    Spi4,
-    I2s4,
-    fc4_clk_set,
-    flexcomm4_rst_clr
-);
-impl_flexcomm!(
-    5,
-    FLEXCOMM5,
-    Flexcomm5,
-    I2c5,
-    Spi5,
-    I2s5,
-    fc5_clk_set,
-    flexcomm5_rst_clr
-);
-impl_flexcomm!(
-    6,
-    FLEXCOMM6,
-    Flexcomm6,
-    I2c6,
-    Spi6,
-    I2s6,
-    fc6_clk_set,
-    flexcomm6_rst_clr
-);
-impl_flexcomm!(
-    7,
-    FLEXCOMM7,
-    Flexcomm7,
-    I2c7,
-    Spi7,
-    I2s7,
-    fc7_clk_set,
-    flexcomm7_rst_clr
-);
+impl_flexcomm!(0, FLEXCOMM0, Flexcomm0, I2c0, fc0_clk_set, flexcomm0_rst_clr);
+impl_flexcomm!(1, FLEXCOMM1, Flexcomm1, I2c1, fc1_clk_set, flexcomm1_rst_clr);
+impl_flexcomm!(2, FLEXCOMM2, Flexcomm2, I2c2, fc2_clk_set, flexcomm2_rst_clr);
+impl_flexcomm!(3, FLEXCOMM3, Flexcomm3, I2c3, fc3_clk_set, flexcomm3_rst_clr);
+impl_flexcomm!(4, FLEXCOMM4, Flexcomm4, I2c4, fc4_clk_set, flexcomm4_rst_clr);
+impl_flexcomm!(5, FLEXCOMM5, Flexcomm5, I2c5, fc5_clk_set, flexcomm5_rst_clr);
+impl_flexcomm!(6, FLEXCOMM6, Flexcomm6, I2c6, fc6_clk_set, flexcomm6_rst_clr);
+impl_flexcomm!(7, FLEXCOMM7, Flexcomm7, I2c7, fc7_clk_set, flexcomm7_rst_clr);
 
 macro_rules! declare_into_mode {
     ($mode:ident) => {
