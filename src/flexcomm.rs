@@ -2,6 +2,7 @@
 
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
+use paste::paste;
 
 use crate::{interrupt, pac, Peripheral, PeripheralRef};
 
@@ -56,9 +57,6 @@ pub enum Mode {
 
     /// i2s receive operation
     I2sRx,
-
-    /// usart operation
-    Usart,
 
     /// no peripheral function selected
     None,
@@ -316,14 +314,6 @@ macro_rules! impl_flexcomm {
                             Err(Error::FeatureNotPresent)
                         }
                     }
-                    Mode::Usart => {
-                        if fc.pselid().read().usartpresent().is_present() {
-                            fc.pselid().write(|w| w.persel().usart());
-                            Ok(())
-                        } else {
-                            Err(Error::FeatureNotPresent)
-                        }
-                    }
                     Mode::None => {
                         fc.pselid().write(|w| w.persel().no_periph_selected());
                         Ok(())
@@ -457,6 +447,72 @@ impl_flexcomm!(
     I2s7,
     fc7_clk_set,
     flexcomm7_rst_clr
+);
+
+macro_rules! declare_into_mode {
+    ($mode:ident) => {
+        paste! {
+            /// Sealed Mode trait
+            trait [<SealedInto $mode:camel>]: FlexcommLowLevel {}
+
+            /// Select mode of operation
+            #[allow(private_bounds)]
+            pub trait [<Into $mode:camel>]: [<SealedInto $mode:camel>] {
+                /// Set mode of operation
+                fn [<into_ $mode>]() {
+                    Self::reg().pselid().write(|w| w.persel().[<$mode>]());
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_into_mode {
+    ($mode:ident, $($fc:ident),*) => {
+	$(
+	    paste!{
+		impl [<SealedInto $mode:camel>] for crate::peripherals::$fc {}
+		impl [<Into $mode:camel>] for crate::peripherals::$fc {}
+	    }
+	)*
+    }
+}
+
+declare_into_mode!(usart);
+impl_into_mode!(usart, FLEXCOMM0, FLEXCOMM1, FLEXCOMM2, FLEXCOMM3, FLEXCOMM4, FLEXCOMM5, FLEXCOMM6, FLEXCOMM7);
+
+// REVISIT: Add support for FLEXCOMM14
+declare_into_mode!(spi);
+impl_into_mode!(spi, FLEXCOMM0, FLEXCOMM1, FLEXCOMM2, FLEXCOMM3, FLEXCOMM4, FLEXCOMM5, FLEXCOMM6, FLEXCOMM7);
+
+// REVISIT: Add support for FLEXCOMM15
+declare_into_mode!(i2c);
+impl_into_mode!(i2c, FLEXCOMM0, FLEXCOMM1, FLEXCOMM2, FLEXCOMM3, FLEXCOMM4, FLEXCOMM5, FLEXCOMM6, FLEXCOMM7);
+
+declare_into_mode!(i2s_transmit);
+impl_into_mode!(
+    i2s_transmit,
+    FLEXCOMM0,
+    FLEXCOMM1,
+    FLEXCOMM2,
+    FLEXCOMM3,
+    FLEXCOMM4,
+    FLEXCOMM5,
+    FLEXCOMM6,
+    FLEXCOMM7
+);
+
+declare_into_mode!(i2s_receive);
+impl_into_mode!(
+    i2s_receive,
+    FLEXCOMM0,
+    FLEXCOMM1,
+    FLEXCOMM2,
+    FLEXCOMM3,
+    FLEXCOMM4,
+    FLEXCOMM5,
+    FLEXCOMM6,
+    FLEXCOMM7
 );
 
 // TODO: in follow up flexcomm PR, implement special FC14 + FC15 support

@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
-use crate::flexcomm::Mode;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
@@ -30,7 +29,7 @@ trait SealedInstance {
 
 /// Uart
 #[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::FlexcommLowLevel + SealedInstance + Peripheral<P = Self> + 'static + Send {}
+pub trait Instance: crate::flexcomm::IntoUsart + SealedInstance + Peripheral<P = Self> + 'static + Send {}
 
 macro_rules! impl_instance {
     ($fc:ident, $usart:ident) => {
@@ -302,7 +301,7 @@ impl<'a, T: Instance> Uart<'a, T> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
         T::enable(clock);
-        T::set_mode(Mode::Usart)?;
+        T::into_usart();
 
         if tx.is_some() {
             T::regs()
