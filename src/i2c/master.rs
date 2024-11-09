@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use super::{Async, Blocking, Error, Instance, Mode, Result, SclPin, SdaPin, TransferError};
-use crate::flexcomm::I2CBusInfo;
+use crate::i2c::{I2CBusInfo, I2cBus};
 use crate::{dma, Peripheral};
 
 /// Bus speed (nominal SCL, no clock stretching)
@@ -108,7 +108,7 @@ impl<'a> I2cMaster<'a, Blocking> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
-        let bus: crate::flexcomm::I2cBus<'_> = crate::flexcomm::I2cBus::new_blocking::<FC>(fc, clock)?;
+        let bus: I2cBus<'_> = I2cBus::new_blocking::<FC>(fc, clock)?;
         let this = Self::new_inner::<FC>(bus.info(), scl, sda, speed, None)?;
 
         Ok(this)
@@ -233,7 +233,7 @@ impl<'a> I2cMaster<'a, Async> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
-        let bus: crate::flexcomm::I2cBus<'_> = crate::flexcomm::I2cBus::new_async::<FC>(fc, clock)?;
+        let bus: I2cBus<'_> = I2cBus::new_async::<FC>(fc, clock)?;
         let ch = dma::Dma::reserve_channel(dma_ch);
         let this = Self::new_inner(bus.info(), scl, sda, speed, Some(ch))?;
 

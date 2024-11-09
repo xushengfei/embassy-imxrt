@@ -1,8 +1,12 @@
 //! Implements I2C function support over flexcomm + gpios
+use core::marker::PhantomData;
 
+use embassy_sync::waitqueue::AtomicWaker;
 use sealed::Sealed;
 
+use crate::flexcomm::{self, FlexcommLowLevel};
 use crate::iopctl::IopctlPin as Pin;
+use crate::Peripheral;
 
 /// I2C Master Driver
 pub mod master;
@@ -82,17 +86,103 @@ mod sealed {
 
 impl<T: Pin> sealed::Sealed for T {}
 
+/// Flexcomm configured for I2C usage
+#[allow(private_bounds)]
+pub struct I2cBus<'p> {
+    info: I2CBusInfo,
+    _lifetime: PhantomData<&'p ()>,
+}
+
+/// Struct to keep track of all relevant I2C bus info
+/// this allows removal of `<FC: Instance>` from the typestate
+#[derive(Copy, Clone)]
+pub struct I2CBusInfo {
+    /// Pointer to Flexcomm Registers
+    // All flexcomms point to same register block
+    pub regs: &'static flexcomm::FlexcommRegisters,
+    /// Pointer to I2C registers
+    // All I2Cs point to same register block
+    pub i2cregs: &'static flexcomm::I2cRegisters,
+    /// Pointer to instance (`FCn`) specific waker
+    pub waker: &'static AtomicWaker,
+}
+
+#[allow(private_bounds)]
+impl<'p> I2cBus<'p> {
+    // keep impl peripheral so that we can take mutable references (like when creating GPIOs)
+    // check link from felipe
+    /// use Flexcomm fc as a blocking I2c Bus
+    pub fn new_blocking<F: Instance>(_fc: impl Peripheral<P = F> + 'p, clk: flexcomm::Clock) -> Result<Self> {
+        F::enable(clk);
+        F::set_mode(flexcomm::Mode::I2c)?;
+        Ok(Self {
+            info: F::i2c_bus_info(),
+            _lifetime: PhantomData::<&'p ()>,
+        })
+    }
+
+    /// use Flexcomm fc as an async I2c Bus
+    pub fn new_async<F: Instance>(_fc: impl Peripheral<P = F> + 'p, clk: flexcomm::Clock) -> Result<Self> {
+        F::enable(clk);
+        F::set_mode(flexcomm::Mode::I2c)?;
+        // SAFETY: flexcomm interrupt should be managed through this
+        //         interface only
+        unsafe { F::enable_interrupt() };
+        Ok(Self {
+            info: F::i2c_bus_info(),
+            _lifetime: PhantomData::<&'p ()>,
+        })
+    }
+
+    /// retrieve active bus registers
+    pub fn i2c(&self) -> &'static flexcomm::I2cRegisters {
+        self.info.i2cregs
+    }
+
+    /// return a waker
+    pub fn waker(&self) -> &'static AtomicWaker {
+        self.info.waker
+    }
+
+    /// return bus info
+    pub fn info(&self) -> I2CBusInfo {
+        self.info
+    }
+}
+
+/// Trait to seal away a FC instance specific I2CBus
+pub(crate) trait SealedInstance: FlexcommLowLevel {
+    /// returns the Instance specific info for the given I2C bus
+    fn i2c_bus_info() -> I2CBusInfo;
+}
+
 /// shared functions between master and slave operation
 #[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::I2cPeripheral {}
-impl Instance for crate::peripherals::FLEXCOMM0 {}
-impl Instance for crate::peripherals::FLEXCOMM1 {}
-impl Instance for crate::peripherals::FLEXCOMM2 {}
-impl Instance for crate::peripherals::FLEXCOMM3 {}
-impl Instance for crate::peripherals::FLEXCOMM4 {}
-impl Instance for crate::peripherals::FLEXCOMM5 {}
-impl Instance for crate::peripherals::FLEXCOMM6 {}
-impl Instance for crate::peripherals::FLEXCOMM7 {}
+pub trait Instance: SealedInstance {}
+
+macro_rules! impl_instance {
+    ($fc:ident, $i2c:ident) => {
+        impl SealedInstance for crate::peripherals::$fc {
+            fn i2c_bus_info() -> I2CBusInfo {
+                I2CBusInfo {
+                    regs: crate::peripherals::$fc::reg(),
+                    i2cregs: crate::peripherals::$fc::i2c(),
+                    waker: crate::peripherals::$fc::waker(),
+                }
+            }
+        }
+        impl Instance for crate::peripherals::$fc {}
+    };
+}
+
+impl_instance!(FLEXCOMM0, I2c0);
+impl_instance!(FLEXCOMM1, I2c1);
+impl_instance!(FLEXCOMM2, I2c2);
+impl_instance!(FLEXCOMM3, I2c3);
+impl_instance!(FLEXCOMM4, I2c4);
+impl_instance!(FLEXCOMM5, I2c5);
+impl_instance!(FLEXCOMM6, I2c6);
+impl_instance!(FLEXCOMM7, I2c7);
 
 /// io configuration trait for easier configuration
 pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {

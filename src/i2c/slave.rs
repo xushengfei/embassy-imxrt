@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use super::{Async, Blocking, Instance, Mode, Result, SclPin, SdaPin, TransferError};
+use crate::i2c::I2cBus;
 use crate::{dma, Peripheral};
 
 /// I2C address type
@@ -63,7 +64,7 @@ pub enum Response {
 
 /// use `FCn` as I2C Slave controller
 pub struct I2cSlave<'a, M: Mode> {
-    bus: crate::flexcomm::I2cBus<'a>,
+    bus: I2cBus<'a>,
     _phantom: PhantomData<M>,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
@@ -71,7 +72,7 @@ pub struct I2cSlave<'a, M: Mode> {
 impl<'a, M: Mode> I2cSlave<'a, M> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     fn new_inner<FC: Instance>(
-        bus: crate::flexcomm::I2cBus<'a>,
+        bus: I2cBus<'a>,
         scl: impl SclPin<FC>,
         sda: impl SdaPin<FC>,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
@@ -128,7 +129,7 @@ impl<'a> I2cSlave<'a, Blocking> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
-        let bus = crate::flexcomm::I2cBus::new_blocking::<FC>(fc, clock)?;
+        let bus = I2cBus::new_blocking::<FC>(fc, clock)?;
 
         Self::new_inner(bus, scl, sda, address, None)
     }
@@ -167,7 +168,7 @@ impl<'a> I2cSlave<'a, Async> {
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
-        let bus = crate::flexcomm::I2cBus::new_async::<FC>(fc, clock)?;
+        let bus = I2cBus::new_async::<FC>(fc, clock)?;
         let ch = dma::Dma::reserve_channel::<D>(dma_ch);
         Self::new_inner(bus, scl, sda, address, Some(ch))
     }
