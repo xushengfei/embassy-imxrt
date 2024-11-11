@@ -6,8 +6,7 @@ use embassy_hal_internal::{into_ref, Peripheral};
 
 /// Windowed watchdog timer (WWDT) driver.
 pub struct WindowedWatchdog<'d, T: Instance, M: Mode> {
-    _wwdt: PhantomData<&'d mut T>,
-    _mode: PhantomData<M>,
+    _phantom: PhantomData<(&'d mut T, M)>,
 }
 
 trait SealedInstance {
@@ -142,10 +141,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn new(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
         into_ref!(_instance);
 
-        let mut wwdt = Self {
-            _wwdt: PhantomData,
-            _mode: PhantomData,
-        };
+        let mut wwdt = Self { _phantom: PhantomData };
 
         T::init();
         wwdt.set_timeout(timeout_us);
@@ -209,10 +205,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn unleash(self) -> WindowedWatchdog<'d, T, Unleashed> {
         T::regs().mod_().modify(|_, w| w.wden().set_bit());
 
-        let mut unleashed_wwdt = WindowedWatchdog {
-            _wwdt: PhantomData,
-            _mode: PhantomData,
-        };
+        let mut unleashed_wwdt = WindowedWatchdog { _phantom: PhantomData };
 
         unleashed_wwdt.feed();
         unleashed_wwdt
