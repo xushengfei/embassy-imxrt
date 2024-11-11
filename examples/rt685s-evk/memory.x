@@ -7,6 +7,10 @@ MEMORY {
 	RAM      : ORIGIN = 0x20080000, LENGTH = 1536K
 }
 
+# Redirect/rename a function here, so that we can make sure the user has added the linker script to the RUSTFLAGS
+EXTERN (__embedded_test_start);
+PROVIDE(embedded_test_linker_file_not_added_to_rustflags = __embedded_test_start);
+
 SECTIONS {
 	.otfad : {
 		. = ALIGN(4);
@@ -31,4 +35,9 @@ SECTIONS {
 		KEEP(* (.keystore))
 		. = ALIGN(4);
 	} > KEYSTORE
+
+	.embedded_test 1 (INFO) :
+	{
+		KEEP(*(.embedded_test.*));
+	}
 }

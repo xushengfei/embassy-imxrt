@@ -22,7 +22,7 @@ embassy-imxrt = { version = "0.1.0", path = "../../", features = [
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = [
     "defmt",
 ] }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
+embassy-executor = { version = "0.6.1", features = [
     "arch-cortex-m",
     "executor-thread",
     "executor-interrupt",
@@ -40,12 +40,24 @@ futures = { version = "0.3.30", default-features = false, features = [
     "async-await",
 ] }
 mimxrt600-fcb = "0.1.0"
-mimxrt685s-pac = { version = "0.1.5", features = ["rt", "critical-section", "defmt"] }
+mimxrt685s-pac = { version = "0.1.5", features = [
+    "rt",
+    "critical-section",
+    "defmt",
+] }
 rand = { version = "0.8.5", default-features = false }
 
-[dev-dependencies]
-embedded-test = { version = "0.5.0", features = ["init-log", "embassy"] }
+[patch.crates-io]
+embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
 
+[dev-dependencies]
+embedded-test = { path = "../../../embedded-test", features = [
+    "embassy",
+    "defmt",
+] }
+
+[features]
+embassy = ["embedded-test/embassy"]
 
 [[test]]
 name = "example_test"
