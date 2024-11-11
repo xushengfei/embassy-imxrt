@@ -6,7 +6,7 @@ use mimxrt685s_pac as pac;
 use pac::usart0::cfg::Datalen;
 use pac::usart0::cfg::{Paritysel as Parity, Stoplen};
 
-use crate::iopctl::{DriveMode, DriveStrength, IopctlPin as Pin, Pull, SlewRate};
+use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin as Pin, Pull, SlewRate};
 type Baudrate = u32;
 
 /// Syncen : Sync/ Async mode selection
@@ -418,7 +418,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// have data and read data from the TX register.
     /// Note for testing purpose : Blocking read API, that can receive a max of data of 8 bytes.
     /// The actual data expected to be received should be sent as "len"
-    pub fn read_blocking(&self, buf: &mut [u8], len: u32) -> Result<()> {
+    pub fn read_blocking(&self, buf: &mut [u8]) -> Result<()> {
         let bus = &self.bus;
 
         // Check if rxFifo is not enabled
@@ -426,7 +426,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
             return Err(Error::Fail);
         } else {
             // rxfifo is enabled
-            for i in 0..len {
+            for b in buf.iter_mut() {
                 // loop until rxFifo has some data to read
                 while bus.usart().fifostat().read().rxnotempty().bit_is_clear() {}
 
@@ -458,7 +458,7 @@ impl<'a, FC: Instance> Uart<'a, FC> {
 
                 if read_status {
                     // read the data from the rxFifo
-                    buf[i as usize] = bus.usart().fiford().read().rxdata().bits() as u8;
+                    *b = bus.usart().fiford().read().rxdata().bits() as u8;
                 } else {
                     return Err(generic_status);
                 }
@@ -473,18 +473,19 @@ impl<'a, FC: Instance> Uart<'a, FC> {
     /// to have room and writes data to the TX buffer.
     /// Note for testing purpose : Blocking write API, that can send a max of data of 8 bytes.
     /// The actual data expected to be sent should be sent as "len"
-    pub fn write_blocking(&self, buf: &mut [u8], len: u32) -> Result<()> {
+    pub fn write_blocking(&self, buf: &[u8]) -> Result<()> {
         let bus = &self.bus;
         // Check whether txFIFO is enabled
         if bus.usart().fifocfg().read().enabletx().is_disabled() {
             return Err(Error::Fail);
         } else {
-            for i in 0..len {
+            for x in buf {
                 // Loop until txFIFO get some space for new data
                 while bus.usart().fifostat().read().txnotfull().bit_is_clear() {}
-                let x = buf[i as usize];
                 // SAFETY: unsafe only used for .bits()
-                bus.usart().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(x)) });
+                bus.usart()
+                    .fifowr()
+                    .write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
             }
             // Wait to finish transfer
             while bus.usart().stat().read().txidle().bit_is_clear() {}
@@ -497,14 +498,15 @@ macro_rules! impl_uart_tx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl UartTx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_tx(&self) {
-                // UM11147 table 299 pg 262+
-                self.set_function(crate::iopctl::Function::$fn);
-                self.set_drive_mode(DriveMode::PushPull);
-                self.set_pull(Pull::None);
-                self.set_slew_rate(SlewRate::Slow);
-                self.set_drive_strength(DriveStrength::Normal);
-                self.disable_analog_multiplex();
-                self.enable_input_buffer();
+                // UM11147 table 507 pg 495
+                self.set_function(crate::iopctl::Function::$fn)
+                    .set_pull(Pull::None)
+                    .enable_input_buffer()
+                    .set_slew_rate(SlewRate::Standard)
+                    .set_drive_strength(DriveStrength::Normal)
+                    .disable_analog_multiplex()
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_input_inverter(Inverter::Disabled);
             }
         }
     };
@@ -514,14 +516,15 @@ macro_rules! impl_uart_rx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl UartRx<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
             fn as_rx(&self) {
-                // UM11147 table 299 pg 262+
-                self.set_function(crate::iopctl::Function::$fn);
-                self.set_drive_mode(DriveMode::PushPull);
-                self.set_pull(Pull::None);
-                self.set_slew_rate(SlewRate::Slow);
-                self.set_drive_strength(DriveStrength::Normal);
-                self.disable_analog_multiplex();
-                self.enable_input_buffer();
+                // UM11147 table 507 pg 495
+                self.set_function(crate::iopctl::Function::$fn)
+                    .set_pull(Pull::None)
+                    .enable_input_buffer()
+                    .set_slew_rate(SlewRate::Standard)
+                    .set_drive_strength(DriveStrength::Normal)
+                    .disable_analog_multiplex()
+                    .set_drive_mode(DriveMode::PushPull)
+                    .set_input_inverter(Inverter::Disabled);
             }
         }
     };
