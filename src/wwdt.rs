@@ -5,13 +5,18 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral};
 
 /// Windowed watchdog timer (WWDT) driver.
-pub struct WindowedWatchdog<'d, T: Instance, M: Mode> {
-    _phantom: PhantomData<(&'d mut T, M)>,
+pub struct WindowedWatchdog<'d, M: Mode> {
+    info: Info,
+    _phantom: PhantomData<(&'d (), M)>,
+}
+
+struct Info {
+    regs: &'static crate::pac::wwdt0::RegisterBlock,
 }
 
 trait SealedInstance {
-    /// Returns a reference to peripheral's register block.
-    fn regs() -> &'static crate::pac::wwdt0::RegisterBlock;
+    /// Returns a new Info, containing a reference to the register block.
+    fn info() -> Info;
 
     /// Initializes power and clocks to peripheral.
     fn init();
@@ -23,8 +28,10 @@ pub trait Instance: SealedInstance {}
 
 // Cortex-M33 watchdog
 impl SealedInstance for crate::peripherals::WDT0 {
-    fn regs() -> &'static crate::pac::wwdt0::RegisterBlock {
-        unsafe { &*crate::pac::Wwdt0::ptr() }
+    fn info() -> Info {
+        Info {
+            regs: unsafe { &*crate::pac::Wwdt0::ptr() },
+        }
     }
 
     fn init() {
@@ -48,8 +55,10 @@ impl Instance for crate::peripherals::WDT0 {}
 
 // HiFi4 DSP watchdog
 impl SealedInstance for crate::peripherals::WDT1 {
-    fn regs() -> &'static crate::pac::wwdt0::RegisterBlock {
-        unsafe { &*crate::pac::Wwdt1::ptr() }
+    fn info() -> Info {
+        Info {
+            regs: unsafe { &*crate::pac::Wwdt1::ptr() },
+        }
     }
 
     fn init() {
@@ -125,7 +134,7 @@ fn init_lposc() {
     while clkctl0.lposcctl0().read().clkrdy().bit_is_clear() {}
 }
 
-impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
+impl<'d> WindowedWatchdog<'d, Leashed> {
     /// Creates a WWDT (Windowed Watchdog Timer) instance with a given timeout value in microseconds.
     ///
     /// [Self] has to be started with [`Self::unleash`], but should be configured beforehand.
@@ -138,10 +147,13 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     ///
     /// This is not automatically cleared here because application code may wish to check
     /// if it is set via a call to [`Self::timed_out`] to determine if a watchdog reset occurred previously.
-    pub fn new(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
+    pub fn new<T: Instance>(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
         into_ref!(_instance);
 
-        let mut wwdt = Self { _phantom: PhantomData };
+        let mut wwdt = Self {
+            info: T::info(),
+            _phantom: PhantomData,
+        };
 
         T::init();
         wwdt.set_timeout(timeout_us);
@@ -150,13 +162,13 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
 
     /// Enables a full system reset upon a watchdog timeout, which cannot be undone until reset occurs.
     pub fn enable_reset(&mut self) -> &mut Self {
-        T::regs().mod_().modify(|_, w| w.wdreset().set_bit());
+        self.info.regs.mod_().modify(|_, w| w.wdreset().set_bit());
         self
     }
 
     /// Permanently prevents the watchdog oscillator from being powered down by software until reset.
     pub fn lock(&mut self) -> &mut Self {
-        T::regs().mod_().modify(|_, w| w.lock().set_bit());
+        self.info.regs.mod_().modify(|_, w| w.lock().set_bit());
         self
     }
 
@@ -169,7 +181,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn set_feed_window(&mut self, window_us: u32) -> &mut Self {
         debug_assert!((0..=MAX_COUNTER_US).contains(&window_us));
         let counter = time_to_counter(window_us);
-        T::regs().window().write(|w| unsafe { w.window().bits(counter) });
+        self.info.regs.window().write(|w| unsafe { w.window().bits(counter) });
         self
     }
 
@@ -180,7 +192,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     pub fn set_warning_threshold(&mut self, threshold_us: u32) -> &mut Self {
         debug_assert!((0..=MAX_WARNING_US).contains(&threshold_us));
         let counter = time_to_counter(threshold_us) as u16;
-        T::regs().warnint().write(|w| unsafe { w.warnint().bits(counter) });
+        self.info.regs.warnint().write(|w| unsafe { w.warnint().bits(counter) });
         self
     }
 
@@ -191,7 +203,7 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     /// However, a call to [`Self::set_timeout`] alone will not cause a watchdog timeout event,
     /// [`Self::feed`] must be called as well.
     pub fn protect_timeout(&mut self) -> &mut Self {
-        T::regs().mod_().modify(|_, w| w.wdprotect().set_bit());
+        self.info.regs.mod_().modify(|_, w| w.wdprotect().set_bit());
         self
     }
 
@@ -202,17 +214,20 @@ impl<'d, T: Instance> WindowedWatchdog<'d, T, Leashed> {
     /// Most configuration (such as setting thresholds/feed windows, locking/protecting, etc)
     /// must be performed before this call.
     #[must_use]
-    pub fn unleash(self) -> WindowedWatchdog<'d, T, Unleashed> {
-        T::regs().mod_().modify(|_, w| w.wden().set_bit());
+    pub fn unleash(self) -> WindowedWatchdog<'d, Unleashed> {
+        self.info.regs.mod_().modify(|_, w| w.wden().set_bit());
 
-        let mut unleashed_wwdt = WindowedWatchdog { _phantom: PhantomData };
+        let mut unleashed_wwdt = WindowedWatchdog {
+            info: self.info,
+            _phantom: PhantomData,
+        };
 
         unleashed_wwdt.feed();
         unleashed_wwdt
     }
 }
 
-impl<T: Instance> WindowedWatchdog<'_, T, Unleashed> {
+impl WindowedWatchdog<'_, Unleashed> {
     /// Reloads the watchdog timeout counter to the time set by [`Self::set_timeout`].
     pub fn feed(&mut self) {
         /* Disable interrupts to prevent possibility of watchdog registers from being accessed in between
@@ -221,12 +236,12 @@ impl<T: Instance> WindowedWatchdog<'_, T, Unleashed> {
         critical_section::with(|_| {
             [0xAA, 0x55]
                 .iter()
-                .for_each(|byte| T::regs().feed().write(|w| unsafe { w.feed().bits(*byte) }));
+                .for_each(|byte| self.info.regs.feed().write(|w| unsafe { w.feed().bits(*byte) }));
         });
     }
 }
 
-impl<T: Instance, M: Mode> WindowedWatchdog<'_, T, M> {
+impl<M: Mode> WindowedWatchdog<'_, M> {
     /// Returns true if the warning flag is set.
     ///
     /// Flag is set if watchdog timeout counter has fallen below the time
@@ -235,19 +250,19 @@ impl<T: Instance, M: Mode> WindowedWatchdog<'_, T, M> {
     /// Must be manually cleared with a call to [`Self::clear_warning_flag`].
     #[must_use]
     pub fn warning(&self) -> bool {
-        T::regs().mod_().read().wdint().bit_is_set()
+        self.info.regs.mod_().read().wdint().bit_is_set()
     }
 
     /// Clears the warning interrupt flag.
     pub fn clear_warning_flag(&mut self) {
         // Warning flag is cleared by writing a 1
-        T::regs().mod_().modify(|_, w| w.wdint().set_bit());
+        self.info.regs.mod_().modify(|_, w| w.wdint().set_bit());
     }
 
     /// Returns the time in microseconds until a watchdog timeout event will occur.
     #[must_use]
     pub fn timeout(&self) -> u32 {
-        let counter = T::regs().tv().read().count().bits();
+        let counter = self.info.regs.tv().read().count().bits();
         counter_to_time(counter)
     }
 
@@ -261,7 +276,7 @@ impl<T: Instance, M: Mode> WindowedWatchdog<'_, T, M> {
     pub fn set_timeout(&mut self, timeout_us: u32) {
         debug_assert!((MIN_TIMEOUT_US..=MAX_COUNTER_US).contains(&timeout_us));
         let counter = time_to_counter(timeout_us);
-        T::regs().tc().write(|w| unsafe { w.count().bits(counter) });
+        self.info.regs.tc().write(|w| unsafe { w.count().bits(counter) });
     }
 
     /// Returns true if the watchdog timeout flag is set.
@@ -274,25 +289,25 @@ impl<T: Instance, M: Mode> WindowedWatchdog<'_, T, M> {
     /// Must be manually cleared with a call to [`Self::clear_timeout_flag`].
     #[must_use]
     pub fn timed_out(&self) -> bool {
-        T::regs().mod_().read().wdtof().bit_is_set()
+        self.info.regs.mod_().read().wdtof().bit_is_set()
     }
 
     /// Clears the watchdog timeout flag.
     pub fn clear_timeout_flag(&mut self) {
-        T::regs().mod_().modify(|_, w| w.wdtof().clear_bit());
+        self.info.regs.mod_().modify(|_, w| w.wdtof().clear_bit());
     }
 
     /// Returns the current feed window in microseconds.
     #[must_use]
     pub fn feed_window(&self) -> u32 {
-        let counter = T::regs().window().read().window().bits();
+        let counter = self.info.regs.window().read().window().bits();
         counter_to_time(counter)
     }
 
     /// Returns the current warning threshold in microseconds.
     #[must_use]
     pub fn warning_threshold(&self) -> u32 {
-        let counter = T::regs().warnint().read().warnint().bits();
+        let counter = self.info.regs.warnint().read().warnint().bits();
         counter_to_time(u32::from(counter))
     }
 }
