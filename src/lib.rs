@@ -15,6 +15,7 @@ pub mod crc;
 pub mod dma;
 pub mod flexcomm;
 pub mod gpio;
+pub mod hashcrypt;
 pub mod i2c;
 pub mod iopctl;
 pub mod pwm;
