@@ -390,10 +390,11 @@ impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Async, D> {
             // clear the deselect bit
             i2c.stat().write(|w| w.slvdesel().deselected());
             return Ok(Response::Complete(xfer_count));
-        } else if stat.slvpending().is_pending() {
-            // We seen to have completely skip slave deselected in some
-            // instances where we go straight into pending + addressed.
-            // This is a workaround to handle these instances.
+        } else if stat.slvpending().is_pending() || stat.slvstate().is_slave_address() {
+            // Handle restart after read as well as the cases where
+            // slave deselected is not set in response to a master nack
+            // then the next transaction starts the slave state goes into
+            // pending + addressed.
             return Ok(Response::Complete(xfer_count));
         }
 
