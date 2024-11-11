@@ -10,12 +10,12 @@ use embassy_imxrt::i2c::{
     Blocking,
 };
 use embassy_imxrt::pac;
-use embassy_imxrt::peripherals::{DMA0_CH4, FLEXCOMM2};
+use embassy_imxrt::peripherals::DMA0_CH4;
 
 const SLAVE_ADDR: Option<Address> = Address::new(0x20);
 
 #[embassy_executor::task]
-async fn slave_service(i2c: I2cSlave<'static, FLEXCOMM2, Blocking, DMA0_CH4>) {
+async fn slave_service(i2c: I2cSlave<'static, Blocking, DMA0_CH4>) {
     loop {
         let magic_code = [0xF0, 0x05, 0xBA, 0x11];
 

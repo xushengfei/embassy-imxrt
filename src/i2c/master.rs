@@ -3,10 +3,10 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::into_ref;
 
 use super::{
-    Async, Blocking, Error, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
+    Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
 };
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::{dma, interrupt, Peripheral};
@@ -27,15 +27,14 @@ pub enum Speed {
 }
 
 /// use `FCn` as I2C Master controller
-pub struct I2cMaster<'a, T: Instance, M: Mode, D: dma::Instance> {
-    _bus: PeripheralRef<'a, T>,
-    _phantom: PhantomData<M>,
-    _phantom2: PhantomData<D>,
+pub struct I2cMaster<'a, M: Mode, D: dma::Instance> {
+    info: Info,
+    _phantom: PhantomData<(M, D)>,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
 
-impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, T, M, D> {
-    fn new_inner(
+impl<'a, M: Mode, D: dma::Instance> I2cMaster<'a, M, D> {
+    fn new_inner<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -47,6 +46,9 @@ impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, T, M, D> {
 
         sda.as_sda();
         scl.as_scl();
+
+        let info = T::info();
+        let regs = info.regs;
 
         // this check should be redundant with T::set_mode()? above
 
@@ -61,38 +63,37 @@ impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, T, M, D> {
         // 30 => 100.0 kHz
         match speed {
             // 100 kHz
-            Speed::Standard => T::regs().clkdiv().write(|w|
+            Speed::Standard => regs.clkdiv().write(|w|
                 // SAFETY: only unsafe due to .bits usage
                 unsafe { w.divval().bits(30) }),
 
             // 400 kHz
-            Speed::Fast => T::regs().clkdiv().write(|w|
+            Speed::Fast => regs.clkdiv().write(|w|
                 // SAFETY: only unsafe due to .bits usage
                 unsafe { w.divval().bits(7) }),
 
             _ => return Err(Error::UnsupportedConfiguration),
         }
 
-        T::regs().msttime().write(|w|
+        regs.msttime().write(|w|
             // SAFETY: only unsafe due to .bits usage
             unsafe { w.mstsclhigh().bits(0).mstscllow().bits(1) });
 
-        T::regs().intenset().write(|w|
+        regs.intenset().write(|w|
                 // SAFETY: only unsafe due to .bits usage
                 unsafe { w.bits(0) });
 
-        T::regs().cfg().write(|w| w.msten().set_bit());
+        regs.cfg().write(|w| w.msten().set_bit());
 
         Ok(Self {
-            _bus,
+            info,
             _phantom: PhantomData,
-            _phantom2: PhantomData,
             dma_ch,
         })
     }
 
     fn check_for_bus_errors(&self) -> Result<()> {
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         if i2cregs.stat().read().mstarbloss().is_arbitration_loss() {
             Err(TransferError::ArbitrationLoss.into())
@@ -104,9 +105,9 @@ impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cMaster<'a, T, M, D> {
     }
 }
 
-impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Blocking, D> {
+impl<'a, D: dma::Instance> I2cMaster<'a, Blocking, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking(
+    pub fn new_blocking<T: Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -125,7 +126,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Blocking, D> {
     }
 
     fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         self.poll_ready()?;
 
@@ -161,7 +162,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Blocking, D> {
     }
 
     fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         // read of 0 size is not allowed according to i2c spec
         if read.is_empty() {
@@ -195,7 +196,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Blocking, D> {
 
     fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         self.start(address, false)?;
 
@@ -215,7 +216,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Blocking, D> {
 
     fn stop(&mut self) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
         self.poll_ready()?;
@@ -230,15 +231,15 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Blocking, D> {
     }
 
     fn poll_ready(&mut self) -> Result<()> {
-        while T::regs().stat().read().mstpending().is_in_progress() {}
+        while self.info.regs.stat().read().mstpending().is_in_progress() {}
 
         Ok(())
     }
 }
 
-impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
+impl<'a, D: dma::Instance> I2cMaster<'a, Async, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async(
+    pub fn new_async<T: Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -262,11 +263,11 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
     }
 
     async fn start(&mut self, address: u8, is_read: bool) -> Result<()> {
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         self.wait_on(
-            |_me| {
-                let stat = T::regs().stat().read();
+            |me| {
+                let stat = me.info.regs.stat().read();
 
                 if stat.mstpending().is_pending() {
                     Poll::Ready(Ok::<(), Error>(()))
@@ -278,8 +279,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
                     Poll::Pending
                 }
             },
-            |_me| {
-                T::regs().intenset().write(|w| {
+            |me| {
+                me.info.regs.intenset().write(|w| {
                     w.mstpendingen()
                         .set_bit()
                         .mstarblossen()
@@ -298,8 +299,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 
         self.wait_on(
-            |_me| {
-                let stat = T::regs().stat().read();
+            |me| {
+                let stat = me.info.regs.stat().read();
 
                 if is_read && stat.mststate().is_receive_ready() || !is_read && stat.mststate().is_transmit_ready() {
                     Poll::Ready(Ok(()))
@@ -315,8 +316,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
                     Poll::Pending
                 }
             },
-            |_me| {
-                T::regs().intenset().write(|w| {
+            |me| {
+                me.info.regs.intenset().write(|w| {
                     w.mstpendingen()
                         .set_bit()
                         .mstarblossen()
@@ -330,7 +331,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
     }
 
     async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         // read of 0 size is not allowed according to i2c spec
         if read.is_empty() {
@@ -355,8 +356,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
 
         let res = self
             .wait_on(
-                |_me| {
-                    let stat = T::regs().stat().read();
+                |me| {
+                    let stat = me.info.regs.stat().read();
 
                     if stat.mststate().is_receive_ready() {
                         Poll::Ready(Ok(()))
@@ -368,8 +369,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
                         Poll::Pending
                     }
                 },
-                |_me| {
-                    T::regs().intenset().write(|w| {
+                |me| {
+                    me.info.regs.intenset().write(|w| {
                         w.mstpendingen()
                             .set_bit()
                             .mstarblossen()
@@ -392,7 +393,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
 
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
         let mut is_dma = false;
 
         self.start(address, false).await?;
@@ -421,8 +422,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
 
         let res = self
             .wait_on(
-                |_me| {
-                    let stat = T::regs().stat().read();
+                |me| {
+                    let stat = me.info.regs.stat().read();
 
                     if !is_dma && stat.mstpending().is_pending() || is_dma && stat.mststate().is_transmit_ready() {
                         Poll::Ready(Ok(()))
@@ -434,8 +435,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
                         Poll::Pending
                     }
                 },
-                |_me| {
-                    T::regs().intenset().write(|w| {
+                |me| {
+                    me.info.regs.intenset().write(|w| {
                         w.mstpendingen()
                             .set_bit()
                             .mstarblossen()
@@ -458,13 +459,13 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
 
     async fn stop(&mut self) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
-        let i2cregs = T::regs();
+        let i2cregs = self.info.regs;
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
 
         self.wait_on(
-            |_me| {
-                let stat = T::regs().stat().read();
+            |me| {
+                let stat = me.info.regs.stat().read();
 
                 if stat.mststate().is_idle() {
                     Poll::Ready(Ok(()))
@@ -476,8 +477,8 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
                     Poll::Pending
                 }
             },
-            |_me| {
-                T::regs().intenset().write(|w| {
+            |me| {
+                me.info.regs.intenset().write(|w| {
                     w.mstpendingen()
                         .set_bit()
                         .mstarblossen()
@@ -501,7 +502,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cMaster<'a, T, Async, D> {
             let r = f(self);
 
             if r.is_pending() {
-                I2C_WAKERS[T::index()].register(cx.waker());
+                I2C_WAKERS[self.info.index].register(cx.waker());
                 self.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
 
                 g(self);
@@ -534,12 +535,12 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<FC: Instance, M: Mode, D: dma::Instance> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, FC, M, D> {
+impl<M: Mode, D: dma::Instance> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, M, D> {
     type Error = Error;
 }
 
 // implement generic i2c interface for peripheral master type
-impl<FC: Instance, D: dma::Instance> embedded_hal_1::i2c::I2c for I2cMaster<'_, FC, Blocking, D> {
+impl<D: dma::Instance> embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking, D> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read)?;
         self.stop()
@@ -578,8 +579,8 @@ impl<FC: Instance, D: dma::Instance> embedded_hal_1::i2c::I2c for I2cMaster<'_, 
     }
 }
 
-impl<FC: Instance, D: dma::Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress>
-    for I2cMaster<'_, FC, Async, D>
+impl<D: dma::Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress>
+    for I2cMaster<'_, Async, D>
 {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read).await?;

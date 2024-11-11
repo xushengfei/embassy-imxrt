@@ -78,8 +78,13 @@ mod sealed {
 
 impl<T: Pin> sealed::Sealed for T {}
 
+struct Info {
+    regs: &'static crate::pac::i2c0::RegisterBlock,
+    index: usize,
+}
+
 trait SealedInstance {
-    fn regs() -> &'static crate::pac::i2c0::RegisterBlock;
+    fn info() -> Info;
     fn index() -> usize;
 }
 
@@ -95,9 +100,13 @@ macro_rules! impl_instance {
 	$(
 	    paste!{
 		impl SealedInstance for crate::peripherals::[<FLEXCOMM $n>] {
-		    fn regs() -> &'static crate::pac::i2c0::RegisterBlock {
-			unsafe { &*crate::pac::[<I2c $n>]::ptr() }
+		    fn info() -> Info {
+			Info {
+			    regs: unsafe { &*crate::pac::[<I2c $n>]::ptr() },
+			    index: $n,
+			}
 		    }
+
 
 		    #[inline]
 		    fn index() -> usize {
@@ -127,7 +136,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let waker = &I2C_WAKERS[T::index()];
 
-        let i2c = T::regs();
+        let i2c = T::info().regs;
 
         if i2c.intstat().read().mstpending().bit_is_set() {
             i2c.intenclr().write(|w| w.mstpendingclr().set_bit());

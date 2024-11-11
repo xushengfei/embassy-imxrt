@@ -4,9 +4,11 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral};
 
-use super::{Async, Blocking, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS};
+use super::{
+    Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
+};
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::{dma, interrupt};
 
@@ -65,16 +67,15 @@ pub enum Response {
 }
 
 /// use `FCn` as I2C Slave controller
-pub struct I2cSlave<'a, T: Instance, M: Mode, D: dma::Instance> {
-    _bus: PeripheralRef<'a, T>,
-    _phantom: PhantomData<M>,
-    _phantom2: PhantomData<D>,
+pub struct I2cSlave<'a, M: Mode, D: dma::Instance> {
+    info: Info,
+    _phantom: PhantomData<(M, D)>,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
 
-impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, T, M, D> {
+impl<'a, M: Mode, D: dma::Instance> I2cSlave<'a, M, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    fn new_inner(
+    fn new_inner<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -88,7 +89,8 @@ impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, T, M, D> {
         scl.as_scl();
 
         // this check should be redundant with T::set_mode()? above
-        let i2c = T::regs();
+        let info = T::info();
+        let i2c = info.regs;
 
         // rates taken assuming SFRO:
         //
@@ -115,18 +117,17 @@ impl<'a, T: Instance, M: Mode, D: dma::Instance> I2cSlave<'a, T, M, D> {
         i2c.cfg().write(|w| w.slven().enabled());
 
         Ok(Self {
-            _bus,
+            info,
             _phantom: PhantomData,
-            _phantom2: PhantomData::<D>,
             dma_ch,
         })
     }
 }
 
-impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Blocking, D> {
+impl<'a, D: dma::Instance> I2cSlave<'a, Blocking, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking(
-        fc: impl Peripheral<P = T> + 'a,
+    pub fn new_blocking<T: Instance>(
+        _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
@@ -138,11 +139,11 @@ impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Blocking, D> {
         T::enable(clock);
         T::into_i2c();
 
-        Self::new_inner(fc, scl, sda, address, None)
+        Self::new_inner(_bus, scl, sda, address, None)
     }
 
     fn poll(&self) -> Result<()> {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         while i2c.stat().read().slvpending().is_in_progress() {}
 
@@ -152,7 +153,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Blocking, D> {
     fn block_until_addressed(&self) -> Result<()> {
         self.poll()?;
 
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         if !i2c.stat().read().slvstate().is_slave_address() {
             return Err(TransferError::AddressNack.into());
@@ -163,10 +164,10 @@ impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Blocking, D> {
     }
 }
 
-impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Async, D> {
+impl<'a, D: dma::Instance> I2cSlave<'a, Async, D> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async(
-        fc: impl Peripheral<P = T> + 'a,
+    pub fn new_async<T: Instance>(
+        _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
@@ -180,7 +181,7 @@ impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Async, D> {
         T::into_i2c();
 
         let ch = dma::Dma::reserve_channel(dma_ch);
-        let this = Self::new_inner(fc, scl, sda, address, Some(ch));
+        let this = Self::new_inner(_bus, scl, sda, address, Some(ch));
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -189,10 +190,10 @@ impl<'a, T: Instance, D: dma::Instance> I2cSlave<'a, T, Async, D> {
     }
 }
 
-impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Blocking, D> {
+impl<D: dma::Instance> I2cSlave<'_, Blocking, D> {
     /// Listen for commands from the I2C Master.
     pub fn listen(&self, cmd: &mut [u8]) -> Result<()> {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         // Skip address phase if we are already in receive mode
         if !i2c.stat().read().slvstate().is_slave_receive() {
@@ -216,7 +217,7 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Blocking, D> {
 
     /// Respond to commands from the I2C Master
     pub fn respond(&self, response: &[u8]) -> Result<()> {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         self.block_until_addressed()?;
 
@@ -238,10 +239,10 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Blocking, D> {
     }
 }
 
-impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Async, D> {
+impl<D: dma::Instance> I2cSlave<'_, Async, D> {
     /// Listen for commands from the I2C Master asynchronously
     pub async fn listen(&mut self) -> Result<Command> {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         // Disable DMA
         i2c.slvctl().write(|w| w.slvdma().disabled());
@@ -279,7 +280,7 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Async, D> {
 
     /// Respond to write command from master
     pub async fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<Response> {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         // Verify that we are ready for write
         let stat = i2c.stat().read();
@@ -305,10 +306,10 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Async, D> {
             .read_from_peripheral(i2c.slvdat().as_ptr() as *mut u8, buf, options);
 
         poll_fn(|cx| {
-            let i2c = T::regs();
+            let i2c = self.info.regs;
             let dma = self.dma_ch.as_ref().unwrap();
 
-            I2C_WAKERS[T::index()].register(cx.waker());
+            I2C_WAKERS[self.info.index].register(cx.waker());
             dma.get_waker().register(cx.waker());
 
             let stat = i2c.stat().read();
@@ -355,7 +356,7 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Async, D> {
     /// User must provide enough data to complete the transaction or else
     ///    we will get stuck in this function
     pub async fn respond_to_read(&mut self, buf: &[u8]) -> Result<Response> {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         // Verify that we are ready for transmit
         if !i2c.stat().read().slvstate().is_slave_transmit() {
@@ -376,10 +377,10 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Async, D> {
             .write_to_peripheral(buf, i2c.slvdat().as_ptr() as *mut u8, options);
 
         poll_fn(|cx| {
-            let i2c = T::regs();
+            let i2c = self.info.regs;
             let dma = self.dma_ch.as_ref().unwrap();
 
-            I2C_WAKERS[T::index()].register(cx.waker());
+            I2C_WAKERS[self.info.index].register(cx.waker());
             dma.get_waker().register(cx.waker());
 
             let stat = i2c.stat().read();
@@ -419,13 +420,13 @@ impl<T: Instance, D: dma::Instance> I2cSlave<'_, T, Async, D> {
     }
 
     async fn poll_sw_action(&self) {
-        let i2c = T::regs();
+        let i2c = self.info.regs;
 
         i2c.intenset()
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
         poll_fn(|cx: &mut core::task::Context<'_>| {
-            I2C_WAKERS[T::index()].register(cx.waker());
+            I2C_WAKERS[self.info.index].register(cx.waker());
 
             let stat = i2c.stat().read();
             if stat.slvdesel().is_deselected() {
