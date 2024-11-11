@@ -130,7 +130,7 @@ macro_rules! impl_scl {
                     .set_pull(crate::iopctl::Pull::None)
                     .enable_input_buffer()
                     .set_slew_rate(crate::gpio::SlewRate::Slow)
-                    .set_drive_strength(crate::gpio::DriveStrength::Full)
+                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .disable_analog_multiplex()
                     .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
                     .set_input_inverter(crate::gpio::Inverter::Disabled);
@@ -147,7 +147,7 @@ macro_rules! impl_sda {
                     .set_pull(crate::iopctl::Pull::None)
                     .enable_input_buffer()
                     .set_slew_rate(crate::gpio::SlewRate::Slow)
-                    .set_drive_strength(crate::gpio::DriveStrength::Full)
+                    .set_drive_strength(crate::gpio::DriveStrength::Normal)
                     .disable_analog_multiplex()
                     .set_drive_mode(crate::gpio::DriveMode::OpenDrain)
                     .set_input_inverter(crate::gpio::Inverter::Disabled);
