@@ -367,7 +367,7 @@ impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Async, D> {
             dma.get_waker().register(cx.waker());
 
             let stat = i2c.stat().read();
-            // Master sent a nack or stop
+            // Master sent a stop or nack
             if stat.slvdesel().is_deselected() {
                 return Poll::Ready(());
             }
@@ -384,12 +384,17 @@ impl<FC: Instance, D: dma::Instance> I2cSlave<'_, FC, Async, D> {
         let xfer_count = self.abort_dma(buf.len());
         let stat = i2c.stat().read();
 
-        // we got a nack or a stopfrom master, either way this transaction is
+        // we got a nack or a stop from master, either way this transaction is
         // completed
         if stat.slvdesel().is_deselected() {
             // clear the deselect bit
             i2c.stat().write(|w| w.slvdesel().deselected());
-
+            return Ok(Response::Complete(xfer_count));
+        } else if stat.slvpending().is_pending() || stat.slvstate().is_slave_address() {
+            // Handle restart after read as well as the cases where
+            // slave deselected is not set in response to a master nack
+            // then the next transaction starts the slave state goes into
+            // pending + addressed.
             return Ok(Response::Complete(xfer_count));
         }
 
