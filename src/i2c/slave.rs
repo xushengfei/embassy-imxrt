@@ -67,13 +67,13 @@ pub enum Response {
 }
 
 /// use `FCn` as I2C Slave controller
-pub struct I2cSlave<'a, M: Mode, D: dma::Instance> {
+pub struct I2cSlave<'a, M: Mode> {
     info: Info,
-    _phantom: PhantomData<(M, D)>,
+    _phantom: PhantomData<M>,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
 
-impl<'a, M: Mode, D: dma::Instance> I2cSlave<'a, M, D> {
+impl<'a, M: Mode> I2cSlave<'a, M> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
     fn new_inner<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
@@ -124,9 +124,9 @@ impl<'a, M: Mode, D: dma::Instance> I2cSlave<'a, M, D> {
     }
 }
 
-impl<'a, D: dma::Instance> I2cSlave<'a, Blocking, D> {
+impl<'a> I2cSlave<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, D: dma::Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -139,7 +139,7 @@ impl<'a, D: dma::Instance> I2cSlave<'a, Blocking, D> {
         T::enable(clock);
         T::into_i2c();
 
-        Self::new_inner(_bus, scl, sda, address, None)
+        Self::new_inner::<T>(_bus, scl, sda, address, None)
     }
 
     fn poll(&self) -> Result<()> {
@@ -164,9 +164,9 @@ impl<'a, D: dma::Instance> I2cSlave<'a, Blocking, D> {
     }
 }
 
-impl<'a, D: dma::Instance> I2cSlave<'a, Async, D> {
+impl<'a> I2cSlave<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async<T: Instance>(
+    pub fn new_async<T: Instance, D: dma::Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -181,16 +181,16 @@ impl<'a, D: dma::Instance> I2cSlave<'a, Async, D> {
         T::into_i2c();
 
         let ch = dma::Dma::reserve_channel(dma_ch);
-        let this = Self::new_inner(_bus, scl, sda, address, Some(ch));
+        let this = Self::new_inner::<T>(_bus, scl, sda, address, Some(ch))?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        this
+        Ok(this)
     }
 }
 
-impl<D: dma::Instance> I2cSlave<'_, Blocking, D> {
+impl I2cSlave<'_, Blocking> {
     /// Listen for commands from the I2C Master.
     pub fn listen(&self, cmd: &mut [u8]) -> Result<()> {
         let i2c = self.info.regs;
@@ -239,7 +239,7 @@ impl<D: dma::Instance> I2cSlave<'_, Blocking, D> {
     }
 }
 
-impl<D: dma::Instance> I2cSlave<'_, Async, D> {
+impl I2cSlave<'_, Async> {
     /// Listen for commands from the I2C Master asynchronously
     pub async fn listen(&mut self) -> Result<Command> {
         let i2c = self.info.regs;

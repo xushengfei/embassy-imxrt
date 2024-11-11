@@ -27,13 +27,13 @@ pub enum Speed {
 }
 
 /// use `FCn` as I2C Master controller
-pub struct I2cMaster<'a, M: Mode, D: dma::Instance> {
+pub struct I2cMaster<'a, M: Mode> {
     info: Info,
-    _phantom: PhantomData<(M, D)>,
+    _phantom: PhantomData<M>,
     dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
 }
 
-impl<'a, M: Mode, D: dma::Instance> I2cMaster<'a, M, D> {
+impl<'a, M: Mode> I2cMaster<'a, M> {
     fn new_inner<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
@@ -105,9 +105,9 @@ impl<'a, M: Mode, D: dma::Instance> I2cMaster<'a, M, D> {
     }
 }
 
-impl<'a, D: dma::Instance> I2cMaster<'a, Blocking, D> {
+impl<'a> I2cMaster<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, D: dma::Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -120,7 +120,7 @@ impl<'a, D: dma::Instance> I2cMaster<'a, Blocking, D> {
         T::enable(clock);
         T::into_i2c();
 
-        let this = Self::new_inner(fc, scl, sda, speed, None)?;
+        let this = Self::new_inner::<T>(fc, scl, sda, speed, None)?;
 
         Ok(this)
     }
@@ -237,9 +237,9 @@ impl<'a, D: dma::Instance> I2cMaster<'a, Blocking, D> {
     }
 }
 
-impl<'a, D: dma::Instance> I2cMaster<'a, Async, D> {
+impl<'a> I2cMaster<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async<T: Instance>(
+    pub fn new_async<T: Instance, D: dma::Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl SclPin<T> + 'a,
         sda: impl SdaPin<T> + 'a,
@@ -254,7 +254,7 @@ impl<'a, D: dma::Instance> I2cMaster<'a, Async, D> {
         T::into_i2c();
 
         let ch = dma::Dma::reserve_channel(dma_ch);
-        let this = Self::new_inner(fc, scl, sda, speed, Some(ch))?;
+        let this = Self::new_inner::<T>(fc, scl, sda, speed, Some(ch))?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -535,12 +535,12 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<M: Mode, D: dma::Instance> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, M, D> {
+impl<M: Mode> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, M> {
     type Error = Error;
 }
 
 // implement generic i2c interface for peripheral master type
-impl<D: dma::Instance> embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking, D> {
+impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read)?;
         self.stop()
@@ -579,9 +579,7 @@ impl<D: dma::Instance> embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking, D> {
     }
 }
 
-impl<D: dma::Instance> embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress>
-    for I2cMaster<'_, Async, D>
-{
+impl embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress> for I2cMaster<'_, Async> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
         self.read_no_stop(address, read).await?;
         self.stop().await

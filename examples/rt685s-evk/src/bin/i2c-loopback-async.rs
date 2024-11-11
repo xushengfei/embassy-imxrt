@@ -5,7 +5,6 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::peripherals::{DMA0_CH4, DMA0_CH9};
 use embassy_imxrt::{
     bind_interrupts,
     i2c::{
@@ -31,7 +30,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn slave_service(mut slave: I2cSlave<'static, Async, DMA0_CH4>) {
+async fn slave_service(mut slave: I2cSlave<'static, Async>) {
     loop {
         let mut r_buf = [0xAA; SLAVE_BUFLEN];
         let mut t_buf = [0xAA; SLAVE_BUFLEN];
@@ -74,7 +73,7 @@ async fn slave_service(mut slave: I2cSlave<'static, Async, DMA0_CH4>) {
 }
 
 #[embassy_executor::task]
-async fn master_service(mut master: I2cMaster<'static, Async, DMA0_CH9>) {
+async fn master_service(mut master: I2cMaster<'static, Async>) {
     const ADDR: u8 = 0x20;
 
     let mut w_buf = [0xAA; MASTER_BUFLEN];
