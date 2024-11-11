@@ -230,9 +230,9 @@ impl<'d> WindowedWatchdog<'d, Leashed> {
 impl WindowedWatchdog<'_, Unleashed> {
     /// Reloads the watchdog timeout counter to the time set by [`Self::set_timeout`].
     pub fn feed(&mut self) {
-        /* Disable interrupts to prevent possibility of watchdog registers from being accessed in between
-         * writes of feed sequence bytes as per datasheet's recommendation.
-         */
+        // Disable interrupts to prevent possibility of watchdog
+        // registers from being accessed in between writes of feed
+        // sequence bytes as per datasheet's recommendation.
         critical_section::with(|_| {
             [0xAA, 0x55]
                 .iter()
