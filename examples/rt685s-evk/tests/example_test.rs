@@ -2,7 +2,7 @@
 #![no_main]
 
 // #[embedded_test::tests]
-// #[cfg(test)]
+#[cfg(test)]
 #[embedded_test::tests]
 mod tests {
     use defmt::info;
@@ -31,14 +31,24 @@ mod tests {
 
     // // A test which takes the state returned by the init function (optional)
     #[test]
-    async fn test_measure_system_powersupply(mut led: gpio::Output<'static>) {
-        Timer::after_millis(500).await;
-        led.toggle();
-        Timer::after_millis(500).await;
-        led.toggle();
-        Timer::after_millis(500).await;
-        led.toggle();
+    async fn test_blink(mut led: gpio::Output<'static>) {
+        for _ in 1..5 {
+            Timer::after_millis(500).await;
+            led.toggle();
+        }
         info!("It works");
         assert!(true);
+    }
+
+    // // A test which takes the state returned by the init function (optional)
+    #[test]
+    #[should_panic]
+    async fn test_should_panic(mut led: gpio::Output<'static>) {
+        for _ in 1..5 {
+            Timer::after_millis(500).await;
+            led.toggle();
+        }
+        info!("It works");
+        assert!(false);
     }
 }
