@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use hasher::Hasher;
 
-use crate::peripherals::HASHCRYPT;
+use crate::peripherals::{DMA0_CH30, HASHCRYPT};
 use crate::{dma, pac};
 
 /// Hasher module
@@ -26,10 +26,16 @@ pub struct Async {}
 impl Sealed for Async {}
 impl Mode for Async {}
 
+/// Trait for compatible DMA channels
+#[allow(private_bounds)]
+pub trait HashcryptDma: Sealed {}
+impl Sealed for DMA0_CH30 {}
+impl HashcryptDma for DMA0_CH30 {}
+
 /// Hashcrypt driver
 pub struct Hashcrypt<'d, M: Mode> {
     hashcrypt: pac::Hashcrypt,
-    _dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
+    dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
     _peripheral: PeripheralRef<'d, HASHCRYPT>,
     _mode: PhantomData<M>,
 }
@@ -67,7 +73,7 @@ impl<'d, M: Mode> Hashcrypt<'d, M> {
         Self {
             _peripheral: peripheral,
             _mode: PhantomData,
-            _dma_ch: dma_ch,
+            dma_ch,
             hashcrypt: unsafe { pac::Hashcrypt::steal() },
         }
     }
@@ -95,5 +101,21 @@ impl<'d> Hashcrypt<'d, Blocking> {
     pub fn new_sha256<'a>(&'a mut self) -> Hasher<'d, 'a, Blocking> {
         self.start_algorithm(Algorithm::SHA256, false);
         Hasher::new_blocking(self)
+    }
+}
+
+impl<'d> Hashcrypt<'d, Async> {
+    /// Create a new instance
+    pub fn new_async<D: dma::Instance + HashcryptDma>(
+        peripheral: impl Peripheral<P = HASHCRYPT> + 'd,
+        dma_ch: impl Peripheral<P = D> + 'd,
+    ) -> Self {
+        Self::new_inner(peripheral, Some(dma::Dma::reserve_channel(dma_ch)))
+    }
+
+    /// Start a new SHA256 hash
+    pub fn new_sha256<'a>(&'a mut self) -> Hasher<'d, 'a, Async> {
+        self.start_algorithm(Algorithm::SHA256, true);
+        Hasher::new_async(self)
     }
 }

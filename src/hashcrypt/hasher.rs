@@ -1,7 +1,11 @@
+use core::future::poll_fn;
 use core::iter::zip;
 use core::marker::PhantomData;
+use core::task::Poll;
 
-use super::{Blocking, Hashcrypt, Mode};
+use super::{Async, Blocking, Hashcrypt, Mode};
+use crate::dma;
+use crate::dma::transfer::Width;
 
 /// Block length
 pub const BLOCK_LEN: usize = 64;
@@ -112,5 +116,82 @@ impl<'d, 'a> Hasher<'d, 'a, Blocking> {
             self.submit_blocks(&data[0..full_blocks * BLOCK_LEN]);
         }
         self.finalize(&data[full_blocks * BLOCK_LEN..], hash);
+    }
+}
+
+impl<'d, 'a> Hasher<'d, 'a, Async> {
+    /// Create a new hasher instance
+    pub fn new_async(hashcrypt: &'a mut Hashcrypt<'d, Async>) -> Self {
+        Self::new_inner(hashcrypt)
+    }
+
+    async fn transfer(&mut self, data: &[u8]) {
+        if data.is_empty() || data.len() % BLOCK_LEN != 0 {
+            panic!("Invalid data length");
+        }
+
+        let options = dma::transfer::TransferOptions {
+            width: Width::Bit32,
+            ..Default::default()
+        };
+
+        self.hashcrypt.dma_ch.as_ref().unwrap().write_to_peripheral(
+            data,
+            self.hashcrypt.hashcrypt.indata().as_ptr() as *mut u8,
+            options,
+        );
+
+        poll_fn(|cx| {
+            self.hashcrypt.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
+
+            // Check if transfer is already complete
+            if self.hashcrypt.hashcrypt.status().read().waiting().is_waiting() {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        // Wait for the digest to finish, this takes <100 clock cycles so it's not worth doing async
+        self.wait_for_digest();
+    }
+
+    /// Submit one or more blocks of data to the hasher, data must be a multiple of the block length
+    pub async fn submit_blocks(&mut self, data: &[u8]) {
+        self.transfer(data).await;
+        self.written += data.len();
+    }
+
+    /// Submits the final data for hashing
+    pub async fn finalize(mut self, data: &[u8], hash: &mut [u8; HASH_LEN]) {
+        let mut buffer = [0u8; BLOCK_LEN];
+
+        self.written += data.len();
+        if data.len() <= LAST_BLOCK_MAX_DATA {
+            // Only have one final block
+            self.init_final_block(data, &mut buffer);
+            self.transfer(&buffer).await;
+        } else {
+            //End byte and padding won't fit in this block, submit this block and an extra one
+            self.init_final_data(data, &mut buffer);
+            self.transfer(&buffer).await;
+
+            buffer.fill(0);
+            self.init_final_len(&mut buffer);
+            self.transfer(&buffer).await;
+        }
+
+        self.read_hash(hash);
+    }
+
+    /// Computes the hash of the given data
+    pub async fn hash(mut self, data: &[u8], hash: &mut [u8; HASH_LEN]) {
+        let full_blocks = data.len() / BLOCK_LEN;
+
+        if full_blocks > 0 {
+            self.submit_blocks(&data[0..full_blocks * BLOCK_LEN]).await;
+        }
+        self.finalize(&data[full_blocks * BLOCK_LEN..], hash).await;
     }
 }
