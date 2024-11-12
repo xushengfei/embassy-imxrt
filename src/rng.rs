@@ -59,31 +59,7 @@ impl<'d> Rng<'d> {
             info: T::info(),
             _lifetime: PhantomData,
         };
-        random.reset();
-
-        // Mask all interrupts
-        random.info.regs.int_mask().write(|w| {
-            w.ent_val()
-                .ent_val_0()
-                .hw_err()
-                .hw_err_0()
-                .frq_ct_fail()
-                .frq_ct_fail_0()
-        });
-
-        // Switch TRNG to programming mode
-        random.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
-
-        // Enable ENT_VAL interrupt
-        random.info.regs.int_ctrl().write(|w| w.ent_val().ent_val_1());
-        random.info.regs.int_mask().write(|w| w.ent_val().ent_val_1());
-
-        // Switch TRNG to Run Mode
-        random
-            .info
-            .regs
-            .mctl()
-            .modify(|_, w| w.trng_acc().set_bit().prgm().clear_bit());
+        random.init();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -154,6 +130,31 @@ impl<'d> Rng<'d> {
         }
 
         Ok(())
+    }
+
+    fn init(&mut self) {
+        // Mask all interrupts
+        self.info.regs.int_mask().write(|w| {
+            w.ent_val()
+                .ent_val_0()
+                .hw_err()
+                .hw_err_0()
+                .frq_ct_fail()
+                .frq_ct_fail_0()
+        });
+
+        // Switch TRNG to programming mode
+        self.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
+
+        // Enable ENT_VAL interrupt
+        self.info.regs.int_ctrl().write(|w| w.ent_val().ent_val_1());
+        self.info.regs.int_mask().write(|w| w.ent_val().ent_val_1());
+
+        // Switch TRNG to Run Mode
+        self.info
+            .regs
+            .mctl()
+            .modify(|_, w| w.trng_acc().set_bit().prgm().clear_bit());
     }
 }
 
