@@ -102,8 +102,16 @@ impl Channel<'_> {
         mem_len: usize,
         options: TransferOptions,
     ) {
-        let xfercount = mem_len - 1;
-        let xferwidth = 1;
+        if mem_len % options.width.byte_width() != 0 {
+            panic!(
+                "Memory length({}) must be a multiple of the transfer width({})",
+                mem_len,
+                options.width.byte_width()
+            );
+        }
+
+        let xferwidth: usize = options.width.byte_width();
+        let xfercount = (mem_len / xferwidth) - 1;
         let channel = self.info.ch_num;
 
         // Configure the channel descriptor
