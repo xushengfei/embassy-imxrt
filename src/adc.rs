@@ -108,7 +108,6 @@ struct Info {
 
 impl<const N: usize> Adc<'_, N> {
     fn init() {
-        init_lposc();
         init_adc_clk();
     }
 
@@ -278,13 +277,6 @@ impl<'p, const N: usize> Adc<'p, N> {
         // Disable the watermark interrupt
         self.info.regs.ie().write(|w| w.fwmie().fwmie_0());
     }
-}
-
-/// Initializes low-power oscillator.
-fn init_lposc() {
-    // Enable low power oscillator
-    let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-    sysctl0.pdruncfg0_clr().write(|w| w.lposc_pd().set_bit());
 }
 
 trait SealedInstance {
