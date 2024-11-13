@@ -123,45 +123,35 @@ impl Default for Config {
     }
 }
 
-/// Specific information regarding transfer errors
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TransferError {
-    /// Read error
-    Read,
-    /// Buffer overflow
-    Overrun,
-    /// Noise error in Rx
-    Noise,
-    /// Framing error in Rx
-    Framing,
-    /// Parity error in Rx
-    Parity,
-}
-
 /// Uart Errors
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Read error
+    Read,
+
+    /// Buffer overflow
+    Overrun,
+
+    /// Noise error
+    Noise,
+
+    /// Framing error
+    Framing,
+
+    /// Parity error
+    Parity,
+
     /// Failure
     Fail,
     /// Invalid argument
     InvalidArgument,
 
     /// Uart baud rate cannot be supported with the given clock
-    UsartBaudrateNotSupported,
-
-    /// Transaction failure errors
-    Transfer(TransferError),
+    UnsupportedBaudrate,
 }
 /// shorthand for -> Result<T>
 pub type Result<T> = core::result::Result<T, Error>;
-
-impl From<TransferError> for Error {
-    fn from(value: TransferError) -> Self {
-        Error::Transfer(value)
-    }
-}
 
 impl<'a, T: Instance> UartTx<'a, T> {
     /// Create a new UART which can only send data
@@ -237,16 +227,16 @@ impl<'a, T: Instance> UartRx<'a, T> {
             if T::regs().fifostat().read().rxerr().bit_is_set() {
                 T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
                 T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
-                return Err(Error::Transfer(TransferError::Read));
+                return Err(Error::Read);
             } else if T::regs().stat().read().parityerrint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
-                return Err(Error::Transfer(TransferError::Parity));
+                return Err(Error::Parity);
             } else if T::regs().stat().read().framerrint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
-                return Err(Error::Transfer(TransferError::Framing));
+                return Err(Error::Framing);
             } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
                 T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
-                return Err(Error::Transfer(TransferError::Noise));
+                return Err(Error::Noise);
             } else {
                 *b = T::regs().fiford().read().rxdata().bits() as u8;
             }
@@ -372,7 +362,7 @@ impl<'a, T: Instance> Uart<'a, T> {
 
             // Value over range
             if brg > 65535 {
-                return Err(Error::UsartBaudrateNotSupported);
+                return Err(Error::UnsupportedBaudrate);
             }
 
             // SAFETY: unsafe only used for .bits()
@@ -502,6 +492,7 @@ macro_rules! impl_uart_rx {
         }
     };
 }
+
 // Flexcomm0 Uart TX/Rx
 impl_uart_tx!(PIO0_1, F1, FLEXCOMM0); //Tx
 impl_uart_rx!(PIO0_2, F1, FLEXCOMM0); //Rx
