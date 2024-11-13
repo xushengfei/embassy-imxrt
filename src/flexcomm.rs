@@ -17,9 +17,6 @@ pub type SpiRegisters = pac::spi0::RegisterBlock;
 /// alias for `i2s0::Registers`, as layout is the same across all `FCn`
 pub type I2sRegisters = pac::i2s0::RegisterBlock;
 
-/// alias for `usart0::Registers`, as layout is the same across all `FCn`
-pub type UsartRegisters = pac::usart0::RegisterBlock;
-
 const FC_COUNT: usize = 8;
 // One waker per FC
 static FC_WAKERS: [AtomicWaker; FC_COUNT] = [const { AtomicWaker::new() }; FC_COUNT];
@@ -85,7 +82,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// primary low-level flexcomm interface
-trait FlexcommLowLevel: sealed::Sealed + Peripheral {
+pub(crate) trait FlexcommLowLevel: sealed::Sealed + Peripheral {
     // fetch the flexcomm register block for direct manipulation
     fn reg() -> &'static FlexcommRegisters;
 
@@ -97,9 +94,6 @@ trait FlexcommLowLevel: sealed::Sealed + Peripheral {
 
     // fetch the I2S peripheral registers for this FCn, if they exist
     fn i2s() -> &'static I2sRegisters;
-
-    // fetch the USART peripheral registers for this FCn, if they exist
-    fn usart() -> &'static UsartRegisters;
 
     // set the clock select for this flexcomm instance and remove from reset
     fn enable(clk: Clock);
@@ -221,37 +215,12 @@ impl<'p, F: I2sPeripheral> I2sReceive<'p, F> {
     }
 }
 
-/// internal shared `USARt` peripheral operations
-#[allow(private_bounds)]
-pub(crate) trait UsartPeripheral: FlexcommLowLevel {}
-
-/// Flexcomm configured for USART usage
-#[allow(private_bounds)]
-pub struct UsartBus<'p, F: UsartPeripheral> {
-    _fc: PeripheralRef<'p, F>,
-}
-#[allow(private_bounds)]
-impl<'p, F: UsartPeripheral> UsartBus<'p, F> {
-    /// use Flexcomm fc as an USART Bus
-    pub fn new(fc: impl UsartPeripheral<P = F> + 'p, clk: Clock) -> Result<Self> {
-        F::enable(clk);
-        F::set_mode(Mode::Usart)?;
-        Ok(Self { _fc: fc.into_ref() })
-    }
-
-    /// retrieve active bus registers
-    pub fn usart(&self) -> &'static UsartRegisters {
-        F::usart()
-    }
-}
-
 macro_rules! impl_flexcomm {
-    ($fcn:expr, $ufc:ident, $lfc:ident, $i2c:ident, $spi:ident, $i2s:ident, $usart:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
+    ($fcn:expr, $ufc:ident, $lfc:ident, $i2c:ident, $spi:ident, $i2s:ident, $fc_clk_set:ident, $fc_rst_clr:ident) => {
         impl sealed::Sealed for crate::peripherals::$ufc {}
         impl I2cPeripheral for crate::peripherals::$ufc {}
         impl SpiPeripheral for crate::peripherals::$ufc {}
         impl I2sPeripheral for crate::peripherals::$ufc {}
-        impl UsartPeripheral for crate::peripherals::$ufc {}
 
         impl FlexcommLowLevel for crate::peripherals::$ufc {
             fn reg() -> &'static FlexcommRegisters {
@@ -272,11 +241,6 @@ macro_rules! impl_flexcomm {
             fn i2s() -> &'static I2sRegisters {
                 // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
                 unsafe { &*crate::pac::$i2s::ptr() }
-            }
-
-            fn usart() ->&'static UsartRegisters {
-                // SAFETY: safe from single executor, enforce via peripheral reference lifetime tracking
-                unsafe { &*crate::pac::$usart::ptr() }
             }
 
             fn enable(clk: Clock) {
@@ -421,7 +385,6 @@ impl_flexcomm!(
     I2c0,
     Spi0,
     I2s0,
-    Usart0,
     fc0_clk_set,
     flexcomm0_rst_clr
 );
@@ -432,7 +395,6 @@ impl_flexcomm!(
     I2c1,
     Spi1,
     I2s1,
-    Usart1,
     fc1_clk_set,
     flexcomm1_rst_clr
 );
@@ -443,7 +405,6 @@ impl_flexcomm!(
     I2c2,
     Spi2,
     I2s2,
-    Usart2,
     fc2_clk_set,
     flexcomm2_rst_clr
 );
@@ -454,7 +415,6 @@ impl_flexcomm!(
     I2c3,
     Spi3,
     I2s3,
-    Usart3,
     fc3_clk_set,
     flexcomm3_rst_clr
 );
@@ -465,7 +425,6 @@ impl_flexcomm!(
     I2c4,
     Spi4,
     I2s4,
-    Usart4,
     fc4_clk_set,
     flexcomm4_rst_clr
 );
@@ -476,7 +435,6 @@ impl_flexcomm!(
     I2c5,
     Spi5,
     I2s5,
-    Usart5,
     fc5_clk_set,
     flexcomm5_rst_clr
 );
@@ -487,7 +445,6 @@ impl_flexcomm!(
     I2c6,
     Spi6,
     I2s6,
-    Usart6,
     fc6_clk_set,
     flexcomm6_rst_clr
 );
@@ -498,11 +455,10 @@ impl_flexcomm!(
     I2c7,
     Spi7,
     I2s7,
-    Usart7,
     fc7_clk_set,
     flexcomm7_rst_clr
 );
 
 // TODO: in follow up flexcomm PR, implement special FC14 + FC15 support
-//impl_flexcomm!(14, FLEXCOMM14, Flexcomm14, I2c14, Spi14, I2s14, Usart14);
-//impl_flexcomm!(15, FLEXCOMM15, Flexcomm15, I2c15, Sp157, I2s15, Usart15);
+//impl_flexcomm!(14, FLEXCOMM14, Flexcomm14, I2c14, Spi14, I2s14);
+//impl_flexcomm!(15, FLEXCOMM15, Flexcomm15, I2c15, Sp157, I2s15);
