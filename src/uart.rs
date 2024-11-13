@@ -197,9 +197,12 @@ impl<'a, T: Instance> UartTx<'a, T> {
             self.blocking_write_byte(*x)?;
         }
 
-        // Wait to finish transfer
-        while T::regs().stat().read().txidle().bit_is_clear() {}
+        Ok(())
+    }
 
+    /// Flush UART TX blocking execution until done.
+    pub fn blocking_flush(&mut self) -> Result<()> {
+        while T::regs().stat().read().txidle().bit_is_clear() {}
         Ok(())
     }
 }
@@ -452,6 +455,11 @@ impl<'a, T: Instance> Uart<'a, T> {
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         self.tx.blocking_write(buf)
+    }
+
+    /// Flush UART TX blocking execution until done.
+    pub fn blocking_flush(&mut self) -> Result<()> {
+        self.tx.blocking_flush()
     }
 
     /// Split the Uart into a transmitter and receiver, which is particularly
