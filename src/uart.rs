@@ -177,13 +177,24 @@ impl<'a, T: Instance> UartTx<'a, T> {
         }
     }
 
+    fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
+        // SAFETY: unsafe only used for .bits()
+        T::regs()
+            .fifowr()
+            .write(|w| unsafe { w.txdata().bits(u16::from(byte)) });
+
+        Ok(())
+    }
+
+    fn blocking_write_byte(&mut self, byte: u8) -> Result<()> {
+        while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
+        self.write_byte_internal(byte)
+    }
+
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         for x in buf {
-            // Loop until txFIFO get some space for new data
-            while T::regs().fifostat().read().txnotfull().bit_is_clear() {}
-            // SAFETY: unsafe only used for .bits()
-            T::regs().fifowr().write(|w| unsafe { w.txdata().bits(u16::from(*x)) });
+            self.blocking_write_byte(*x)?;
         }
 
         // Wait to finish transfer
