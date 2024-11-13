@@ -216,30 +216,35 @@ impl<'a, T: Instance> UartRx<'a, T> {
         }
     }
 
+    fn read_byte_internal(&mut self) -> Result<u8> {
+        if T::regs().fifostat().read().rxerr().bit_is_set() {
+            T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
+            T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
+            Err(Error::Read)
+        } else if T::regs().stat().read().parityerrint().bit_is_set() {
+            T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
+            Err(Error::Parity)
+        } else if T::regs().stat().read().framerrint().bit_is_set() {
+            T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
+            Err(Error::Framing)
+        } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
+            T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
+            Err(Error::Noise)
+        } else {
+            let byte = T::regs().fiford().read().rxdata().bits() as u8;
+            Ok(byte)
+        }
+    }
+
+    fn blocking_read_byte(&mut self) -> Result<u8> {
+        while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
+        self.read_byte_internal()
+    }
+
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
         for b in buf.iter_mut() {
-            // loop until rxFifo has some data to read
-            while T::regs().fifostat().read().rxnotempty().bit_is_clear() {}
-
-            // Now that there is some data in the rxFifo, read it
-            // Let's verify the rxFifo status flags
-            if T::regs().fifostat().read().rxerr().bit_is_set() {
-                T::regs().fifocfg().modify(|_, w| w.emptyrx().set_bit());
-                T::regs().fifostat().modify(|_, w| w.rxerr().set_bit());
-                return Err(Error::Read);
-            } else if T::regs().stat().read().parityerrint().bit_is_set() {
-                T::regs().stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
-                return Err(Error::Parity);
-            } else if T::regs().stat().read().framerrint().bit_is_set() {
-                T::regs().stat().modify(|_, w| w.framerrint().clear_bit_by_one());
-                return Err(Error::Framing);
-            } else if T::regs().stat().read().rxnoiseint().bit_is_set() {
-                T::regs().stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
-                return Err(Error::Noise);
-            } else {
-                *b = T::regs().fiford().read().rxdata().bits() as u8;
-            }
+            *b = self.blocking_read_byte()?;
         }
 
         Ok(())
