@@ -10,6 +10,7 @@ use super::{
     Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
 };
 use crate::interrupts::interrupt::typelevel::Interrupt;
+use crate::pac::i2c0::stat::Slvstate;
 use crate::{dma, interrupt};
 
 /// I2C address type
@@ -154,7 +155,6 @@ impl<'a> I2cSlave<'a, Blocking> {
         self.poll()?;
 
         let i2c = self.info.regs;
-
         if !i2c.stat().read().slvstate().is_slave_address() {
             return Err(TransferError::AddressNack.into());
         }
@@ -192,50 +192,121 @@ impl<'a> I2cSlave<'a, Async> {
 
 impl I2cSlave<'_, Blocking> {
     /// Listen for commands from the I2C Master.
-    pub fn listen(&self, cmd: &mut [u8]) -> Result<()> {
-        let i2c = self.info.regs;
-
-        // Skip address phase if we are already in receive mode
-        if !i2c.stat().read().slvstate().is_slave_receive() {
-            self.block_until_addressed()?;
-        }
-
-        for b in cmd {
-            self.poll()?;
-
-            if !i2c.stat().read().slvstate().is_slave_receive() {
-                return Err(TransferError::ReadFail.into());
-            }
-
-            *b = i2c.slvdat().read().data().bits();
-
-            i2c.slvctl().write(|w| w.slvcontinue().continue_());
-        }
-
-        Ok(())
-    }
-
-    /// Respond to commands from the I2C Master
-    pub fn respond(&self, response: &[u8]) -> Result<()> {
+    pub fn listen(&self) -> Result<Command> {
         let i2c = self.info.regs;
 
         self.block_until_addressed()?;
 
-        for b in response {
+        //Block until we know it is read or write
+        self.poll()?;
+
+        // We are already deselected, so it must be an 0 byte write transaction
+        if i2c.stat().read().slvdesel().is_deselected() {
+            // Clear the deselected bit
+            i2c.stat().write(|w| w.slvdesel().deselected());
+            return Ok(Command::Probe);
+        }
+
+        let state = i2c.stat().read().slvstate().variant();
+        match state {
+            Some(Slvstate::SlaveReceive) => Ok(Command::Write),
+            Some(Slvstate::SlaveTransmit) => Ok(Command::Read),
+            _ => Err(TransferError::OtherBusError.into()),
+        }
+    }
+
+    /// Respond to write command from  master
+    pub fn respond_to_write(&self, buf: &mut [u8]) -> Result<Response> {
+        let i2c = self.info.regs;
+        let mut xfer_count: usize = 0;
+
+        for b in buf {
+            //poll until something happens
             self.poll()?;
 
-            if !i2c.stat().read().slvstate().is_slave_transmit() {
+            let stat = i2c.stat().read();
+            // if master send stop, we are done
+            if stat.slvdesel().is_deselected() {
+                break;
+            }
+            // if master send a restart, we are done
+            if stat.slvstate().is_slave_address() {
+                break;
+            }
+
+            if !stat.slvstate().is_slave_receive() {
+                return Err(TransferError::ReadFail.into());
+            }
+
+            // Now we can safely read the next byte
+            *b = i2c.slvdat().read().data().bits();
+            i2c.slvctl().write(|w| w.slvcontinue().continue_());
+            xfer_count += 1;
+        }
+
+        let stat = i2c.stat().read();
+        if stat.slvdesel().is_deselected() {
+            // Clear the deselect bit
+            i2c.stat().write(|w| w.slvdesel().deselected());
+            return Ok(Response::Complete(xfer_count));
+        } else if stat.slvstate().is_slave_address() {
+            // Handle restart
+            return Ok(Response::Complete(xfer_count));
+        } else if stat.slvstate().is_slave_receive() {
+            // Master still wants to send more data, transaction incomplete
+            return Ok(Response::Pending(xfer_count));
+        }
+
+        // We should not get here
+        Err(TransferError::ReadFail.into())
+    }
+
+    /// Respond to read command from  master
+    pub fn respond_to_read(&self, buf: &[u8]) -> Result<Response> {
+        let i2c = self.info.regs;
+        let mut xfer_count: usize = 0;
+
+        for b in buf {
+            // Block until something happens
+            self.poll()?;
+
+            let stat = i2c.stat().read();
+            // if master send nack or stop, we are done
+            if stat.slvdesel().is_deselected() {
+                break;
+            }
+            // if master send restart, we are done
+            if stat.slvstate().is_slave_address() {
+                break;
+            }
+
+            // Verify that we are ready for write
+            if !stat.slvstate().is_slave_transmit() {
                 return Err(TransferError::WriteFail.into());
             }
 
             i2c.slvdat().write(|w|
-                    // SAFETY: unsafe only here due to use of bits()
-                    unsafe{w.data().bits(*b)});
-
+                // SAFETY: unsafe only here due to use of bits()
+                unsafe{w.data().bits(*b)});
             i2c.slvctl().write(|w| w.slvcontinue().continue_());
+            xfer_count += 1;
         }
 
-        Ok(())
+        let stat = i2c.stat().read();
+        if stat.slvdesel().is_deselected() {
+            // clear the deselect bit
+            i2c.stat().write(|w| w.slvdesel().deselected());
+            return Ok(Response::Complete(xfer_count));
+        } else if stat.slvstate().is_slave_address() {
+            // Handle restart after read
+            return Ok(Response::Complete(xfer_count));
+        } else if stat.slvstate().is_slave_transmit() {
+            // Master is still expecting data, transaction incomplete
+            return Ok(Response::Pending(xfer_count));
+        }
+
+        // We should not get here
+        Err(TransferError::WriteFail.into())
     }
 }
 
@@ -272,8 +343,8 @@ impl I2cSlave<'_, Async> {
 
         let state = i2c.stat().read().slvstate().variant();
         match state {
-            Some(crate::pac::i2c0::stat::Slvstate::SlaveReceive) => Ok(Command::Write),
-            Some(crate::pac::i2c0::stat::Slvstate::SlaveTransmit) => Ok(Command::Read),
+            Some(Slvstate::SlaveReceive) => Ok(Command::Write),
+            Some(Slvstate::SlaveTransmit) => Ok(Command::Read),
             _ => Err(TransferError::OtherBusError.into()),
         }
     }
