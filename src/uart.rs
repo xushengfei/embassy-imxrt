@@ -543,11 +543,6 @@ impl<'a, T: Instance> Uart<'a, T> {
     pub fn split_ref(&mut self) -> (&mut UartTx<'a, T>, &mut UartRx<'a, T>) {
         (&mut self.tx, &mut self.rx)
     }
-
-    /// sets baudrate on runtime
-    pub fn set_baudrate(&mut self, baudrate: u32) -> Result<()> {
-        Self::set_baudrate_inner(baudrate)
-    }
 }
 
 impl<T: Instance> embedded_hal_02::serial::Read<u8> for UartRx<'_, T> {
