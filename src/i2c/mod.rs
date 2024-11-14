@@ -1,7 +1,13 @@
 //! Implements I2C function support over flexcomm + gpios
 
+use core::marker::PhantomData;
+
+use embassy_hal_internal::Peripheral;
+use embassy_sync::waitqueue::AtomicWaker;
+use paste::paste;
 use sealed::Sealed;
 
+use crate::interrupt;
 use crate::iopctl::IopctlPin as Pin;
 
 /// I2C Master Driver
@@ -52,21 +58,11 @@ pub enum TransferError {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// propagating a lower level flexcomm error
-    Flex(crate::flexcomm::Error),
-
     /// configuration requested is not supported
     UnsupportedConfiguration,
 
     /// transaction failure types
     Transfer(TransferError),
-}
-
-// implementing from allows ? operator from flexcomm::Result<T>
-impl From<crate::flexcomm::Error> for Error {
-    fn from(value: crate::flexcomm::Error) -> Self {
-        Error::Flex(value)
-    }
 }
 
 impl From<TransferError> for Error {
@@ -82,17 +78,80 @@ mod sealed {
 
 impl<T: Pin> sealed::Sealed for T {}
 
+trait SealedInstance {
+    fn regs() -> &'static crate::pac::i2c0::RegisterBlock;
+    fn index() -> usize;
+}
+
 /// shared functions between master and slave operation
 #[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::I2cPeripheral {}
-impl Instance for crate::peripherals::FLEXCOMM0 {}
-impl Instance for crate::peripherals::FLEXCOMM1 {}
-impl Instance for crate::peripherals::FLEXCOMM2 {}
-impl Instance for crate::peripherals::FLEXCOMM3 {}
-impl Instance for crate::peripherals::FLEXCOMM4 {}
-impl Instance for crate::peripherals::FLEXCOMM5 {}
-impl Instance for crate::peripherals::FLEXCOMM6 {}
-impl Instance for crate::peripherals::FLEXCOMM7 {}
+pub trait Instance: crate::flexcomm::IntoI2c + SealedInstance + Peripheral<P = Self> + 'static + Send {
+    /// Interrupt for this I2C instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+macro_rules! impl_instance {
+    ($($n:expr),*) => {
+	$(
+	    paste!{
+		impl SealedInstance for crate::peripherals::[<FLEXCOMM $n>] {
+		    fn regs() -> &'static crate::pac::i2c0::RegisterBlock {
+			unsafe { &*crate::pac::[<I2c $n>]::ptr() }
+		    }
+
+		    #[inline]
+		    fn index() -> usize {
+			$n
+		    }
+		}
+
+		impl Instance for crate::peripherals::[<FLEXCOMM $n>] {
+		    type Interrupt = crate::interrupt::typelevel::[<FLEXCOMM $n>];
+		}
+	    }
+	)*
+    };
+}
+
+impl_instance!(0, 1, 2, 3, 4, 5, 6, 7);
+
+const I2C_COUNT: usize = 8;
+static I2C_WAKERS: [AtomicWaker; I2C_COUNT] = [const { AtomicWaker::new() }; I2C_COUNT];
+
+/// I2C interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let waker = &I2C_WAKERS[T::index()];
+
+        let i2c = T::regs();
+
+        if i2c.intstat().read().mstpending().bit_is_set() {
+            i2c.intenclr().write(|w| w.mstpendingclr().set_bit());
+        }
+
+        if i2c.intstat().read().mstarbloss().bit_is_set() {
+            i2c.intenclr().write(|w| w.mstarblossclr().set_bit());
+        }
+
+        if i2c.intstat().read().mstststperr().bit_is_set() {
+            i2c.intenclr().write(|w| w.mstststperrclr().set_bit());
+        }
+
+        if i2c.intstat().read().slvpending().bit_is_set() {
+            i2c.intenclr().write(|w| w.slvpendingclr().set_bit());
+        }
+
+        if i2c.intstat().read().slvdesel().bit_is_set() {
+            i2c.intenclr().write(|w| w.slvdeselclr().set_bit());
+        }
+
+        waker.wake();
+    }
+}
 
 /// io configuration trait for easier configuration
 pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {

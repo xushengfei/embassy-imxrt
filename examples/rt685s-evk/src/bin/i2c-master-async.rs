@@ -5,7 +5,7 @@ extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_imxrt::i2c;
+use embassy_imxrt::{bind_interrupts, i2c, peripherals};
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 
@@ -18,6 +18,10 @@ const ACC_STATUS_REG: u8 = 0x00;
 
 const ACC_ID: u8 = 0xC7;
 const ACC_STATUS_DATA_READY: u8 = 0xFF;
+
+bind_interrupts!(struct Irqs {
+    FLEXCOMM2 => i2c::InterruptHandler<peripherals::FLEXCOMM2>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -87,6 +91,7 @@ async fn main(_spawner: Spawner) {
         p.FLEXCOMM2,
         p.PIO0_18,
         p.PIO0_17,
+        Irqs,
         i2c::master::Speed::Standard,
         p.DMA0_CH5,
     )
