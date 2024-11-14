@@ -5,9 +5,9 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral};
 
 /// Windowed watchdog timer (WWDT) driver.
-pub struct WindowedWatchdog<'d, M: Mode> {
+pub struct WindowedWatchdog<'d> {
     info: Info,
-    _phantom: PhantomData<(&'d (), M)>,
+    _phantom: PhantomData<&'d ()>,
 }
 
 struct Info {
@@ -76,24 +76,6 @@ impl SealedInstance for crate::peripherals::WDT1 {
 }
 impl Instance for crate::peripherals::WDT1 {}
 
-trait SealedMode {}
-
-/// WWDT mode trait.
-#[allow(private_bounds)]
-pub trait Mode: SealedMode {}
-
-/// Watchdog is leashed and not currently running.
-pub struct Leashed;
-impl SealedMode for Leashed {}
-impl Mode for Leashed {}
-
-/// Watchdog is unleashed and will run permanently until reset.
-///
-/// Must be fed regularly or else timeout event will occur.
-pub struct Unleashed;
-impl SealedMode for Unleashed {}
-impl Mode for Unleashed {}
-
 // Fixed watchdog clock prescaler
 const PSC: u32 = 4;
 
@@ -134,7 +116,7 @@ fn init_lposc() {
     while clkctl0.lposcctl0().read().clkrdy().bit_is_clear() {}
 }
 
-impl<'d> WindowedWatchdog<'d, Leashed> {
+impl<'d> WindowedWatchdog<'d> {
     /// Creates a WWDT (Windowed Watchdog Timer) instance with a given timeout value in microseconds.
     ///
     /// [Self] has to be started with [`Self::unleash`], but should be configured beforehand.
@@ -213,26 +195,15 @@ impl<'d> WindowedWatchdog<'d, Leashed> {
     ///
     /// Most configuration (such as setting thresholds/feed windows, locking/protecting, etc)
     /// must be performed before this call.
-    #[must_use]
-    pub fn unleash(self) -> WindowedWatchdog<'d, Unleashed> {
+    pub fn unleash(&mut self) {
         self.info.regs.mod_().modify(|_, w| w.wden().set_bit());
-
-        let mut unleashed_wwdt = WindowedWatchdog {
-            info: self.info,
-            _phantom: PhantomData,
-        };
-
-        unleashed_wwdt.feed();
-        unleashed_wwdt
     }
-}
 
-impl WindowedWatchdog<'_, Unleashed> {
     /// Reloads the watchdog timeout counter to the time set by [`Self::set_timeout`].
     pub fn feed(&mut self) {
-        /* Disable interrupts to prevent possibility of watchdog registers from being accessed in between
-         * writes of feed sequence bytes as per datasheet's recommendation.
-         */
+        // Disable interrupts to prevent possibility of watchdog
+        // registers from being accessed in between writes of feed
+        // sequence bytes as per datasheet's recommendation.
         critical_section::with(|_| {
             [0xAA, 0x55]
                 .iter()
@@ -241,7 +212,7 @@ impl WindowedWatchdog<'_, Unleashed> {
     }
 }
 
-impl<M: Mode> WindowedWatchdog<'_, M> {
+impl WindowedWatchdog<'_> {
     /// Returns true if the warning flag is set.
     ///
     /// Flag is set if watchdog timeout counter has fallen below the time

@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
 
     unsafe { NVIC::unmask(Interrupt::WDT0) };
 
-    let mut wwdt = wwdt.unleash();
+    wwdt.unleash();
     info!("Watchdog enabled!");
 
     // Feed 5 times, afterwards watchdog will reset CPU
