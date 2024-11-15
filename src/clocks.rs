@@ -1556,39 +1556,47 @@ pub fn disable<T: SysconPeripheral>() {
     T::disable_perph_clock();
 }
 macro_rules! impl_perph_clk {
-    ($port:ident) => {
-        impl SealedSysconPeripheral for crate::peripherals::$port {
+    ($peripheral:ident, $clkctl:ident, $clkreg:ident, $rstctl:ident, $rstreg:ident, $bit:expr) => {
+        impl SealedSysconPeripheral for crate::peripherals::$peripheral {
             fn enable_and_reset_perph_clock() {
                 // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let cc1 = unsafe { pac::Clkctl1::steal() };
-                let rc1 = unsafe { pac::Rstctl1::steal() };
+                let cc1 = unsafe { pac::$clkctl::steal() };
+                let rc1 = unsafe { pac::$rstctl::steal() };
 
                 paste! {
-                    cc1.pscctl1().modify(|_r, w| w.[<$port:lower _clk>]().enable_clock());
-                    rc1.prstctl1().modify(|_r, w| w.[<$port:lower _rst>]().clear_reset());
+                    // SAFETY: unsafe due to the use of bits()
+                    cc1.[<$clkreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
+
+                    // SAFETY: unsafe due to the use of bits()
+                    rc1.[<$rstreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
                 }
             }
+
             fn disable_perph_clock() {
                 // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let cc1 = unsafe { pac::Clkctl1::steal() };
-                let rc1 = unsafe { pac::Rstctl1::steal() };
+                let cc1 = unsafe { pac::$clkctl::steal() };
+                let rc1 = unsafe { pac::$rstctl::steal() };
 
                 paste! {
-                    rc1.prstctl1().modify(|_r, w| w.[<$port:lower _rst>]().set_reset());
-                    cc1.pscctl1().modify(|_r, w| w.[<$port:lower _clk>]().disable_clock());
+                    // SAFETY: unsafe due to the use of bits()
+                    rc1.[<$rstreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
+
+                    // SAFETY: unsafe due to the use of bits()
+                    cc1.[<$clkreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
                 }
             }
         }
-        impl SysconPeripheral for crate::peripherals::$port {}
+
+        impl SysconPeripheral for crate::peripherals::$peripheral {}
     };
 }
 
-impl_perph_clk!(HSGPIO0);
-impl_perph_clk!(HSGPIO1);
-impl_perph_clk!(HSGPIO2);
-impl_perph_clk!(HSGPIO3);
-impl_perph_clk!(HSGPIO4);
-impl_perph_clk!(HSGPIO5);
-impl_perph_clk!(HSGPIO6);
-impl_perph_clk!(HSGPIO7);
-impl_perph_clk!(CRC);
+impl_perph_clk!(CRC, Clkctl1, pscctl1, Rstctl1, prstctl1, 16);
+impl_perph_clk!(HSGPIO0, Clkctl1, pscctl1, Rstctl1, prstctl1, 0);
+impl_perph_clk!(HSGPIO1, Clkctl1, pscctl1, Rstctl1, prstctl1, 1);
+impl_perph_clk!(HSGPIO2, Clkctl1, pscctl1, Rstctl1, prstctl1, 2);
+impl_perph_clk!(HSGPIO3, Clkctl1, pscctl1, Rstctl1, prstctl1, 3);
+impl_perph_clk!(HSGPIO4, Clkctl1, pscctl1, Rstctl1, prstctl1, 4);
+impl_perph_clk!(HSGPIO5, Clkctl1, pscctl1, Rstctl1, prstctl1, 5);
+impl_perph_clk!(HSGPIO6, Clkctl1, pscctl1, Rstctl1, prstctl1, 6);
+impl_perph_clk!(HSGPIO7, Clkctl1, pscctl1, Rstctl1, prstctl1, 7);
