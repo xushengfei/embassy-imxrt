@@ -25,3 +25,7 @@ jobs:
           run: rustup target add ${{ matrix.target }}
         - name: cargo build
           run: cargo build --target ${{ matrix.target }}
+        - name: change directory
+          run: |
+            cd examples\rt685s-evk
+            cargo test --test example_test 2>&1 | tee log.txt
