@@ -32,7 +32,7 @@ macro_rules! test_dma_channel {
                     dstbuf.iter().as_slice()
                 );
             } else {
-                info!(
+                error!(
                     "DMA transfer width: {}, on channel {} failed!",
                     width.byte_width(),
                     $number
