@@ -67,6 +67,17 @@ impl From<Width> for u8 {
     }
 }
 
+impl Width {
+    /// Width in bytes
+    pub fn byte_width(self) -> usize {
+        match self {
+            Width::Bit8 => 1,
+            Width::Bit16 => 2,
+            Width::Bit32 => 4,
+        }
+    }
+}
+
 /// DMA transfer direction
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
