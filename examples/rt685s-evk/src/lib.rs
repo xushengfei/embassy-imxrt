@@ -1,7 +1,7 @@
 #![no_std]
 
+use defmt_rtt as _;
 use mimxrt600_fcb::FlexSPIFlashConfigurationBlock;
-use {defmt_rtt as _, panic_probe as _};
 
 #[link_section = ".otfad"]
 #[used]
@@ -19,3 +19,15 @@ static BOOT_IMAGE_VERSION: u32 = 0x01000000;
 #[link_section = ".keystore"]
 #[used]
 static KEYSTORE: [u8; 2048] = [0; 2048];
+
+#[panic_handler]
+fn panic(p: &core::panic::PanicInfo) -> ! {
+    defmt::error!(
+        "FAILED: {} failed on line {} with error {}",
+        p.location().unwrap().file(),
+        p.location().unwrap().line(),
+        p.message().as_str()
+    );
+    cortex_m::asm::bkpt();
+    loop {}
+}

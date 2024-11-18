@@ -13,19 +13,21 @@ async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
     info!("Initializing GPIO");
-    unsafe { gpio::init() };
+    // unsafe { gpio::init() };
 
-    let mut led = gpio::Output::new(
-        p.PIO0_26,
-        gpio::Level::Low,
-        gpio::DriveMode::PushPull,
-        gpio::DriveStrength::Normal,
-        gpio::SlewRate::Standard,
-    );
+    // let mut led = gpio::Output::new(
+    //     p.PIO0_26,
+    //     gpio::Level::Low,
+    //     gpio::DriveMode::PushPull,
+    //     gpio::DriveStrength::Normal,
+    //     gpio::SlewRate::Standard,
+    // );
 
-    loop {
-        info!("Toggling LED");
-        led.toggle();
-        Timer::after_millis(1000).await;
-    }
+    info!("Toggling LED");
+    // led.toggle();
+    Timer::after_millis(1000).await;
+    assert!(false, "some failure");
+    info!("SUCCESS: Example terminated successfully");
+    defmt::flush();
+    cortex_m::asm::bkpt();
 }
