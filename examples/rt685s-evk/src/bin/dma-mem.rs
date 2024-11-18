@@ -3,6 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_imxrt::dma::channel::ChannelAndRequest;
 use embassy_imxrt::dma::transfer::{Priority, TransferOptions, Width};
 use embassy_imxrt::dma::Dma;
 use embassy_imxrt::peripherals::*;
@@ -13,33 +14,36 @@ const TEST_LEN: usize = 16;
 macro_rules! test_dma_channel {
     ($peripherals:expr, $instance:ident, $number:expr) => {
         let ch = Dma::reserve_channel::<$instance>($peripherals.$instance);
-
-        for width in [Width::Bit8, Width::Bit16, Width::Bit32] {
-            let mut srcbuf: [u8; TEST_LEN] = [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-            let mut dstbuf = [0u8; TEST_LEN];
-            srcbuf[0] = $number;
-
-            let mut options = TransferOptions::default();
-            options.width = width;
-            options.priority = Priority::Priority0;
-            ch.write_to_memory(&srcbuf[..], &mut dstbuf[..], options).await;
-
-            if srcbuf == dstbuf {
-                info!(
-                    "DMA transfer width: {}, on channel {} completed successfully: {:02x}",
-                    width.byte_width(),
-                    $number,
-                    dstbuf.iter().as_slice()
-                );
-            } else {
-                error!(
-                    "DMA transfer width: {}, on channel {} failed!",
-                    width.byte_width(),
-                    $number
-                );
-            }
-        }
+        dma_test(ch, $number).await;
     };
+}
+
+async fn dma_test(ch: ChannelAndRequest<'static>, number: usize) {
+    for width in [Width::Bit8, Width::Bit16, Width::Bit32] {
+        let mut srcbuf: [u8; TEST_LEN] = [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+        let mut dstbuf = [0u8; TEST_LEN];
+        srcbuf[0] = number as u8;
+
+        let mut options = TransferOptions::default();
+        options.width = width;
+        options.priority = Priority::Priority0;
+        ch.write_to_memory(&srcbuf[..], &mut dstbuf[..], options).await;
+
+        if srcbuf == dstbuf {
+            info!(
+                "DMA transfer width: {}, on channel {} completed successfully: {:02x}",
+                width.byte_width(),
+                number,
+                dstbuf.iter().as_slice()
+            );
+        } else {
+            error!(
+                "DMA transfer width: {}, on channel {} failed!",
+                width.byte_width(),
+                number
+            );
+        }
+    }
 }
 
 #[embassy_executor::main]
