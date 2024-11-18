@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use hasher::Hasher;
 
+use crate::clocks::enable_and_reset;
 use crate::peripherals::{DMA0_CH30, HASHCRYPT};
 use crate::{dma, pac};
 
@@ -62,11 +63,7 @@ impl<'d, M: Mode> Hashcrypt<'d, M> {
         peripheral: impl Peripheral<P = HASHCRYPT> + 'd,
         dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
     ) -> Self {
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        let rstctl0 = unsafe { crate::pac::Rstctl0::steal() };
-
-        clkctl0.pscctl0_set().write(|w| w.hashcrypt_clk().set_clock());
-        rstctl0.prstctl0_clr().write(|w| w.hashcrypt().clr_reset());
+        enable_and_reset::<HASHCRYPT>();
 
         into_ref!(peripheral);
 
