@@ -4,6 +4,9 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
 
+use crate::clocks::{enable_and_reset, SysconPeripheral};
+use crate::peripherals::{WDT0, WDT1};
+
 /// Windowed watchdog timer (WWDT) driver.
 pub struct WindowedWatchdog<'d> {
     info: Info,
@@ -24,7 +27,7 @@ trait SealedInstance {
 
 /// WWDT instance trait
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {}
+pub trait Instance: SealedInstance + Peripheral<P = Self> + SysconPeripheral + 'static + Send {}
 
 // Cortex-M33 watchdog
 impl SealedInstance for crate::peripherals::WDT0 {
@@ -37,18 +40,15 @@ impl SealedInstance for crate::peripherals::WDT0 {
     fn init() {
         init_lposc();
 
-        // Enable WWDT0 clock and set LPOSC as clock source
+        // REVISIT: Can we do this generically?
         let clkctl0 = unsafe { &*crate::pac::Clkctl0::ptr() };
-        clkctl0.pscctl2_set().write(|w| w.wwdt0_clk().set_bit());
         clkctl0.wdt0fclksel().modify(|_, w| w.sel().lposc());
-
-        // Clear WWDT0 peripheral reset
-        let rstctl0 = unsafe { &*crate::pac::Rstctl0::ptr() };
-        rstctl0.prstctl2_clr().write(|w| w.wwdt0().set_bit());
 
         // Allow WDT0 interrupts to wake device from deep-sleep mode
         let sysctl0 = unsafe { &*crate::pac::Sysctl0::ptr() };
         sysctl0.starten0_set().write(|w| w.wdt0().set_bit());
+
+        enable_and_reset::<WDT0>();
     }
 }
 impl Instance for crate::peripherals::WDT0 {}
@@ -66,12 +66,9 @@ impl SealedInstance for crate::peripherals::WDT1 {
 
         // Enable WWDT1 clock and set LPOSC as clock source
         let clkctl1 = unsafe { &*crate::pac::Clkctl1::ptr() };
-        clkctl1.pscctl2_set().write(|w| w.wwdt1_clk_set().set_bit());
         clkctl1.wdt1fclksel().modify(|_, w| w.sel().lposc());
 
-        // Clear WWDT1 peripheral reset
-        let rstctl1 = unsafe { &*crate::pac::Rstctl1::ptr() };
-        rstctl1.prstctl2_clr().write(|w| w.wwdt1_rst_clr().set_bit());
+        enable_and_reset::<WDT1>();
     }
 }
 impl Instance for crate::peripherals::WDT1 {}

@@ -10,9 +10,11 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::clocks::enable_and_reset;
 use crate::interrupt::typelevel::Binding;
 use crate::iopctl::{DriveMode, DriveStrength, Function, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::adc0;
+use crate::peripherals::ADC0;
 use crate::{interrupt, peripherals};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -301,23 +303,11 @@ impl SealedInstance for peripherals::ADC0 {
 fn init_adc_clk() {
     let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-    let rstctl0 = unsafe { crate::pac::Rstctl0::steal() };
-
-    // Enable clock to ADC block
-    clkctl0.pscctl1().write(|w| w.adc0_clk().enable_clock());
 
     // Power up ADC block
     sysctl0
         .pdruncfg0_clr()
         .write(|w| w.adc_pd().set_bit().adc_lp().set_bit());
-
-    // Reset ADC block
-    rstctl0.prstctl1_set().write(|w| w.adc0().set_reset());
-    while rstctl0.prstctl1().read().adc0().bit_is_clear() {}
-
-    // Clear ADC block reset
-    rstctl0.prstctl1_clr().write(|w| w.adc0().clr_reset());
-    while rstctl0.prstctl1().read().adc0().bit_is_set() {}
 
     // Configure ADC clock mux
     // Select LPOSC for now, unless we want to speed up the clocks
@@ -330,6 +320,8 @@ fn init_adc_clk() {
         .adc0fclkdiv()
         .write(|w| unsafe { w.div().bits(0x0).halt().clear_bit() });
     while clkctl0.adc0fclkdiv().read().reqflag().bit_is_set() {}
+
+    enable_and_reset::<ADC0>();
 }
 
 /// Voltage Reference

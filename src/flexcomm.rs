@@ -1,8 +1,11 @@
 //! implements flexcomm interface wrapper for easier usage across modules
 
+use embassy_hal_internal::Peripheral;
 use paste::paste;
 
-use crate::{pac, Peripheral};
+use crate::clocks::{enable_and_reset, SysconPeripheral};
+use crate::pac;
+use crate::peripherals::{FLEXCOMM0, FLEXCOMM1, FLEXCOMM2, FLEXCOMM3, FLEXCOMM4, FLEXCOMM5, FLEXCOMM6, FLEXCOMM7};
 
 /// clock selection option
 #[derive(Copy, Clone, Debug)]
@@ -33,7 +36,9 @@ mod sealed {
 }
 
 /// primary low-level flexcomm interface
-pub(crate) trait FlexcommLowLevel: sealed::Sealed + Peripheral {
+pub(crate) trait FlexcommLowLevel:
+    sealed::Sealed + Peripheral<P = Self> + SysconPeripheral + 'static + Send
+{
     // fetch the flexcomm register block for direct manipulation
     fn reg() -> &'static pac::flexcomm0::RegisterBlock;
 
@@ -60,8 +65,6 @@ macro_rules! impl_flexcomm {
 			// SAFETY: safe from single executor
 			let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
 
-			clkctl1.pscctl0_set().write(|w| w.[<fc $idx _clk_set>]().set_clock());
-
 			clkctl1.flexcomm($idx).fcfclksel().write(|w| match clk {
 			    Clock::Sfro => w.sel().sfro_clk(),
 			    Clock::Ffro => w.sel().ffro_clk(),
@@ -85,10 +88,7 @@ macro_rules! impl_flexcomm {
 				   // SAFETY: unsafe only used for .bits() call
 				   unsafe { w.mult().bits(0) });
 
-			// SAFETY: safe from single executor
-			let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
-
-			rstctl1.prstctl0_clr().write(|w| w.[<flexcomm $idx _rst_clr>]().set_bit());
+			enable_and_reset::<[<FLEXCOMM $idx>]>();
 		    }
 		}
 	    }

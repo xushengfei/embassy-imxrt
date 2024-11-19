@@ -9,6 +9,7 @@ use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
 
+use crate::clocks::{enable_and_reset, SysconPeripheral};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -50,13 +51,7 @@ impl<'d> Rng<'d> {
         _inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        // SAFETY: safe from single executor
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        // SAFETY: safe from single executor
-        let rstctl0 = unsafe { crate::pac::Rstctl0::steal() };
-
-        clkctl0.pscctl0_set().write(|w| w.rng_clk().set_clock());
-        rstctl0.prstctl0_clr().write(|w| w.rng().clr_reset());
+        enable_and_reset::<T>();
 
         into_ref!(_inner);
 
@@ -197,7 +192,7 @@ trait SealedInstance {
 
 /// RNG instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {
+pub trait Instance: SealedInstance + Peripheral<P = Self> + SysconPeripheral + 'static + Send {
     /// Interrupt for this RNG instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

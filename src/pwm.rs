@@ -129,7 +129,11 @@ impl Channel {
 
 // non-reexported (sealed) traits
 mod sealed {
-    pub trait SCTimer {
+    use embassy_hal_internal::Peripheral;
+
+    use crate::clocks::SysconPeripheral;
+
+    pub trait SCTimer: Peripheral<P = Self> + SysconPeripheral + 'static + Send {
         fn set_clock_source(clock: super::SCTClockSource);
         fn get_clock_rate(clock: super::SCTClockSource) -> super::Hertz;
         fn set_divisor(divisor: u8);
@@ -188,17 +192,6 @@ impl sealed::SCTimer for crate::peripherals::SCT0 {
 
         // SAFETY: safe so long as executed from single executor context or during initialization only
         let clkctl0 = unsafe { pac::Clkctl0::steal() };
-        // SAFETY: same constraints on safety: should only be done from single executor context or during init
-        let rstctl0 = unsafe { pac::Rstctl0::steal() };
-
-        match clock {
-            None => (),
-
-            // enable clock
-            _ => {
-                clkctl0.pscctl0_set().write(|w| w.sct_clk().set_clock());
-            }
-        }
 
         match clock {
             Main => clkctl0.sctfclksel().write(|w| w.sel().main_clk()),
@@ -210,14 +203,7 @@ impl sealed::SCTimer for crate::peripherals::SCT0 {
             None => clkctl0.sctfclksel().write(|w| w.sel().none()),
         }
 
-        match clock {
-            // disable clock
-            None => {
-                clkctl0.pscctl0_clr().write(|w| w.sct_clk().clr_clock());
-                rstctl0.prstctl0_set().write(|w| w.sct().set_reset());
-            }
-            _ => rstctl0.prstctl0_clr().write(|w| w.sct().clr_reset()),
-        }
+        enable_and_reset::<SCT0>();
     }
 
     fn get_clock_rate(clock: self::SCTClockSource) -> Hertz {
@@ -358,6 +344,9 @@ impl<T: sealed::SCTimer> Drop for SCTPwm<'_, T> {
 }
 
 pub use embedded_hal_02::Pwm;
+
+use crate::clocks::enable_and_reset;
+use crate::peripherals::SCT0;
 
 impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
     type Channel = Channel;

@@ -9,8 +9,10 @@ use core::ptr;
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::clocks::enable_and_reset;
 use crate::dma::channel::{Channel, ChannelAndRequest, Request};
-use crate::{interrupt, peripherals, Peripheral};
+use crate::peripherals::{self, DMA0};
+use crate::{interrupt, Peripheral};
 
 // TODO:
 //
@@ -106,16 +108,10 @@ fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
 /// Initialize DMA controllers (DMA0 only, for now)
 pub fn init() {
     // SAFETY: init should only be called once during HAL initialization
-    let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
-    let rstctl1 = unsafe { crate::pac::Rstctl1::steal() };
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
     let dmactl0 = unsafe { crate::pac::Dma0::steal() };
 
-    // Enable the DMA controller clock
-    clkctl1.pscctl1_set().write(|w| w.dmac0_clk_set().set_bit());
-
-    // Clear DMA reset
-    rstctl1.prstctl1_clr().write(|w| w.dmac0_rst_clr().set_bit());
+    enable_and_reset::<DMA0>();
 
     // Enable DMA controller
     dmactl0.ctrl().modify(|_, w| w.enable().set_bit());

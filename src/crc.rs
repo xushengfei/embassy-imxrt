@@ -4,9 +4,8 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::clocks::enable_and_reset;
-use crate::peripherals::{self, CRC};
-use crate::Peripheral;
+use crate::clocks::{enable_and_reset, SysconPeripheral};
+use crate::{peripherals, Peripheral};
 
 /// CRC driver.
 pub struct Crc<'d> {
@@ -86,7 +85,7 @@ impl<'d> Crc<'d> {
     /// Instantiates new CRC peripheral and initializes to default values.
     pub fn new<T: Instance>(_peripheral: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         // enable CRC clock
-        enable_and_reset::<CRC>();
+        enable_and_reset::<T>();
 
         into_ref!(_peripheral);
 
@@ -216,7 +215,7 @@ trait SealedInstance {
 
 /// CRC instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {}
+pub trait Instance: SealedInstance + Peripheral<P = Self> + SysconPeripheral + 'static + Send {}
 
 impl Instance for peripherals::CRC {}
 
