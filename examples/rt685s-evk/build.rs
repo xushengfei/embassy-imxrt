@@ -18,4 +18,28 @@ fn main() {
     // here, we ensure the build script is only re-run when
     // `memory.x` is changed.
     println!("cargo:rerun-if-changed=memory.x");
+
+    // Inject crate version into the .biv section.
+    File::create(out.join("biv.rs"))
+        .unwrap()
+        .write_all(
+            format!(
+                r##"
+#[link_section = ".biv"]
+#[used]
+static BOOT_IMAGE_VERSION: u32 = 0x{:02x}{:02x}{:02x}00;
+"##,
+                env!("CARGO_PKG_VERSION_MAJOR")
+                    .parse::<u8>()
+                    .expect("should have major version"),
+                env!("CARGO_PKG_VERSION_MINOR")
+                    .parse::<u8>()
+                    .expect("should have minor version"),
+                env!("CARGO_PKG_VERSION_PATCH")
+                    .parse::<u8>()
+                    .expect("should have patch version"),
+            )
+            .as_bytes(),
+        )
+        .unwrap();
 }
