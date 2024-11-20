@@ -84,13 +84,13 @@ impl<'d> ChannelConfig<'d> {
 }
 
 /// ADC interrupt handler
-pub struct InterruptHandler {
-    _empty: (),
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
 }
 
-impl interrupt::typelevel::Handler<interrupt::typelevel::ADC0> for InterruptHandler {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let reg = unsafe { crate::pac::Adc0::steal() };
+        let reg = T::info().regs;
 
         // Disable fifo watermark interrupt
         reg.ie().write(|w| w.fwmie().fwmie_0());
@@ -216,7 +216,7 @@ impl<'p, const N: usize> Adc<'p, N> {
     /// Create ADC driver.
     pub fn new<T: Instance>(
         _adc: impl Peripheral<P = T> + 'p,
-        _irq: impl Binding<interrupt::typelevel::ADC0, InterruptHandler>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'p,
         config: Config,
         channel_config: [ChannelConfig; N],
     ) -> Self {
@@ -287,9 +287,14 @@ trait SealedInstance {
 
 /// ADC instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {}
+pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send {
+    /// Interrupt for this ADC instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
-impl Instance for peripherals::ADC0 {}
+impl Instance for peripherals::ADC0 {
+    type Interrupt = crate::interrupt::typelevel::ADC0;
+}
 
 impl SealedInstance for peripherals::ADC0 {
     fn info() -> Info {
