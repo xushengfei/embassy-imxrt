@@ -1,15 +1,20 @@
 //! Universal Asynchronous Receiver Transmitter (UART) driver.
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
 use crate::dma::channel::ChannelAndRequest;
 use crate::gpio::{AnyPin, GpioPin as Pin};
+use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::pac::usart0::ctl::Cc;
+use crate::{dma, interrupt};
 
 /// Driver move trait.
 #[allow(private_bounds)]
@@ -19,6 +24,11 @@ pub trait Mode: sealed::Sealed {}
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
 impl Mode for Blocking {}
+
+/// Async mode.
+pub struct Async;
+impl sealed::Sealed for Async {}
+impl Mode for Async {}
 
 /// Uart driver.
 pub struct Uart<'a, M: Mode> {
@@ -122,7 +132,17 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {
-    /// Create a new blocking UART which can only send data
+    fn new_inner<T: Instance>(_tx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+        Self {
+            info: T::info(),
+            _tx_dma,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a> UartTx<'a, Blocking> {
+    /// Create a new UART which can only send data
     /// Unidirectional Uart - Tx only
     pub fn new_blocking<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
@@ -139,16 +159,6 @@ impl<'a, M: Mode> UartTx<'a, M> {
         Ok(Self::new_inner::<T>(None))
     }
 
-    fn new_inner<T: Instance>(_tx_dma: Option<ChannelAndRequest<'a>>) -> Self {
-        Self {
-            info: T::info(),
-            _tx_dma,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<'a> UartTx<'a, Blocking> {
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
         // SAFETY: unsafe only used for .bits()
         self.info
@@ -207,6 +217,16 @@ impl<'a> UartTx<'a, Blocking> {
 }
 
 impl<'a, M: Mode> UartRx<'a, M> {
+    fn new_inner<T: Instance>(_rx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+        Self {
+            info: T::info(),
+            _rx_dma,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a> UartRx<'a, Blocking> {
     /// Create a new blocking UART which can only receive data
     pub fn new_blocking<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
@@ -221,14 +241,6 @@ impl<'a, M: Mode> UartRx<'a, M> {
         Uart::<Blocking>::init::<T>(None, Some(_rx.reborrow()), config)?;
 
         Ok(Self::new_inner::<T>(None))
-    }
-
-    fn new_inner<T: Instance>(_rx_dma: Option<ChannelAndRequest<'a>>) -> Self {
-        Self {
-            info: T::info(),
-            _rx_dma,
-            _phantom: PhantomData,
-        }
     }
 }
 
@@ -286,32 +298,6 @@ impl UartRx<'_, Blocking> {
 }
 
 impl<'a, M: Mode> Uart<'a, M> {
-    /// Create a new blocking UART
-    pub fn new_blocking<T: Instance>(
-        _inner: impl Peripheral<P = T> + 'a,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
-        config: Config,
-    ) -> Result<Self> {
-        into_ref!(_inner);
-        into_ref!(tx);
-        into_ref!(rx);
-
-        tx.as_tx();
-        rx.as_rx();
-
-        let mut tx = tx.map_into();
-        let mut rx = rx.map_into();
-
-        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config)?;
-
-        Ok(Self {
-            info: T::info(),
-            tx: UartTx::new_inner::<T>(None),
-            rx: UartRx::new_inner::<T>(None),
-        })
-    }
-
     fn init<T: Instance>(
         tx: Option<PeripheralRef<'_, AnyPin>>,
         rx: Option<PeripheralRef<'_, AnyPin>>,
@@ -468,9 +454,48 @@ impl<'a, M: Mode> Uart<'a, M> {
 
         Ok(())
     }
+
+    /// Split the Uart into a transmitter and receiver, which is particularly
+    /// useful when having two tasks correlating to transmitting and receiving.
+    pub fn split(self) -> (UartTx<'a, M>, UartRx<'a, M>) {
+        (self.tx, self.rx)
+    }
+
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut UartTx<'a, M>, &mut UartRx<'a, M>) {
+        (&mut self.tx, &mut self.rx)
+    }
 }
 
 impl<'a> Uart<'a, Blocking> {
+    /// Create a new blocking UART
+    pub fn new_blocking<T: Instance>(
+        _inner: impl Peripheral<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
+        config: Config,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(tx);
+        into_ref!(rx);
+
+        tx.as_tx();
+        rx.as_rx();
+
+        let mut tx = tx.map_into();
+        let mut rx = rx.map_into();
+
+        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config)?;
+
+        Ok(Self {
+            info: T::info(),
+            tx: UartTx::new_inner::<T>(None),
+            rx: UartRx::new_inner::<T>(None),
+        })
+    }
+
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
         self.rx.blocking_read(buf)
@@ -500,18 +525,185 @@ impl<'a> Uart<'a, Blocking> {
     pub fn flush(&mut self) -> Result<()> {
         self.tx.flush()
     }
+}
 
-    /// Split the Uart into a transmitter and receiver, which is particularly
-    /// useful when having two tasks correlating to transmitting and receiving.
-    pub fn split(self) -> (UartTx<'a, Blocking>, UartRx<'a, Blocking>) {
-        (self.tx, self.rx)
+impl<'a> UartTx<'a, Async> {
+    /// Create a new DMA enabled UART which can only send data
+    pub fn new_async<T: Instance, D: dma::Instance>(
+        _inner: impl Peripheral<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
+        tx_dma: impl Peripheral<P = D> + 'a,
+        config: Config,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(tx);
+        tx.as_tx();
+
+        let mut _tx = tx.map_into();
+        Uart::<Async>::init::<T>(Some(_tx.reborrow()), None, config)?;
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        let tx_dma = dma::Dma::reserve_channel(tx_dma);
+
+        Ok(Self::new_inner::<T>(Some(tx_dma)))
     }
 
-    /// Split the Uart into a transmitter and receiver by mutable reference,
-    /// which is particularly useful when having two tasks correlating to
-    /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut UartTx<'a, Blocking>, &mut UartRx<'a, Blocking>) {
-        (&mut self.tx, &mut self.rx)
+    /// Transmit the provided buffer asynchronously.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<()> {
+        let regs = self.info.regs;
+
+        regs.fifocfg().modify(|_, w| w.dmatx().enabled());
+
+        self._tx_dma
+            .as_mut()
+            .unwrap()
+            .write_to_peripheral(buf, regs.fifowr().as_ptr() as *mut u8, Default::default());
+
+        let result = poll_fn(|cx| {
+            self._tx_dma.as_ref().unwrap().get_waker().register(cx.waker());
+            Poll::Ready(Ok(()))
+        })
+        .await;
+
+        regs.fifocfg().modify(|_, w| w.dmatx().disabled());
+
+        result
+    }
+
+    /// Flush UART TX asynchronously.
+    pub async fn flush(&mut self) -> Result<()> {
+        self.wait_on(
+            |me| {
+                if me.info.regs.stat().read().txidle().bit_is_set() {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| w.txidleen().set_bit());
+            },
+        )
+        .await
+    }
+
+    /// Calls `f` to check if we are ready or not.
+    /// If not, `g` is called once the waker is set (to eg enable the required interrupts).
+    async fn wait_on<F, U, G>(&mut self, mut f: F, mut g: G) -> U
+    where
+        F: FnMut(&mut Self) -> Poll<U>,
+        G: FnMut(&mut Self),
+    {
+        poll_fn(|cx| {
+            let r = f(self);
+
+            if r.is_pending() {
+                UART_WAKERS[self.info.index].register(cx.waker());
+                g(self);
+            }
+
+            r
+        })
+        .await
+    }
+}
+
+impl<'a> UartRx<'a, Async> {
+    /// Create a new DMA enabled UART which can only receive data
+    pub fn new_async<T: Instance, D: dma::Instance>(
+        _inner: impl Peripheral<P = T> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
+        rx_dma: impl Peripheral<P = D> + 'a,
+        config: Config,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(rx);
+        rx.as_rx();
+
+        let mut _rx = rx.map_into();
+        Uart::<Async>::init::<T>(None, Some(_rx.reborrow()), config)?;
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        let rx_dma = dma::Dma::reserve_channel(rx_dma);
+
+        Ok(Self::new_inner::<T>(Some(rx_dma)))
+    }
+
+    /// Read from UART RX asynchronously.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+        let regs = self.info.regs;
+
+        regs.fifocfg().modify(|_, w| w.dmarx().enabled());
+
+        self._rx_dma
+            .as_mut()
+            .unwrap()
+            .read_from_peripheral(regs.fiford().as_ptr() as *mut u8, buf, Default::default());
+
+        let result = poll_fn(|cx| {
+            self._rx_dma.as_ref().unwrap().get_waker().register(cx.waker());
+            Poll::Ready(Ok(()))
+        })
+        .await;
+
+        regs.fifocfg().modify(|_, w| w.dmarx().disabled());
+
+        result
+    }
+}
+
+impl<'a> Uart<'a, Async> {
+    /// Create a new DMA enabled UART
+    pub fn new_async<T: Instance, TXDMA: dma::Instance, RXDMA: dma::Instance>(
+        _inner: impl Peripheral<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
+        tx_dma: impl Peripheral<P = TXDMA> + 'a,
+        rx_dma: impl Peripheral<P = RXDMA> + 'a,
+        config: Config,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(tx);
+        into_ref!(rx);
+
+        tx.as_tx();
+        rx.as_rx();
+
+        let mut tx = tx.map_into();
+        let mut rx = rx.map_into();
+
+        let tx_dma = dma::Dma::reserve_channel(tx_dma);
+        let rx_dma = dma::Dma::reserve_channel(rx_dma);
+
+        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config)?;
+
+        Ok(Self {
+            info: T::info(),
+            tx: UartTx::new_inner::<T>(Some(tx_dma)),
+            rx: UartRx::new_inner::<T>(Some(rx_dma)),
+        })
+    }
+
+    /// Read from UART RX.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<()> {
+        self.rx.read(buf).await
+    }
+
+    /// Transmit the provided buffer.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<()> {
+        self.tx.write(buf).await
+    }
+
+    /// Flush UART TX.
+    pub async fn flush(&mut self) -> Result<()> {
+        self.tx.flush().await
     }
 }
 
@@ -715,15 +907,42 @@ impl embedded_io::Write for Uart<'_, Blocking> {
 
 struct Info {
     regs: &'static crate::pac::usart0::RegisterBlock,
+    index: usize,
 }
 
 trait SealedInstance {
     fn info() -> Info;
+    fn index() -> usize;
 }
 
-/// UART instancve trait.
+/// UART interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+const UART_COUNT: usize = 8;
+static UART_WAKERS: [AtomicWaker; UART_COUNT] = [const { AtomicWaker::new() }; UART_COUNT];
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let waker = &UART_WAKERS[T::index()];
+        let regs = T::info().regs;
+        let stat = regs.intstat().read();
+
+        if stat.txidle().bit_is_set() {
+            regs.intenclr().write(|w| w.txidleclr().set_bit());
+        }
+
+        waker.wake();
+    }
+}
+
+/// UART instance trait.
 #[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::IntoUsart + SealedInstance + Peripheral<P = Self> + 'static + Send {}
+pub trait Instance: crate::flexcomm::IntoUsart + SealedInstance + Peripheral<P = Self> + 'static + Send {
+    /// Interrupt for this UART instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 macro_rules! impl_instance {
     ($($n:expr),*) => {
@@ -733,11 +952,19 @@ macro_rules! impl_instance {
 		    fn info() -> Info {
 			Info {
 			    regs: unsafe { &*crate::pac::[<Usart $n>]::ptr() },
+			    index: $n,
 			}
 		    }
-                }
 
-		impl Instance for crate::peripherals::[<FLEXCOMM $n>] {}
+		    #[inline]
+		    fn index() -> usize {
+			$n
+		    }
+		}
+
+		impl Instance for crate::peripherals::[<FLEXCOMM $n>] {
+		    type Interrupt = crate::interrupt::typelevel::[<FLEXCOMM $n>];
+		}
 	    }
 	)*
     };
