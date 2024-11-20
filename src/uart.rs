@@ -9,23 +9,32 @@ use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRat
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::pac::usart0::ctl::Cc;
 
+/// Driver move trait.
+#[allow(private_bounds)]
+pub trait Mode: sealed::Sealed {}
+
+/// Blocking mode.
+pub struct Blocking;
+impl sealed::Sealed for Blocking {}
+impl Mode for Blocking {}
+
 /// Uart driver.
-pub struct Uart<'a> {
+pub struct Uart<'a, M: Mode> {
     info: Info,
-    tx: UartTx<'a>,
-    rx: UartRx<'a>,
+    tx: UartTx<'a, M>,
+    rx: UartRx<'a, M>,
 }
 
 /// Uart TX driver.
-pub struct UartTx<'a> {
+pub struct UartTx<'a, M: Mode> {
     info: Info,
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<(&'a (), M)>,
 }
 
 /// Uart RX driver.
-pub struct UartRx<'a> {
+pub struct UartRx<'a, M: Mode> {
     info: Info,
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<(&'a (), M)>,
 }
 
 /// UART config
@@ -108,7 +117,7 @@ pub enum Error {
 /// shorthand for -> Result<T>
 pub type Result<T> = core::result::Result<T, Error>;
 
-impl<'a> UartTx<'a> {
+impl<'a, M: Mode> UartTx<'a, M> {
     /// Create a new UART which can only send data
     /// Unidirectional Uart - Tx only
     pub fn new<T: Instance>(
@@ -121,7 +130,7 @@ impl<'a> UartTx<'a> {
         tx.as_tx();
 
         let mut _tx = tx.map_into();
-        Uart::init::<T>(Some(_tx.reborrow()), None, config)?;
+        Uart::<M>::init::<T>(Some(_tx.reborrow()), None, config)?;
 
         Ok(Self::new_inner::<T>())
     }
@@ -132,7 +141,9 @@ impl<'a> UartTx<'a> {
             _phantom: PhantomData,
         }
     }
+}
 
+impl<'a> UartTx<'a, Blocking> {
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
         // SAFETY: unsafe only used for .bits()
         self.info
@@ -190,7 +201,7 @@ impl<'a> UartTx<'a> {
     }
 }
 
-impl<'a> UartRx<'a> {
+impl<'a, M: Mode> UartRx<'a, M> {
     /// Create a new Uart which can only receive data
     pub fn new<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
@@ -202,7 +213,7 @@ impl<'a> UartRx<'a> {
         rx.as_rx();
 
         let mut _rx = rx.map_into();
-        Uart::init::<T>(None, Some(_rx.reborrow()), config)?;
+        Uart::<M>::init::<T>(None, Some(_rx.reborrow()), config)?;
 
         Ok(Self::new_inner::<T>())
     }
@@ -213,7 +224,9 @@ impl<'a> UartRx<'a> {
             _phantom: PhantomData,
         }
     }
+}
 
+impl UartRx<'_, Blocking> {
     fn read_byte_internal(&mut self) -> Result<u8> {
         if self.info.regs.fifostat().read().rxerr().bit_is_set() {
             self.info.regs.fifocfg().modify(|_, w| w.emptyrx().set_bit());
@@ -266,7 +279,7 @@ impl<'a> UartRx<'a> {
     }
 }
 
-impl<'a> Uart<'a> {
+impl<'a, M: Mode> Uart<'a, M> {
     /// Create a new UART
     pub fn new<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
@@ -451,7 +464,7 @@ impl<'a> Uart<'a> {
     }
 }
 
-impl<'a> Uart<'a> {
+impl<'a> Uart<'a, Blocking> {
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
         self.rx.blocking_read(buf)
@@ -484,19 +497,19 @@ impl<'a> Uart<'a> {
 
     /// Split the Uart into a transmitter and receiver, which is particularly
     /// useful when having two tasks correlating to transmitting and receiving.
-    pub fn split(self) -> (UartTx<'a>, UartRx<'a>) {
+    pub fn split(self) -> (UartTx<'a, Blocking>, UartRx<'a, Blocking>) {
         (self.tx, self.rx)
     }
 
     /// Split the Uart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut UartTx<'a>, &mut UartRx<'a>) {
+    pub fn split_ref(&mut self) -> (&mut UartTx<'a, Blocking>, &mut UartRx<'a, Blocking>) {
         (&mut self.tx, &mut self.rx)
     }
 }
 
-impl embedded_hal_02::serial::Read<u8> for UartRx<'_> {
+impl embedded_hal_02::serial::Read<u8> for UartRx<'_, Blocking> {
     type Error = Error;
 
     fn read(&mut self) -> core::result::Result<u8, nb::Error<Self::Error>> {
@@ -510,7 +523,7 @@ impl embedded_hal_02::serial::Read<u8> for UartRx<'_> {
     }
 }
 
-impl embedded_hal_02::serial::Write<u8> for UartTx<'_> {
+impl embedded_hal_02::serial::Write<u8> for UartTx<'_, Blocking> {
     type Error = Error;
 
     fn write(&mut self, word: u8) -> core::result::Result<(), nb::Error<Self::Error>> {
@@ -530,7 +543,7 @@ impl embedded_hal_02::serial::Write<u8> for UartTx<'_> {
     }
 }
 
-impl embedded_hal_02::blocking::serial::Write<u8> for UartTx<'_> {
+impl embedded_hal_02::blocking::serial::Write<u8> for UartTx<'_, Blocking> {
     type Error = Error;
 
     fn bwrite_all(&mut self, buffer: &[u8]) -> core::result::Result<(), Self::Error> {
@@ -542,7 +555,7 @@ impl embedded_hal_02::blocking::serial::Write<u8> for UartTx<'_> {
     }
 }
 
-impl embedded_hal_02::serial::Read<u8> for Uart<'_> {
+impl embedded_hal_02::serial::Read<u8> for Uart<'_, Blocking> {
     type Error = Error;
 
     fn read(&mut self) -> core::result::Result<u8, nb::Error<Self::Error>> {
@@ -550,7 +563,7 @@ impl embedded_hal_02::serial::Read<u8> for Uart<'_> {
     }
 }
 
-impl embedded_hal_02::serial::Write<u8> for Uart<'_> {
+impl embedded_hal_02::serial::Write<u8> for Uart<'_, Blocking> {
     type Error = Error;
 
     fn write(&mut self, word: u8) -> core::result::Result<(), nb::Error<Self::Error>> {
@@ -562,7 +575,7 @@ impl embedded_hal_02::serial::Write<u8> for Uart<'_> {
     }
 }
 
-impl embedded_hal_02::blocking::serial::Write<u8> for Uart<'_> {
+impl embedded_hal_02::blocking::serial::Write<u8> for Uart<'_, Blocking> {
     type Error = Error;
 
     fn bwrite_all(&mut self, buffer: &[u8]) -> core::result::Result<(), Self::Error> {
@@ -586,19 +599,19 @@ impl embedded_hal_nb::serial::Error for Error {
     }
 }
 
-impl embedded_hal_nb::serial::ErrorType for UartRx<'_> {
+impl embedded_hal_nb::serial::ErrorType for UartRx<'_, Blocking> {
     type Error = Error;
 }
 
-impl embedded_hal_nb::serial::ErrorType for UartTx<'_> {
+impl embedded_hal_nb::serial::ErrorType for UartTx<'_, Blocking> {
     type Error = Error;
 }
 
-impl embedded_hal_nb::serial::ErrorType for Uart<'_> {
+impl embedded_hal_nb::serial::ErrorType for Uart<'_, Blocking> {
     type Error = Error;
 }
 
-impl embedded_hal_nb::serial::Read for UartRx<'_> {
+impl embedded_hal_nb::serial::Read for UartRx<'_, Blocking> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         let mut buf = [0; 1];
 
@@ -610,7 +623,7 @@ impl embedded_hal_nb::serial::Read for UartRx<'_> {
     }
 }
 
-impl embedded_hal_nb::serial::Write for UartTx<'_> {
+impl embedded_hal_nb::serial::Write for UartTx<'_, Blocking> {
     fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> {
         match self.write(&[word]) {
             Ok(_) => Ok(()),
@@ -628,13 +641,13 @@ impl embedded_hal_nb::serial::Write for UartTx<'_> {
     }
 }
 
-impl embedded_hal_nb::serial::Read for Uart<'_> {
+impl embedded_hal_nb::serial::Read for Uart<'_, Blocking> {
     fn read(&mut self) -> core::result::Result<u8, nb::Error<Self::Error>> {
         embedded_hal_02::serial::Read::read(&mut self.rx)
     }
 }
 
-impl embedded_hal_nb::serial::Write for Uart<'_> {
+impl embedded_hal_nb::serial::Write for Uart<'_, Blocking> {
     fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
         self.blocking_write(&[char]).map_err(nb::Error::Other)
     }
@@ -650,25 +663,25 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl embedded_io::ErrorType for UartRx<'_> {
+impl embedded_io::ErrorType for UartRx<'_, Blocking> {
     type Error = Error;
 }
 
-impl embedded_io::ErrorType for UartTx<'_> {
+impl embedded_io::ErrorType for UartTx<'_, Blocking> {
     type Error = Error;
 }
 
-impl embedded_io::ErrorType for Uart<'_> {
+impl embedded_io::ErrorType for Uart<'_, Blocking> {
     type Error = Error;
 }
 
-impl embedded_io::Read for UartRx<'_> {
+impl embedded_io::Read for UartRx<'_, Blocking> {
     fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
         self.blocking_read(buf).map(|_| buf.len())
     }
 }
 
-impl embedded_io::Write for UartTx<'_> {
+impl embedded_io::Write for UartTx<'_, Blocking> {
     fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
         self.blocking_write(buf).map(|_| buf.len())
     }
@@ -678,13 +691,13 @@ impl embedded_io::Write for UartTx<'_> {
     }
 }
 
-impl embedded_io::Read for Uart<'_> {
+impl embedded_io::Read for Uart<'_, Blocking> {
     fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
         embedded_io::Read::read(&mut self.rx, buf)
     }
 }
 
-impl embedded_io::Write for Uart<'_> {
+impl embedded_io::Write for Uart<'_, Blocking> {
     fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
         embedded_io::Write::write(&mut self.tx, buf)
     }

@@ -5,12 +5,12 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::uart::{Uart, UartRx, UartTx};
+use embassy_imxrt::uart::{Blocking, Uart, UartRx, UartTx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn usart4_task(mut uart: UartRx<'static>) {
+async fn usart4_task(mut uart: UartRx<'static, Blocking>) {
     info!("RX Task");
 
     loop {
@@ -27,7 +27,7 @@ async fn usart4_task(mut uart: UartRx<'static>) {
 }
 
 #[embassy_executor::task]
-async fn usart2_task(mut uart: UartTx<'static>) {
+async fn usart2_task(mut uart: UartTx<'static, Blocking>) {
     info!("TX Task");
 
     loop {
