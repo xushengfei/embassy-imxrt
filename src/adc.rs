@@ -110,7 +110,27 @@ struct Info {
 
 impl<const N: usize> Adc<'_, N> {
     fn init() {
-        init_adc_clk();
+        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
+        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+
+        // Power up ADC block
+        sysctl0
+            .pdruncfg0_clr()
+            .write(|w| w.adc_pd().set_bit().adc_lp().set_bit());
+
+        // Configure ADC clock mux
+        // Select LPOSC for now, unless we want to speed up the clocks
+        clkctl0.adc0fclksel0().write(|w| w.sel().lposc());
+        clkctl0.adc0fclksel1().write(|w| w.sel().adc0fclksel0_mux_out());
+
+        // Set ADC clock divisor
+        clkctl0.adc0fclkdiv().modify(|_, w| w.reset().set_bit());
+        clkctl0
+            .adc0fclkdiv()
+            .write(|w| unsafe { w.div().bits(0x0).halt().clear_bit() });
+        while clkctl0.adc0fclkdiv().read().reqflag().bit_is_set() {}
+
+        enable_and_reset::<ADC0>();
     }
 
     fn configure_adc(&mut self, config: Config) {
@@ -303,30 +323,6 @@ impl SealedInstance for peripherals::ADC0 {
             regs: unsafe { crate::pac::Adc0::steal() },
         }
     }
-}
-
-fn init_adc_clk() {
-    let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-    let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-
-    // Power up ADC block
-    sysctl0
-        .pdruncfg0_clr()
-        .write(|w| w.adc_pd().set_bit().adc_lp().set_bit());
-
-    // Configure ADC clock mux
-    // Select LPOSC for now, unless we want to speed up the clocks
-    clkctl0.adc0fclksel0().write(|w| w.sel().lposc());
-    clkctl0.adc0fclksel1().write(|w| w.sel().adc0fclksel0_mux_out());
-
-    // Set ADC clock divisor
-    clkctl0.adc0fclkdiv().modify(|_, w| w.reset().set_bit());
-    clkctl0
-        .adc0fclkdiv()
-        .write(|w| unsafe { w.div().bits(0x0).halt().clear_bit() });
-    while clkctl0.adc0fclkdiv().read().reqflag().bit_is_set() {}
-
-    enable_and_reset::<ADC0>();
 }
 
 /// Voltage Reference
