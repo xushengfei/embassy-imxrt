@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use paste::paste;
 
 use crate::dma::channel::ChannelAndRequest;
 use crate::gpio::{AnyPin, GpioPin as Pin};
@@ -725,27 +726,24 @@ trait SealedInstance {
 pub trait Instance: crate::flexcomm::IntoUsart + SealedInstance + Peripheral<P = Self> + 'static + Send {}
 
 macro_rules! impl_instance {
-    ($fc:ident, $usart:ident) => {
-        impl SealedInstance for crate::peripherals::$fc {
-            fn info() -> Info {
-                Info {
-                    regs: unsafe { &*crate::pac::$usart::ptr() },
+    ($($n:expr),*) => {
+	$(
+	    paste!{
+		impl SealedInstance for crate::peripherals::[<FLEXCOMM $n>] {
+		    fn info() -> Info {
+			Info {
+			    regs: unsafe { &*crate::pac::[<Usart $n>]::ptr() },
+			}
+		    }
                 }
-            }
-        }
 
-        impl Instance for crate::peripherals::$fc {}
+		impl Instance for crate::peripherals::[<FLEXCOMM $n>] {}
+	    }
+	)*
     };
 }
 
-impl_instance!(FLEXCOMM0, Usart0);
-impl_instance!(FLEXCOMM1, Usart1);
-impl_instance!(FLEXCOMM2, Usart2);
-impl_instance!(FLEXCOMM3, Usart3);
-impl_instance!(FLEXCOMM4, Usart4);
-impl_instance!(FLEXCOMM5, Usart5);
-impl_instance!(FLEXCOMM6, Usart6);
-impl_instance!(FLEXCOMM7, Usart7);
+impl_instance!(0, 1, 2, 3, 4, 5, 6, 7);
 
 macro_rules! impl_uart_tx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
