@@ -1,5 +1,4 @@
 //! Universal Asynchronous Receiver Transmitter (UART) driver.
-//!
 
 use core::marker::PhantomData;
 
@@ -9,66 +8,6 @@ use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::pac::usart0::ctl::Cc;
-
-/// Summary
-///
-/// This code implements very basic functionality of the UART.- blocking reading/ writing a single buffer of data
-/// TODO: Default register mapping is non-secure. Yet to find the mapping for secure address "0x50106000" in embassy 658 pac
-/// TODO: Add flow control
-///
-mod sealed {
-    /// simply seal a trait
-    pub trait Sealed {}
-}
-
-impl<T: Pin> sealed::Sealed for T {}
-
-struct Info {
-    regs: &'static crate::pac::usart0::RegisterBlock,
-}
-
-trait SealedInstance {
-    fn info() -> Info;
-}
-
-/// Uart
-#[allow(private_bounds)]
-pub trait Instance: crate::flexcomm::IntoUsart + SealedInstance + Peripheral<P = Self> + 'static + Send {}
-
-macro_rules! impl_instance {
-    ($fc:ident, $usart:ident) => {
-        impl SealedInstance for crate::peripherals::$fc {
-            fn info() -> Info {
-                Info {
-                    regs: unsafe { &*crate::pac::$usart::ptr() },
-                }
-            }
-        }
-
-        impl Instance for crate::peripherals::$fc {}
-    };
-}
-
-impl_instance!(FLEXCOMM0, Usart0);
-impl_instance!(FLEXCOMM1, Usart1);
-impl_instance!(FLEXCOMM2, Usart2);
-impl_instance!(FLEXCOMM3, Usart3);
-impl_instance!(FLEXCOMM4, Usart4);
-impl_instance!(FLEXCOMM5, Usart5);
-impl_instance!(FLEXCOMM6, Usart6);
-impl_instance!(FLEXCOMM7, Usart7);
-
-/// io configuration trait for Uart Tx configuration
-pub trait TxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
-    /// convert the pin to appropriate function for Uart Tx  usage
-    fn as_tx(&self);
-}
-
-/// io configuration trait for Uart Rx configuration
-pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
-    /// convert the pin to appropriate function for Uart Rx  usage
-    fn as_rx(&self);
-}
 
 /// Uart driver.
 pub struct Uart<'a> {
@@ -755,6 +694,41 @@ impl embedded_io::Write for Uart<'_> {
     }
 }
 
+struct Info {
+    regs: &'static crate::pac::usart0::RegisterBlock,
+}
+
+trait SealedInstance {
+    fn info() -> Info;
+}
+
+/// UART instancve trait.
+#[allow(private_bounds)]
+pub trait Instance: crate::flexcomm::IntoUsart + SealedInstance + Peripheral<P = Self> + 'static + Send {}
+
+macro_rules! impl_instance {
+    ($fc:ident, $usart:ident) => {
+        impl SealedInstance for crate::peripherals::$fc {
+            fn info() -> Info {
+                Info {
+                    regs: unsafe { &*crate::pac::$usart::ptr() },
+                }
+            }
+        }
+
+        impl Instance for crate::peripherals::$fc {}
+    };
+}
+
+impl_instance!(FLEXCOMM0, Usart0);
+impl_instance!(FLEXCOMM1, Usart1);
+impl_instance!(FLEXCOMM2, Usart2);
+impl_instance!(FLEXCOMM3, Usart3);
+impl_instance!(FLEXCOMM4, Usart4);
+impl_instance!(FLEXCOMM5, Usart5);
+impl_instance!(FLEXCOMM6, Usart6);
+impl_instance!(FLEXCOMM7, Usart7);
+
 macro_rules! impl_uart_tx {
     ($piom_n:ident, $fn:ident, $fcn:ident) => {
         impl TxPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
@@ -771,6 +745,25 @@ macro_rules! impl_uart_tx {
             }
         }
     };
+}
+
+mod sealed {
+    /// simply seal a trait
+    pub trait Sealed {}
+}
+
+impl<T: Pin> sealed::Sealed for T {}
+
+/// io configuration trait for Uart Tx configuration
+pub trait TxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for Uart Tx  usage
+    fn as_tx(&self);
+}
+
+/// io configuration trait for Uart Rx configuration
+pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for Uart Rx  usage
+    fn as_rx(&self);
 }
 
 macro_rules! impl_uart_rx {
