@@ -53,10 +53,12 @@ async fn main(spawner: Spawner) {
 
     info!("UART test start");
 
-    let usart4 = Uart::new_async(
+    let usart4 = Uart::new_with_rtscts(
         p.FLEXCOMM4,
         p.PIO0_29,
         p.PIO0_30,
+        p.PIO1_0,
+        p.PIO0_31,
         Irqs,
         p.DMA0_CH9,
         p.DMA0_CH8,
@@ -65,10 +67,12 @@ async fn main(spawner: Spawner) {
     .unwrap();
     spawner.must_spawn(usart4_task(usart4));
 
-    let usart2 = Uart::new_async(
+    let usart2 = Uart::new_with_rtscts(
         p.FLEXCOMM2,
         p.PIO0_15,
         p.PIO0_16,
+        p.PIO0_18,
+        p.PIO0_17,
         Irqs,
         p.DMA0_CH5,
         p.DMA0_CH4,

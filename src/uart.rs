@@ -154,7 +154,7 @@ impl<'a> UartTx<'a, Blocking> {
         tx.as_tx();
 
         let mut _tx = tx.map_into();
-        Uart::<Blocking>::init::<T>(Some(_tx.reborrow()), None, config)?;
+        Uart::<Blocking>::init::<T>(Some(_tx.reborrow()), None, None, None, config)?;
 
         Ok(Self::new_inner::<T>(None))
     }
@@ -238,7 +238,7 @@ impl<'a> UartRx<'a, Blocking> {
         rx.as_rx();
 
         let mut _rx = rx.map_into();
-        Uart::<Blocking>::init::<T>(None, Some(_rx.reborrow()), config)?;
+        Uart::<Blocking>::init::<T>(None, Some(_rx.reborrow()), None, None, config)?;
 
         Ok(Self::new_inner::<T>(None))
     }
@@ -301,6 +301,8 @@ impl<'a, M: Mode> Uart<'a, M> {
     fn init<T: Instance>(
         tx: Option<PeripheralRef<'_, AnyPin>>,
         rx: Option<PeripheralRef<'_, AnyPin>>,
+        rts: Option<PeripheralRef<'_, AnyPin>>,
+        cts: Option<PeripheralRef<'_, AnyPin>>,
         config: Config,
     ) -> Result<()> {
         // TODO - clock integration
@@ -322,6 +324,10 @@ impl<'a, M: Mode> Uart<'a, M> {
 
             // clear FIFO error
             regs.fifostat().write(|w| w.rxerr().set_bit());
+        }
+
+        if rts.is_some() && cts.is_some() {
+            regs.cfg().modify(|_, w| w.ctsen().enabled());
         }
 
         Self::set_baudrate_inner::<T>(config.baudrate)?;
@@ -487,7 +493,7 @@ impl<'a> Uart<'a, Blocking> {
         let mut tx = tx.map_into();
         let mut rx = rx.map_into();
 
-        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config)?;
+        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), None, None, config)?;
 
         Ok(Self {
             info: T::info(),
@@ -541,7 +547,7 @@ impl<'a> UartTx<'a, Async> {
         tx.as_tx();
 
         let mut _tx = tx.map_into();
-        Uart::<Async>::init::<T>(Some(_tx.reborrow()), None, config)?;
+        Uart::<Async>::init::<T>(Some(_tx.reborrow()), None, None, None, config)?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -625,7 +631,7 @@ impl<'a> UartRx<'a, Async> {
         rx.as_rx();
 
         let mut _rx = rx.map_into();
-        Uart::<Async>::init::<T>(None, Some(_rx.reborrow()), config)?;
+        Uart::<Async>::init::<T>(None, Some(_rx.reborrow()), None, None, config)?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -682,7 +688,53 @@ impl<'a> Uart<'a, Async> {
         let tx_dma = dma::Dma::reserve_channel(tx_dma);
         let rx_dma = dma::Dma::reserve_channel(rx_dma);
 
-        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config)?;
+        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), None, None, config)?;
+
+        Ok(Self {
+            info: T::info(),
+            tx: UartTx::new_inner::<T>(Some(tx_dma)),
+            rx: UartRx::new_inner::<T>(Some(rx_dma)),
+        })
+    }
+
+    /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
+    pub fn new_with_rtscts<T: Instance, TXDMA: dma::Instance, RXDMA: dma::Instance>(
+        _inner: impl Peripheral<P = T> + 'a,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'a,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'a,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'a,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'a,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
+        tx_dma: impl Peripheral<P = TXDMA> + 'a,
+        rx_dma: impl Peripheral<P = RXDMA> + 'a,
+        config: Config,
+    ) -> Result<Self> {
+        into_ref!(_inner);
+        into_ref!(tx);
+        into_ref!(rx);
+        into_ref!(rts);
+        into_ref!(cts);
+
+        tx.as_tx();
+        rx.as_rx();
+        rts.as_rts();
+        cts.as_cts();
+
+        let mut tx = tx.map_into();
+        let mut rx = rx.map_into();
+        let mut rts = rts.map_into();
+        let mut cts = cts.map_into();
+
+        let tx_dma = dma::Dma::reserve_channel(tx_dma);
+        let rx_dma = dma::Dma::reserve_channel(rx_dma);
+
+        Self::init::<T>(
+            Some(tx.reborrow()),
+            Some(rx.reborrow()),
+            Some(rts.reborrow()),
+            Some(cts.reborrow()),
+            config,
+        )?;
 
         Ok(Self {
             info: T::info(),
