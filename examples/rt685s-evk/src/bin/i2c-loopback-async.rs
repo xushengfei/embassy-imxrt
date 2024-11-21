@@ -5,16 +5,10 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::{
-    bind_interrupts,
-    i2c::{
-        self,
-        master::{I2cMaster, Speed},
-        slave::{Address, Command, I2cSlave, Response},
-        Async,
-    },
-    peripherals,
-};
+use embassy_imxrt::i2c::master::{I2cMaster, Speed};
+use embassy_imxrt::i2c::slave::{Address, Command, I2cSlave, Response};
+use embassy_imxrt::i2c::{self, Async};
+use embassy_imxrt::{bind_interrupts, peripherals};
 use embedded_hal_async::i2c::I2c;
 
 const ADDR: u8 = 0x20;

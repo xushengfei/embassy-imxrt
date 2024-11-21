@@ -33,7 +33,7 @@ async fn usart2_task(mut uart: UartTx<'static>) {
     loop {
         let buf = "Testing\0".as_bytes();
 
-        uart.blocking_write(&buf).unwrap();
+        uart.blocking_write(buf).unwrap();
 
         Timer::after_millis(10).await;
     }
