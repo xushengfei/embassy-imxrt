@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
+use crate::dma::channel::ChannelAndRequest;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
 use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
@@ -28,12 +29,14 @@ pub struct Uart<'a, M: Mode> {
 /// Uart TX driver.
 pub struct UartTx<'a, M: Mode> {
     info: Info,
+    _tx_dma: Option<ChannelAndRequest<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
 /// Uart RX driver.
 pub struct UartRx<'a, M: Mode> {
     info: Info,
+    _rx_dma: Option<ChannelAndRequest<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
@@ -132,12 +135,13 @@ impl<'a, M: Mode> UartTx<'a, M> {
         let mut _tx = tx.map_into();
         Uart::<Blocking>::init::<T>(Some(_tx.reborrow()), None, config)?;
 
-        Ok(Self::new_inner::<T>())
+        Ok(Self::new_inner::<T>(None))
     }
 
-    fn new_inner<T: Instance>() -> Self {
+    fn new_inner<T: Instance>(_tx_dma: Option<ChannelAndRequest<'a>>) -> Self {
         Self {
             info: T::info(),
+            _tx_dma,
             _phantom: PhantomData,
         }
     }
@@ -215,12 +219,13 @@ impl<'a, M: Mode> UartRx<'a, M> {
         let mut _rx = rx.map_into();
         Uart::<Blocking>::init::<T>(None, Some(_rx.reborrow()), config)?;
 
-        Ok(Self::new_inner::<T>())
+        Ok(Self::new_inner::<T>(None))
     }
 
-    fn new_inner<T: Instance>() -> Self {
+    fn new_inner<T: Instance>(_rx_dma: Option<ChannelAndRequest<'a>>) -> Self {
         Self {
             info: T::info(),
+            _rx_dma,
             _phantom: PhantomData,
         }
     }
@@ -301,8 +306,8 @@ impl<'a, M: Mode> Uart<'a, M> {
 
         Ok(Self {
             info: T::info(),
-            tx: UartTx::new_inner::<T>(),
-            rx: UartRx::new_inner::<T>(),
+            tx: UartTx::new_inner::<T>(None),
+            rx: UartRx::new_inner::<T>(None),
         })
     }
 
