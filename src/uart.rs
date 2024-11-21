@@ -991,6 +991,18 @@ pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
     fn as_rx(&self);
 }
 
+/// io configuration trait for Uart Cts
+pub trait CtsPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for Uart Cts usage
+    fn as_cts(&self);
+}
+
+/// io configuration trait for Uart Rts
+pub trait RtsPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+    /// convert the pin to appropriate function for Uart Rts usage
+    fn as_rts(&self);
+}
+
 macro_rules! impl_pin_trait {
     ($fcn:ident, $mode:ident, $($pin:ident, $fn:ident),*) => {
         paste! {
@@ -1016,31 +1028,47 @@ macro_rules! impl_pin_trait {
 // FLEXCOMM0
 impl_pin_trait!(FLEXCOMM0, tx, PIO0_1, F1, PIO3_1, F5);
 impl_pin_trait!(FLEXCOMM0, rx, PIO0_2, F1, PIO3_2, F5);
+impl_pin_trait!(FLEXCOMM0, cts, PIO0_3, F1, PIO3_3, F5);
+impl_pin_trait!(FLEXCOMM0, rts, PIO0_4, F1, PIO3_4, F5);
 
 // FLEXCOMM1
 impl_pin_trait!(FLEXCOMM1, tx, PIO0_8, F1, PIO7_26, F1);
 impl_pin_trait!(FLEXCOMM1, rx, PIO0_9, F1, PIO7_27, F1);
+impl_pin_trait!(FLEXCOMM1, cts, PIO0_10, F1, PIO7_28, F1);
+impl_pin_trait!(FLEXCOMM1, rts, PIO0_11, F1, PIO7_29, F1);
 
 // FLEXCOMM2
 impl_pin_trait!(FLEXCOMM2, tx, PIO0_15, F1, PIO7_30, F5);
 impl_pin_trait!(FLEXCOMM2, rx, PIO0_16, F1, PIO7_31, F5);
+impl_pin_trait!(FLEXCOMM2, cts, PIO0_17, F1, PIO4_8, F5);
+impl_pin_trait!(FLEXCOMM2, rts, PIO0_18, F1);
 
 // FLEXCOMM3
 impl_pin_trait!(FLEXCOMM3, tx, PIO0_22, F1);
 impl_pin_trait!(FLEXCOMM3, rx, PIO0_23, F1);
+impl_pin_trait!(FLEXCOMM3, cts, PIO0_24, F1);
+impl_pin_trait!(FLEXCOMM3, rts, PIO0_25, F1);
 
 // FLEXCOMM4
 impl_pin_trait!(FLEXCOMM4, tx, PIO0_29, F1);
 impl_pin_trait!(FLEXCOMM4, rx, PIO0_30, F1);
+impl_pin_trait!(FLEXCOMM4, cts, PIO0_31, F1);
+impl_pin_trait!(FLEXCOMM4, rts, PIO1_0, F1);
 
 // FLEXCOMM5
 impl_pin_trait!(FLEXCOMM5, tx, PIO1_4, F1, PIO3_16, F5);
 impl_pin_trait!(FLEXCOMM5, rx, PIO1_5, F1, PIO3_17, F5);
+impl_pin_trait!(FLEXCOMM5, cts, PIO1_6, F1, PIO3_18, F5);
+impl_pin_trait!(FLEXCOMM5, rts, PIO1_7, F1, PIO3_23, F5);
 
 // FLEXCOMM6
 impl_pin_trait!(FLEXCOMM6, tx, PIO3_26, F1);
 impl_pin_trait!(FLEXCOMM6, rx, PIO3_27, F1);
+impl_pin_trait!(FLEXCOMM6, cts, PIO3_28, F1);
+impl_pin_trait!(FLEXCOMM6, rts, PIO3_29, F1);
 
 // FLEXCOMM7
 impl_pin_trait!(FLEXCOMM7, tx, PIO4_1, F1);
 impl_pin_trait!(FLEXCOMM7, rx, PIO4_2, F1);
+impl_pin_trait!(FLEXCOMM7, cts, PIO4_3, F1);
+impl_pin_trait!(FLEXCOMM7, rts, PIO4_4, F1);
