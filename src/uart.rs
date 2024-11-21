@@ -118,9 +118,9 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {
-    /// Create a new UART which can only send data
+    /// Create a new blocking UART which can only send data
     /// Unidirectional Uart - Tx only
-    pub fn new<T: Instance>(
+    pub fn new_blocking<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         config: Config,
@@ -130,7 +130,7 @@ impl<'a, M: Mode> UartTx<'a, M> {
         tx.as_tx();
 
         let mut _tx = tx.map_into();
-        Uart::<M>::init::<T>(Some(_tx.reborrow()), None, config)?;
+        Uart::<Blocking>::init::<T>(Some(_tx.reborrow()), None, config)?;
 
         Ok(Self::new_inner::<T>())
     }
@@ -202,8 +202,8 @@ impl<'a> UartTx<'a, Blocking> {
 }
 
 impl<'a, M: Mode> UartRx<'a, M> {
-    /// Create a new Uart which can only receive data
-    pub fn new<T: Instance>(
+    /// Create a new blocking UART which can only receive data
+    pub fn new_blocking<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         config: Config,
@@ -213,7 +213,7 @@ impl<'a, M: Mode> UartRx<'a, M> {
         rx.as_rx();
 
         let mut _rx = rx.map_into();
-        Uart::<M>::init::<T>(None, Some(_rx.reborrow()), config)?;
+        Uart::<Blocking>::init::<T>(None, Some(_rx.reborrow()), config)?;
 
         Ok(Self::new_inner::<T>())
     }
@@ -280,8 +280,8 @@ impl UartRx<'_, Blocking> {
 }
 
 impl<'a, M: Mode> Uart<'a, M> {
-    /// Create a new UART
-    pub fn new<T: Instance>(
+    /// Create a new blocking UART
+    pub fn new_blocking<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
