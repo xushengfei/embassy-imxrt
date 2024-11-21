@@ -972,24 +972,6 @@ macro_rules! impl_instance {
 
 impl_instance!(0, 1, 2, 3, 4, 5, 6, 7);
 
-macro_rules! impl_uart_tx {
-    ($piom_n:ident, $fn:ident, $fcn:ident) => {
-        impl TxPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_tx(&self) {
-                // UM11147 table 507 pg 495
-                self.set_function(crate::iopctl::Function::$fn)
-                    .set_pull(Pull::None)
-                    .enable_input_buffer()
-                    .set_slew_rate(SlewRate::Standard)
-                    .set_drive_strength(DriveStrength::Normal)
-                    .disable_analog_multiplex()
-                    .set_drive_mode(DriveMode::PushPull)
-                    .set_input_inverter(Inverter::Disabled);
-            }
-        }
-    };
-}
-
 mod sealed {
     /// simply seal a trait
     pub trait Sealed {}
@@ -1009,60 +991,56 @@ pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
     fn as_rx(&self);
 }
 
-macro_rules! impl_uart_rx {
-    ($piom_n:ident, $fn:ident, $fcn:ident) => {
-        impl RxPin<crate::peripherals::$fcn> for crate::peripherals::$piom_n {
-            fn as_rx(&self) {
-                // UM11147 table 507 pg 495
-                self.set_function(crate::iopctl::Function::$fn)
-                    .set_pull(Pull::None)
-                    .enable_input_buffer()
-                    .set_slew_rate(SlewRate::Standard)
-                    .set_drive_strength(DriveStrength::Normal)
-                    .disable_analog_multiplex()
-                    .set_drive_mode(DriveMode::PushPull)
-                    .set_input_inverter(Inverter::Disabled);
-            }
+macro_rules! impl_pin_trait {
+    ($fcn:ident, $mode:ident, $($pin:ident, $fn:ident),*) => {
+        paste! {
+	    $(
+                impl [<$mode:camel Pin>]<crate::peripherals::$fcn> for crate::peripherals::$pin {
+                    fn [<as_ $mode>](&self) {
+                        // UM11147 table 507 pg 495
+                        self.set_function(crate::iopctl::Function::$fn)
+                            .set_pull(Pull::None)
+                            .enable_input_buffer()
+                            .set_slew_rate(SlewRate::Standard)
+                            .set_drive_strength(DriveStrength::Normal)
+                            .disable_analog_multiplex()
+                            .set_drive_mode(DriveMode::PushPull)
+                            .set_input_inverter(Inverter::Disabled);
+                    }
+                }
+	    )*
         }
     };
 }
 
-// Flexcomm0 Uart TX/Rx
-impl_uart_tx!(PIO0_1, F1, FLEXCOMM0); //Tx
-impl_uart_rx!(PIO0_2, F1, FLEXCOMM0); //Rx
-impl_uart_tx!(PIO3_1, F5, FLEXCOMM0); //Tx
-impl_uart_rx!(PIO3_2, F5, FLEXCOMM0); //Rx
+// FLEXCOMM0
+impl_pin_trait!(FLEXCOMM0, tx, PIO0_1, F1, PIO3_1, F5);
+impl_pin_trait!(FLEXCOMM0, rx, PIO0_2, F1, PIO3_2, F5);
 
-// Flexcomm1 Uart TX/Rx
-impl_uart_tx!(PIO0_8, F1, FLEXCOMM1); //Tx
-impl_uart_rx!(PIO0_9, F1, FLEXCOMM1); //Rx
-impl_uart_tx!(PIO7_26, F1, FLEXCOMM1); //Tx
-impl_uart_rx!(PIO7_27, F1, FLEXCOMM1); //Rx
+// FLEXCOMM1
+impl_pin_trait!(FLEXCOMM1, tx, PIO0_8, F1, PIO7_26, F1);
+impl_pin_trait!(FLEXCOMM1, rx, PIO0_9, F1, PIO7_27, F1);
 
-// Flexcomm2 Uart Tx/Rx
-impl_uart_tx!(PIO0_15, F1, FLEXCOMM2); //Tx
-impl_uart_rx!(PIO0_16, F1, FLEXCOMM2); //Rx
-impl_uart_tx!(PIO7_30, F5, FLEXCOMM2); //Tx
-impl_uart_rx!(PIO7_31, F5, FLEXCOMM2); //Rx
+// FLEXCOMM2
+impl_pin_trait!(FLEXCOMM2, tx, PIO0_15, F1, PIO7_30, F5);
+impl_pin_trait!(FLEXCOMM2, rx, PIO0_16, F1, PIO7_31, F5);
 
-// Flexcomm3 Uart Tx/Rx
-impl_uart_tx!(PIO0_22, F1, FLEXCOMM3); //Tx
-impl_uart_rx!(PIO0_23, F1, FLEXCOMM3); //Rx
+// FLEXCOMM3
+impl_pin_trait!(FLEXCOMM3, tx, PIO0_22, F1);
+impl_pin_trait!(FLEXCOMM3, rx, PIO0_23, F1);
 
-// Flexcomm4 Uart Tx/Rx
-impl_uart_tx!(PIO0_29, F1, FLEXCOMM4); //Tx
-impl_uart_rx!(PIO0_30, F1, FLEXCOMM4); //Rx
+// FLEXCOMM4
+impl_pin_trait!(FLEXCOMM4, tx, PIO0_29, F1);
+impl_pin_trait!(FLEXCOMM4, rx, PIO0_30, F1);
 
-// Flexcomm5 Uart Tx/Rx
-impl_uart_tx!(PIO1_4, F1, FLEXCOMM5); //Tx
-impl_uart_rx!(PIO1_5, F1, FLEXCOMM5); //Rx
-impl_uart_tx!(PIO3_16, F5, FLEXCOMM5); //Tx
-impl_uart_rx!(PIO3_17, F5, FLEXCOMM5); //Rx
+// FLEXCOMM5
+impl_pin_trait!(FLEXCOMM5, tx, PIO1_4, F1, PIO3_16, F5);
+impl_pin_trait!(FLEXCOMM5, rx, PIO1_5, F1, PIO3_17, F5);
 
-// Flexcomm6 Uart Tx/Rx
-impl_uart_tx!(PIO3_26, F1, FLEXCOMM6); //Tx
-impl_uart_rx!(PIO3_27, F1, FLEXCOMM6); //Rx
+// FLEXCOMM6
+impl_pin_trait!(FLEXCOMM6, tx, PIO3_26, F1);
+impl_pin_trait!(FLEXCOMM6, rx, PIO3_27, F1);
 
-// Flexcomm7 Uart Tx/Rx
-impl_uart_tx!(PIO4_1, F1, FLEXCOMM7); //Tx
-impl_uart_rx!(PIO4_2, F1, FLEXCOMM7); //Rx
+// FLEXCOMM7
+impl_pin_trait!(FLEXCOMM7, tx, PIO4_1, F1);
+impl_pin_trait!(FLEXCOMM7, rx, PIO4_2, F1);
