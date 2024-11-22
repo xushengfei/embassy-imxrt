@@ -1,5 +1,9 @@
 //! DMA transfer management
 
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
 use crate::dma::channel::Channel;
 
 /// DMA transfer options
@@ -162,5 +166,30 @@ impl<'d> Transfer<'d> {
         channel.trigger_channel();
 
         Self { _inner: channel }
+    }
+}
+
+impl Unpin for Transfer<'_> {}
+impl Future for Transfer<'_> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let channel = self._inner.info.ch_num;
+
+        // Re-register the waker on each call to poll() because any calls to
+        // wake will deregister the waker.
+        super::DMA_WAKERS[channel].register(cx.waker());
+
+        if self._inner.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl Drop for Transfer<'_> {
+    fn drop(&mut self) {
+        self._inner.abort()
     }
 }
