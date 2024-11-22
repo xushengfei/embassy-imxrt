@@ -3,9 +3,11 @@ use core::iter::zip;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::select::select;
+
 use super::{Async, Blocking, Hashcrypt, Mode};
 use crate::dma;
-use crate::dma::transfer::Width;
+use crate::dma::transfer::{Transfer, Width};
 
 /// Block length
 pub const BLOCK_LEN: usize = 64;
@@ -135,22 +137,24 @@ impl<'d, 'a> Hasher<'d, 'a, Async> {
             ..Default::default()
         };
 
-        self.hashcrypt.dma_ch.as_ref().unwrap().write_to_peripheral(
+        let transfer = Transfer::new_write(
+            self.hashcrypt.dma_ch.as_ref().unwrap(),
             data,
             self.hashcrypt.hashcrypt.indata().as_ptr() as *mut u8,
             options,
         );
 
-        poll_fn(|cx| {
-            self.hashcrypt.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
+        select(
+            transfer,
+            poll_fn(|_| {
+                // Check if transfer is already complete
+                if self.hashcrypt.hashcrypt.status().read().waiting().is_waiting() {
+                    return Poll::Ready(());
+                }
 
-            // Check if transfer is already complete
-            if self.hashcrypt.hashcrypt.status().read().waiting().is_waiting() {
-                return Poll::Ready(());
-            }
-
-            Poll::Pending
-        })
+                Poll::Pending
+            }),
+        )
         .await;
 
         // Wait for the digest to finish, this takes <100 clock cycles so it's not worth doing async
