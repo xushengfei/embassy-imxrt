@@ -9,6 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
 use crate::dma::channel::Channel;
+use crate::dma::transfer::Transfer;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
@@ -563,20 +564,17 @@ impl<'a> UartTx<'a, Async> {
 
         regs.fifocfg().modify(|_, w| w.dmatx().enabled());
 
-        self._tx_dma
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(buf, regs.fifowr().as_ptr() as *mut u8, Default::default());
-
-        let result = poll_fn(|cx| {
-            self._tx_dma.as_ref().unwrap().get_waker().register(cx.waker());
-            Poll::Ready(Ok(()))
-        })
+        Transfer::new_write(
+            self._tx_dma.as_ref().unwrap(),
+            buf,
+            regs.fifowr().as_ptr() as *mut u8,
+            Default::default(),
+        )
         .await;
 
         regs.fifocfg().modify(|_, w| w.dmatx().disabled());
 
-        result
+        Ok(())
     }
 
     /// Flush UART TX asynchronously.
@@ -647,20 +645,17 @@ impl<'a> UartRx<'a, Async> {
 
         regs.fifocfg().modify(|_, w| w.dmarx().enabled());
 
-        self._rx_dma
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(regs.fiford().as_ptr() as *mut u8, buf, Default::default());
-
-        let result = poll_fn(|cx| {
-            self._rx_dma.as_ref().unwrap().get_waker().register(cx.waker());
-            Poll::Ready(Ok(()))
-        })
+        Transfer::new_read(
+            self._rx_dma.as_ref().unwrap(),
+            regs.fiford().as_ptr() as *mut u8,
+            buf,
+            Default::default(),
+        )
         .await;
 
         regs.fifocfg().modify(|_, w| w.dmarx().disabled());
 
-        result
+        Ok(())
     }
 }
 
