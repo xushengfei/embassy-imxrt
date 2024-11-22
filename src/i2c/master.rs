@@ -3,6 +3,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::select::{select, Either};
 use embassy_hal_internal::into_ref;
 
 use super::{
@@ -349,44 +350,48 @@ impl<'a> I2cMaster<'a, Async> {
         // After address is acknowledged, enable DMA
         i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-        let options = dma::transfer::TransferOptions::default();
+        let transfer = dma::transfer::Transfer::new_read(
+            self.dma_ch.as_mut().unwrap(),
+            i2cregs.mstdat().as_ptr() as *mut u8,
+            read,
+            Default::default(),
+        );
 
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(i2cregs.mstdat().as_ptr() as *mut u8, read, options);
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                I2C_WAKERS[self.info.index].register(cx.waker());
 
-        let res = self
-            .wait_on(
-                |me| {
-                    let stat = me.info.regs.stat().read();
+                i2cregs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
 
-                    if stat.mststate().is_receive_ready() {
-                        Poll::Ready(Ok(()))
-                    } else if stat.mstarbloss().is_arbitration_loss() {
-                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
-                    } else if stat.mstststperr().is_error() {
-                        Poll::Ready(Err(TransferError::StartStopError.into()))
-                    } else {
-                        Poll::Pending
-                    }
-                },
-                |me| {
-                    me.info.regs.intenset().write(|w| {
-                        w.mstpendingen()
-                            .set_bit()
-                            .mstarblossen()
-                            .set_bit()
-                            .mstststperren()
-                            .set_bit()
-                    });
-                },
-            )
-            .await;
+                let stat = i2cregs.stat().read();
+
+                if stat.mststate().is_receive_ready() {
+                    Poll::Ready(Ok(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
+        .await;
 
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
-        res
+        match res {
+            Either::First(_) | Either::Second(Ok(_)) => Ok(()),
+            Either::Second(e) => e,
+        }
     }
 
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
@@ -402,43 +407,48 @@ impl<'a> I2cMaster<'a, Async> {
         // After address is acknowledged, enable DMA
         i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-        let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
+        let transfer = dma::transfer::Transfer::new_write(
+            self.dma_ch.as_mut().unwrap(),
+            write,
+            i2cregs.mstdat().as_ptr() as *mut u8,
+            Default::default(),
+        );
 
-        let res = self
-            .wait_on(
-                |me| {
-                    let stat = me.info.regs.stat().read();
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                I2C_WAKERS[self.info.index].register(cx.waker());
 
-                    if stat.mststate().is_transmit_ready() {
-                        Poll::Ready(Ok(()))
-                    } else if stat.mstarbloss().is_arbitration_loss() {
-                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
-                    } else if stat.mstststperr().is_error() {
-                        Poll::Ready(Err(TransferError::StartStopError.into()))
-                    } else {
-                        Poll::Pending
-                    }
-                },
-                |me| {
-                    me.info.regs.intenset().write(|w| {
-                        w.mstpendingen()
-                            .set_bit()
-                            .mstarblossen()
-                            .set_bit()
-                            .mstststperren()
-                            .set_bit()
-                    });
-                },
-            )
-            .await;
+                i2cregs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+
+                let stat = i2cregs.stat().read();
+
+                if stat.mststate().is_transmit_ready() {
+                    Poll::Ready(Ok(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
+        .await;
 
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
-        res
+        match res {
+            Either::First(_) | Either::Second(Ok(_)) => Ok(()),
+            Either::Second(e) => e,
+        }
     }
 
     async fn stop(&mut self) -> Result<()> {
@@ -487,7 +497,6 @@ impl<'a> I2cMaster<'a, Async> {
 
             if r.is_pending() {
                 I2C_WAKERS[self.info.index].register(cx.waker());
-                self.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
 
                 g(self);
             }
