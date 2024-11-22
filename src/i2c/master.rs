@@ -346,19 +346,15 @@ impl<'a> I2cMaster<'a, Async> {
 
         self.start(address, true).await?;
 
-        if read.len() > 1 {
-            // After address is acknowledged, enable DMA
-            i2cregs.mstctl().write(|w| w.mstdma().enabled());
+        // After address is acknowledged, enable DMA
+        i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-            let options = dma::transfer::TransferOptions::default();
+        let options = dma::transfer::TransferOptions::default();
 
-            self.dma_ch
-                .as_mut()
-                .unwrap()
-                .read_from_peripheral(i2cregs.mstdat().as_ptr() as *mut u8, read, options);
-        } else {
-            read[0] = i2cregs.mstdat().read().data().bits();
-        }
+        self.dma_ch
+            .as_mut()
+            .unwrap()
+            .read_from_peripheral(i2cregs.mstdat().as_ptr() as *mut u8, read, options);
 
         let res = self
             .wait_on(
@@ -388,10 +384,6 @@ impl<'a> I2cMaster<'a, Async> {
             )
             .await;
 
-        // Here we're unconditionally disabling DMA, even if we have
-        // not used it. The only reason for doing this is to avoid an extra
-        // branch. We're assuming it's always okay to clear `MSTDMA' even if
-        // it's already cleared.
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
         res
@@ -400,7 +392,6 @@ impl<'a> I2cMaster<'a, Async> {
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.info.regs;
-        let mut is_dma = false;
 
         self.start(address, false).await?;
 
@@ -408,30 +399,21 @@ impl<'a> I2cMaster<'a, Async> {
             return Ok(());
         }
 
-        if write.len() > 1 {
-            // After address is acknowledged, enable DMA
-            i2cregs.mstctl().write(|w| w.mstdma().enabled());
+        // After address is acknowledged, enable DMA
+        i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-            let options = dma::transfer::TransferOptions::default();
-            self.dma_ch
-                .as_mut()
-                .unwrap()
-                .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
-            is_dma = true;
-        } else {
-            i2cregs.mstdat().write(|w|
-                // SAFETY: unsafe only due to .bits usage
-                unsafe { w.data().bits(write[0]) });
-
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-        }
+        let options = dma::transfer::TransferOptions::default();
+        self.dma_ch
+            .as_mut()
+            .unwrap()
+            .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
 
         let res = self
             .wait_on(
                 |me| {
                     let stat = me.info.regs.stat().read();
 
-                    if !is_dma && stat.mstpending().is_pending() || is_dma && stat.mststate().is_transmit_ready() {
+                    if stat.mststate().is_transmit_ready() {
                         Poll::Ready(Ok(()))
                     } else if stat.mstarbloss().is_arbitration_loss() {
                         Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
@@ -454,10 +436,6 @@ impl<'a> I2cMaster<'a, Async> {
             )
             .await;
 
-        // Here we're unconditionally disabling DMA, even if we have
-        // not used it. The only reason for doing this is to avoid an extra
-        // branch. We're assuming it's always okay to clear `MSTDMA' even if
-        // it's already cleared.
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
         res
