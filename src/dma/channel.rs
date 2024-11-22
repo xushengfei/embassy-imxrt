@@ -10,15 +10,10 @@ use super::{DESCRIPTORS, DMA_WAKERS};
 use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 use crate::dma::DmaInfo;
 
-/// DMA request identifier
-pub type Request = u8;
-
 /// Convenience wrapper, contains a DMA channel and a request
 pub struct ChannelAndRequest<'d> {
     /// DMA channel
     pub channel: Channel<'d>,
-    /// DMA request
-    pub _request: Request,
 }
 
 impl<'d> ChannelAndRequest<'d> {
