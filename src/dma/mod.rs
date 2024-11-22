@@ -149,13 +149,13 @@ struct DmaInfo {
 impl<'d> Dma<'d> {
     /// Reserves a DMA channel for exclusive use
     pub fn reserve_channel<T: Instance>(_inner: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d> {
-        let request: Request = 0; //
+        let _request: Request = 0; //
         let channel = Channel {
             info: T::info(),
             _lifetime: PhantomData,
         };
 
-        ChannelAndRequest { channel, request }
+        ChannelAndRequest { channel, _request }
     }
 }
 

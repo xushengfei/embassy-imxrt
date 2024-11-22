@@ -18,7 +18,7 @@ pub struct ChannelAndRequest<'d> {
     /// DMA channel
     pub channel: Channel<'d>,
     /// DMA request
-    pub request: Request,
+    pub _request: Request,
 }
 
 impl<'d> ChannelAndRequest<'d> {
@@ -29,12 +29,12 @@ impl<'d> ChannelAndRequest<'d> {
         buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Transfer<'d> {
-        Transfer::new_read(&self.channel, self.request, peri_addr, buf, options)
+        Transfer::new_read(&self.channel, peri_addr, buf, options)
     }
 
     /// Writes from a memory buffer to a peripheral
     pub fn write_to_peripheral(&'d self, buf: &'d [u8], peri_addr: *mut u8, options: TransferOptions) -> Transfer<'d> {
-        Transfer::new_write(&self.channel, self.request, buf, peri_addr, options)
+        Transfer::new_write(&self.channel, buf, peri_addr, options)
     }
 
     /// Writes from a memory buffer to another memory buffer
@@ -44,7 +44,7 @@ impl<'d> ChannelAndRequest<'d> {
         dst_buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Transfer<'d> {
-        let transfer = Transfer::new_write_mem(&self.channel, self.request, src_buf, dst_buf, options);
+        let transfer = Transfer::new_write_mem(&self.channel, src_buf, dst_buf, options);
         self.poll_transfer_complete().await;
         transfer
     }
