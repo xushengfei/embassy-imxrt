@@ -4,6 +4,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::select::select;
 use embassy_hal_internal::{into_ref, Peripheral};
 
 use super::{
@@ -372,35 +373,40 @@ impl I2cSlave<'_, Async> {
         i2c.intenset()
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
-        let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(i2c.slvdat().as_ptr() as *mut u8, buf, options);
+        let transfer = dma::transfer::Transfer::new_read(
+            self.dma_ch.as_mut().unwrap(),
+            i2c.slvdat().as_ptr() as *mut u8,
+            buf,
+            Default::default(),
+        );
 
-        poll_fn(|cx| {
-            let i2c = self.info.regs;
-            let dma = self.dma_ch.as_ref().unwrap();
+        select(
+            transfer,
+            poll_fn(|cx| {
+                let i2c = self.info.regs;
 
-            I2C_WAKERS[self.info.index].register(cx.waker());
-            dma.get_waker().register(cx.waker());
+                I2C_WAKERS[self.info.index].register(cx.waker());
 
-            let stat = i2c.stat().read();
-            // Did master send a stop?
-            if stat.slvdesel().is_deselected() {
-                return Poll::Ready(());
-            }
-            // Does SW need to intervene?
-            if stat.slvpending().is_pending() {
-                return Poll::Ready(());
-            }
-            // Did we complete the DMA transfer and does the master still have more data for us?
-            if !dma.is_active() && stat.slvstate().is_slave_receive() {
-                return Poll::Ready(());
-            }
+                let stat = i2c.stat().read();
 
-            Poll::Pending
-        })
+                // Did master send a stop?
+                if stat.slvdesel().is_deselected() {
+                    return Poll::Ready(());
+                }
+
+                // Does SW need to intervene?
+                if stat.slvpending().is_pending() {
+                    return Poll::Ready(());
+                }
+
+                // Did we complete the DMA transfer and does the master still have more data for us?
+                if stat.slvstate().is_slave_receive() {
+                    return Poll::Ready(());
+                }
+
+                Poll::Pending
+            }),
+        )
         .await;
 
         // Complete DMA transaction and get transfer count
@@ -443,31 +449,35 @@ impl I2cSlave<'_, Async> {
         i2c.intenset()
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
-        let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(buf, i2c.slvdat().as_ptr() as *mut u8, options);
+        let transfer = dma::transfer::Transfer::new_write(
+            self.dma_ch.as_mut().unwrap(),
+            buf,
+            i2c.slvdat().as_ptr() as *mut u8,
+            Default::default(),
+        );
 
-        poll_fn(|cx| {
-            let i2c = self.info.regs;
-            let dma = self.dma_ch.as_ref().unwrap();
+        select(
+            transfer,
+            poll_fn(|cx| {
+                let i2c = self.info.regs;
 
-            I2C_WAKERS[self.info.index].register(cx.waker());
-            dma.get_waker().register(cx.waker());
+                I2C_WAKERS[self.info.index].register(cx.waker());
 
-            let stat = i2c.stat().read();
-            // Master sent a stop or nack
-            if stat.slvdesel().is_deselected() {
-                return Poll::Ready(());
-            }
-            // We need SW intervention
-            if stat.slvpending().is_pending() {
-                return Poll::Ready(());
-            }
+                let stat = i2c.stat().read();
 
-            Poll::Pending
-        })
+                // Master sent a stop or nack
+                if stat.slvdesel().is_deselected() {
+                    return Poll::Ready(());
+                }
+
+                // We need SW intervention
+                if stat.slvpending().is_pending() {
+                    return Poll::Ready(());
+                }
+
+                Poll::Pending
+            }),
+        )
         .await;
 
         // Complete DMA transaction and get transfer count
