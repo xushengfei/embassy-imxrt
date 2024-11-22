@@ -8,7 +8,7 @@ use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
-use crate::dma::channel::ChannelAndRequest;
+use crate::dma::channel::Channel;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
@@ -40,14 +40,14 @@ pub struct Uart<'a, M: Mode> {
 /// Uart TX driver.
 pub struct UartTx<'a, M: Mode> {
     info: Info,
-    _tx_dma: Option<ChannelAndRequest<'a>>,
+    _tx_dma: Option<Channel<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
 /// Uart RX driver.
 pub struct UartRx<'a, M: Mode> {
     info: Info,
-    _rx_dma: Option<ChannelAndRequest<'a>>,
+    _rx_dma: Option<Channel<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
@@ -132,7 +132,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {
-    fn new_inner<T: Instance>(_tx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+    fn new_inner<T: Instance>(_tx_dma: Option<Channel<'a>>) -> Self {
         Self {
             info: T::info(),
             _tx_dma,
@@ -217,7 +217,7 @@ impl<'a> UartTx<'a, Blocking> {
 }
 
 impl<'a, M: Mode> UartRx<'a, M> {
-    fn new_inner<T: Instance>(_rx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+    fn new_inner<T: Instance>(_rx_dma: Option<Channel<'a>>) -> Self {
         Self {
             info: T::info(),
             _rx_dma,

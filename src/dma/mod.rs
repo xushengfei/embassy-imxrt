@@ -10,7 +10,7 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::clocks::enable_and_reset;
-use crate::dma::channel::{Channel, ChannelAndRequest};
+use crate::dma::channel::Channel;
 use crate::peripherals::{self, DMA0};
 use crate::{interrupt, Peripheral};
 
@@ -148,13 +148,11 @@ struct DmaInfo {
 
 impl<'d> Dma<'d> {
     /// Reserves a DMA channel for exclusive use
-    pub fn reserve_channel<T: Instance>(_inner: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d> {
-        let channel = Channel {
+    pub fn reserve_channel<T: Instance>(_inner: impl Peripheral<P = T> + 'd) -> Channel<'d> {
+        Channel {
             info: T::info(),
             _lifetime: PhantomData,
-        };
-
-        ChannelAndRequest { channel }
+        }
     }
 }
 

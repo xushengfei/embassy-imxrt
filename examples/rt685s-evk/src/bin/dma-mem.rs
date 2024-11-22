@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::dma::channel::ChannelAndRequest;
+use embassy_imxrt::dma::channel::Channel;
 use embassy_imxrt::dma::transfer::{Priority, TransferOptions, Width};
 use embassy_imxrt::dma::Dma;
 use embassy_imxrt::peripherals::*;
@@ -18,7 +18,7 @@ macro_rules! test_dma_channel {
     };
 }
 
-async fn dma_test(ch: ChannelAndRequest<'static>, number: usize) {
+async fn dma_test(ch: Channel<'static>, number: usize) {
     for width in [Width::Bit8, Width::Bit16, Width::Bit32] {
         let mut srcbuf: [u8; TEST_LEN] = [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
         let mut dstbuf = [0u8; TEST_LEN];

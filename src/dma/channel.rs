@@ -10,13 +10,7 @@ use super::{DESCRIPTORS, DMA_WAKERS};
 use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 use crate::dma::DmaInfo;
 
-/// Convenience wrapper, contains a DMA channel and a request
-pub struct ChannelAndRequest<'d> {
-    /// DMA channel
-    pub channel: Channel<'d>,
-}
-
-impl<'d> ChannelAndRequest<'d> {
+impl<'d> Channel<'d> {
     /// Reads from a peripheral into a memory buffer
     pub fn read_from_peripheral(
         &'d self,
@@ -24,12 +18,12 @@ impl<'d> ChannelAndRequest<'d> {
         buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Transfer<'d> {
-        Transfer::new_read(&self.channel, peri_addr, buf, options)
+        Transfer::new_read(self, peri_addr, buf, options)
     }
 
     /// Writes from a memory buffer to a peripheral
     pub fn write_to_peripheral(&'d self, buf: &'d [u8], peri_addr: *mut u8, options: TransferOptions) -> Transfer<'d> {
-        Transfer::new_write(&self.channel, buf, peri_addr, options)
+        Transfer::new_write(self, buf, peri_addr, options)
     }
 
     /// Writes from a memory buffer to another memory buffer
@@ -39,48 +33,41 @@ impl<'d> ChannelAndRequest<'d> {
         dst_buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Transfer<'d> {
-        let transfer = Transfer::new_write_mem(&self.channel, src_buf, dst_buf, options);
+        let transfer = Transfer::new_write_mem(self, src_buf, dst_buf, options);
         self.poll_transfer_complete().await;
         transfer
     }
 
     /// Return a reference to the channel's waker
     pub fn get_waker(&self) -> &'d AtomicWaker {
-        &DMA_WAKERS[self.channel.info.ch_num]
+        &DMA_WAKERS[self.info.ch_num]
     }
 
     /// Check whether DMA is active
     pub fn is_active(&self) -> bool {
-        let channel = self.channel.info.ch_num;
-        self.channel.info.regs.active0().read().act().bits() & (1 << channel) != 0
+        let channel = self.info.ch_num;
+        self.info.regs.active0().read().act().bits() & (1 << channel) != 0
     }
 
     /// Check whether DMA is busy
     pub fn is_busy(&self) -> bool {
-        let channel = self.channel.info.ch_num;
-        self.channel.info.regs.busy0().read().bsy().bits() & (1 << channel) != 0
+        let channel = self.info.ch_num;
+        self.info.regs.busy0().read().bsy().bits() & (1 << channel) != 0
     }
 
     /// Return DMA remaining transfer count
     /// To get number of bytes, do `(XFERCOUNT + 1) x data width`
     pub fn get_xfer_count(&self) -> u16 {
-        let channel = self.channel.info.ch_num;
-        self.channel
-            .info
-            .regs
-            .channel(channel)
-            .xfercfg()
-            .read()
-            .xfercount()
-            .bits()
+        let channel = self.info.ch_num;
+        self.info.regs.channel(channel).xfercfg().read().xfercount().bits()
     }
 
     /// Abort DMA operation
     pub fn abort(&self) {
-        let channel = self.channel.info.ch_num;
-        self.channel.disable_channel();
+        let channel = self.info.ch_num;
+        self.disable_channel();
         while self.is_busy() {}
-        self.channel.info.regs.abort0().write(|w|
+        self.info.regs.abort0().write(|w|
             // SAFETY: unsafe due to .bits usage
             unsafe { w.abortctrl().bits(1 << channel) });
     }
@@ -89,17 +76,17 @@ impl<'d> ChannelAndRequest<'d> {
         poll_fn(|cx| {
             // TODO - handle transfer failure
 
-            let channel = self.channel.info.ch_num;
+            let channel = self.info.ch_num;
 
             // Has the transfer already completed?
-            if self.channel.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
+            if self.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
                 return Poll::Ready(());
             }
 
             DMA_WAKERS[channel].register(cx.waker());
 
             // Has the transfer completed now?
-            if self.channel.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
+            if self.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
                 Poll::Ready(())
             } else {
                 Poll::Pending

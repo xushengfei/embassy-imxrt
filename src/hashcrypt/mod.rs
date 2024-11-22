@@ -36,7 +36,7 @@ impl HashcryptDma for DMA0_CH30 {}
 /// Hashcrypt driver
 pub struct Hashcrypt<'d, M: Mode> {
     hashcrypt: pac::Hashcrypt,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
+    dma_ch: Option<dma::channel::Channel<'d>>,
     _peripheral: PeripheralRef<'d, HASHCRYPT>,
     _mode: PhantomData<M>,
 }
@@ -59,10 +59,7 @@ impl From<Algorithm> for u8 {
 
 impl<'d, M: Mode> Hashcrypt<'d, M> {
     /// Instantiate new Hashcrypt peripheral
-    fn new_inner(
-        peripheral: impl Peripheral<P = HASHCRYPT> + 'd,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
-    ) -> Self {
+    fn new_inner(peripheral: impl Peripheral<P = HASHCRYPT> + 'd, dma_ch: Option<dma::channel::Channel<'d>>) -> Self {
         enable_and_reset::<HASHCRYPT>();
 
         into_ref!(peripheral);

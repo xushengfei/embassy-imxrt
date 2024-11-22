@@ -30,7 +30,7 @@ pub enum Speed {
 pub struct I2cMaster<'a, M: Mode> {
     info: Info,
     _phantom: PhantomData<M>,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+    dma_ch: Option<dma::channel::Channel<'a>>,
 }
 
 impl<'a, M: Mode> I2cMaster<'a, M> {
@@ -40,7 +40,7 @@ impl<'a, M: Mode> I2cMaster<'a, M> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         speed: Speed,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+        dma_ch: Option<dma::channel::Channel<'a>>,
     ) -> Result<Self> {
         into_ref!(_bus);
         into_ref!(scl);
