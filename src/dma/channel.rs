@@ -10,6 +10,14 @@ use super::{DESCRIPTORS, DMA_WAKERS};
 use crate::dma::transfer::{Direction, Transfer, TransferOptions};
 use crate::dma::DmaInfo;
 
+/// DMA channel
+pub struct Channel<'d> {
+    /// DMA channel peripheral reference
+    pub(super) info: DmaInfo,
+    /// Keep track of lifetime for Channel within the DMA module
+    pub(super) _lifetime: PhantomData<&'d ()>,
+}
+
 impl<'d> Channel<'d> {
     /// Reads from a peripheral into a memory buffer
     pub fn read_from_peripheral(
@@ -94,17 +102,7 @@ impl<'d> Channel<'d> {
         })
         .await;
     }
-}
 
-/// DMA channel
-pub struct Channel<'d> {
-    /// DMA channel peripheral reference
-    pub(super) info: DmaInfo,
-    /// Keep track of lifetime for Channel within the DMA module
-    pub(super) _lifetime: PhantomData<&'d ()>,
-}
-
-impl Channel<'_> {
     /// Prepare the DMA channel for the transfer
     pub fn configure_channel(
         &self,
