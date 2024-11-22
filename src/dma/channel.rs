@@ -1,13 +1,9 @@
 //! DMA channel & request
 
-use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
 
-use embassy_sync::waitqueue::AtomicWaker;
-
-use super::{DESCRIPTORS, DMA_WAKERS};
-use crate::dma::transfer::{Direction, Transfer, TransferOptions};
+use super::DESCRIPTORS;
+use crate::dma::transfer::{Direction, TransferOptions};
 use crate::dma::DmaInfo;
 
 /// DMA channel
@@ -18,39 +14,7 @@ pub struct Channel<'d> {
     pub(super) _lifetime: PhantomData<&'d ()>,
 }
 
-impl<'d> Channel<'d> {
-    /// Reads from a peripheral into a memory buffer
-    pub fn read_from_peripheral(
-        &'d self,
-        peri_addr: *const u8,
-        buf: &'d mut [u8],
-        options: TransferOptions,
-    ) -> Transfer<'d> {
-        Transfer::new_read(self, peri_addr, buf, options)
-    }
-
-    /// Writes from a memory buffer to a peripheral
-    pub fn write_to_peripheral(&'d self, buf: &'d [u8], peri_addr: *mut u8, options: TransferOptions) -> Transfer<'d> {
-        Transfer::new_write(self, buf, peri_addr, options)
-    }
-
-    /// Writes from a memory buffer to another memory buffer
-    pub async fn write_to_memory(
-        &'d self,
-        src_buf: &'d [u8],
-        dst_buf: &'d mut [u8],
-        options: TransferOptions,
-    ) -> Transfer<'d> {
-        let transfer = Transfer::new_write_mem(self, src_buf, dst_buf, options);
-        self.poll_transfer_complete().await;
-        transfer
-    }
-
-    /// Return a reference to the channel's waker
-    pub fn get_waker(&self) -> &'d AtomicWaker {
-        &DMA_WAKERS[self.info.ch_num]
-    }
-
+impl Channel<'_> {
     /// Check whether DMA is active
     pub fn is_active(&self) -> bool {
         let channel = self.info.ch_num;
@@ -80,31 +44,8 @@ impl<'d> Channel<'d> {
             unsafe { w.abortctrl().bits(1 << channel) });
     }
 
-    async fn poll_transfer_complete(&'d self) {
-        poll_fn(|cx| {
-            // TODO - handle transfer failure
-
-            let channel = self.info.ch_num;
-
-            // Has the transfer already completed?
-            if self.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
-                return Poll::Ready(());
-            }
-
-            DMA_WAKERS[channel].register(cx.waker());
-
-            // Has the transfer completed now?
-            if self.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-    }
-
     /// Prepare the DMA channel for the transfer
-    pub fn configure_channel(
+    pub(crate) fn configure_channel(
         &self,
         dir: Direction,
         srcbase: *const u32,
@@ -184,7 +125,7 @@ impl<'d> Channel<'d> {
 
     /// Enable the DMA channel (only after configuring)
     // SAFETY: unsafe due to .bits usage
-    pub fn enable_channel(&self) {
+    pub(crate) fn enable_channel(&self) {
         let channel = self.info.ch_num;
         self.info
             .regs
@@ -193,7 +134,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Disable the DMA channel
-    pub fn disable_channel(&self) {
+    pub(crate) fn disable_channel(&self) {
         let channel = self.info.ch_num;
         self.info.regs.enableclr0().write(|w|
             // SAFETY: unsafe due to .bits usage
@@ -201,7 +142,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Trigger the DMA channel
-    pub fn trigger_channel(&self) {
+    pub(crate) fn trigger_channel(&self) {
         let channel = self.info.ch_num;
         self.info
             .regs
