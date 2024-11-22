@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_imxrt::dma::channel::Channel;
-use embassy_imxrt::dma::transfer::{Priority, TransferOptions, Width};
+use embassy_imxrt::dma::transfer::{Priority, Transfer, TransferOptions, Width};
 use embassy_imxrt::dma::Dma;
 use embassy_imxrt::peripherals::*;
 use {defmt_rtt as _, panic_probe as _};
@@ -27,7 +27,8 @@ async fn dma_test(ch: Channel<'static>, number: usize) {
         let mut options = TransferOptions::default();
         options.width = width;
         options.priority = Priority::Priority0;
-        ch.write_to_memory(&srcbuf[..], &mut dstbuf[..], options).await;
+
+        Transfer::new_write_mem(&ch, &srcbuf, &mut dstbuf, options).await;
 
         if srcbuf == dstbuf {
             info!(
