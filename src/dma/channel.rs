@@ -41,7 +41,7 @@ impl Channel<'_> {
         while self.is_busy() {}
         self.info.regs.abort0().write(|w|
             // SAFETY: unsafe due to .bits usage
-            unsafe { w.abortctrl().bits(1 << channel) });
+            unsafe { w.bits(1 << channel) });
     }
 
     /// Prepare the DMA channel for the transfer
