@@ -57,11 +57,8 @@ pub enum Error {
     UnsupportedConfiguration,
 }
 
-#[allow(clippy::declare_interior_mutable_const)]
-const DMA_WAKER: AtomicWaker = AtomicWaker::new();
-
 // One waker per channel
-static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [DMA_WAKER; DMA_CHANNEL_COUNT];
+static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [const { AtomicWaker::new() }; DMA_CHANNEL_COUNT];
 
 #[cfg(feature = "rt")]
 #[interrupt]
