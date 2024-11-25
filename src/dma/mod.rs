@@ -103,7 +103,7 @@ fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
 }
 
 /// Initialize DMA controllers (DMA0 only, for now)
-pub fn init() {
+pub(crate) fn init() {
     // SAFETY: init should only be called once during HAL initialization
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
     let dmactl0 = unsafe { crate::pac::Dma0::steal() };
