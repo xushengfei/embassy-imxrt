@@ -782,12 +782,24 @@ impl ConfigurableClock for MainPllClkConfig {
                     self.mult.store(mult, Ordering::Relaxed);
                     trace!("setting self.mult as: {:#}", mult);
                     match mult {
-                        16 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_16()),
-                        17 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_17()),
-                        20 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_20()),
-                        22 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_22()),
-                        27 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_27()),
-                        33 => clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_33()),
+                        16 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_16());
+                        }
+                        17 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_17());
+                        }
+                        20 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_20());
+                        }
+                        22 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_22());
+                        }
+                        27 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_27());
+                        }
+                        33 => {
+                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_33());
+                        }
                         _ => return Err(ClockError::InvalidMult),
                     }
                     trace!("clear syspll reset");
