@@ -11,7 +11,7 @@ name: hwtest-automation
 jobs:
     hwtest-automation:
       runs-on: self-hosted
-      name: ${{ matrix.target }}
+      name: Run integration tests
       strategy:
         matrix:
           target: [thumbv8m.main-none-eabihf]
@@ -25,7 +25,9 @@ jobs:
           run: rustup target add ${{ matrix.target }}
         - name: cargo build
           run: cargo build --target ${{ matrix.target }}
-        - name: change directory
+        - name: install test-parser
+          run: cargo install --git https://github.com/tullom/test-parser.git
+        - name: run tests
           run: |
             cd examples\rt685s-evk\src\tests
             .\test.ps1
