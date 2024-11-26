@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     info!("Toggling LED");
     led.toggle();
     Timer::after_millis(1000).await;
-    assert!(true, "some failure");
+    assert!(false, "some failure");
     info!("TEST-SUCCESS: Example terminated successfully");
     defmt::flush();
     cortex_m::asm::bkpt();

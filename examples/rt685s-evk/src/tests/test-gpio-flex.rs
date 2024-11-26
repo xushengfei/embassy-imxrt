@@ -89,7 +89,7 @@ async fn main(_spawner: Spawner) {
     let flex = flex.enable_sensing();
 
     // check pin level is high
-    assert!(flex.is_high());
+    assert!(flex.is_low());
 
     info!("TEST-SUCCESS: Example terminated successfully");
     defmt::flush();
