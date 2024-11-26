@@ -23,7 +23,7 @@ static KEYSTORE: [u8; 2048] = [0; 2048];
 #[panic_handler]
 fn panic(p: &core::panic::PanicInfo) -> ! {
     defmt::error!(
-        "FAILED: {} failed on line {} with error {}",
+        "TEST-FAIL: {} failed on line {} with error {}",
         p.location().unwrap().file(),
         p.location().unwrap().line(),
         p.message().as_str()

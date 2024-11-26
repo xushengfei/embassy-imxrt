@@ -19,4 +19,4 @@ target = "thumbv8m.main-none-eabihf" # Cortex-M33
 
 [env]
 DEFMT_LOG = "trace"
-RUST_LOG = "debug"
+# RUST_LOG = "trace"

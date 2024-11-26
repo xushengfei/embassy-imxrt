@@ -4,11 +4,11 @@
 extern crate embassy_imxrt_examples;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::rng::Rng;
 use embassy_imxrt::{bind_interrupts, peripherals, rng};
 use rand::RngCore;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;

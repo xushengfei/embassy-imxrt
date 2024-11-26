@@ -40,7 +40,7 @@ futures = { version = "0.3.30", default-features = false, features = [
     "async-await",
 ] }
 mimxrt600-fcb = "0.1.0"
-mimxrt685s-pac = { version = "0.1.5", features = [
+mimxrt685s-pac = { version = "=0.1.5", features = [
     "rt",
     "critical-section",
     "defmt",
@@ -59,3 +59,15 @@ embassy = ["embedded-test/embassy"]
 [[test]]
 name = "example_test"
 harness = false
+
+[[bin]]
+name = "test-gpio-blinky"
+path = "src/tests/test-gpio-blinky.rs"
+
+[[bin]]
+name = "test-gpio-flex"
+path = "src/tests/test-gpio-flex.rs"
+
+[[bin]]
+name = "test-i2c-master-async"
+path = "src/tests/test-i2c-master-async.rs"

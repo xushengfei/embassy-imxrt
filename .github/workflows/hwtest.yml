@@ -27,5 +27,6 @@ jobs:
           run: cargo build --target ${{ matrix.target }}
         - name: change directory
           run: |
-            cd examples\rt685s-evk
-            cargo test --test example_test 2>&1 | tee log.txt
+            cd examples\rt685s-evk\src\tests
+            .\test.ps1
+            
