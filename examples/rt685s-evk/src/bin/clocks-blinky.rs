@@ -15,7 +15,6 @@ async fn main(_spawner: Spawner) {
     let embassy_p = embassy_imxrt::init(Default::default());
 
     info!("Initializing GPIO");
-    unsafe { gpio::init() };
 
     let mut led = gpio::Output::new(
         embassy_p.PIO0_26,
