@@ -123,9 +123,7 @@ impl<'d> Rng<'d> {
                 let entropy: [u8; 64] = unsafe { core::mem::transmute(entropy) };
 
                 // write bytes to chunk
-                for (dest, src) in chunk.iter_mut().zip(entropy.iter()) {
-                    *dest = *src;
-                }
+                chunk.copy_from_slice(&entropy[..chunk.len()]);
             }
         }
 
