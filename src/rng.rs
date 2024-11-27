@@ -21,6 +21,12 @@ static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 pub enum Error {
     /// Seed error.
     SeedError,
+
+    /// HW Error.
+    HwError,
+
+    /// Frequency Count Fail
+    FreqCountFail,
 }
 
 /// RNG interrupt handler.
@@ -30,10 +36,21 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let regs = &T::info().regs;
+        let regs = T::info().regs;
+        let int_status = regs.int_status().read();
 
-        if regs.int_status().read().ent_val().bit_is_set() {
-            regs.int_ctrl().modify(|_, w| w.ent_val().clear_bit());
+        if int_status.ent_val().bit_is_set()
+            || int_status.hw_err().bit_is_set()
+            || int_status.frq_ct_fail().bit_is_set()
+        {
+            regs.int_ctrl().modify(|_, w| {
+                w.ent_val()
+                    .ent_val_0()
+                    .hw_err()
+                    .hw_err_0()
+                    .frq_ct_fail()
+                    .frq_ct_fail_0()
+            });
             RNG_WAKER.wake();
         }
     }
@@ -85,31 +102,40 @@ impl<'d> Rng<'d> {
     }
 
     async fn async_fill_chunk(&mut self, chunk: &mut [u8]) -> Result<(), Error> {
-        let mut bits = self.info.regs.mctl().read();
+        // wait for interrupt
+        let res = poll_fn(|cx| {
+            // Check if already ready.
+            if self.info.regs.int_status().read().ent_val().bit_is_set() {
+                return Poll::Ready(Ok(()));
+            }
 
-        if bits.ent_val().bit_is_clear() {
-            // wait for interrupt
-            poll_fn(|cx| {
-                // Check if already ready.
-                if self.info.regs.int_status().read().ent_val().bit_is_set() {
-                    return Poll::Ready(());
-                }
+            RNG_WAKER.register(cx.waker());
 
-                RNG_WAKER.register(cx.waker());
+            self.info.regs.int_mask().modify(|_, w| {
+                w.ent_val()
+                    .ent_val_1()
+                    .hw_err()
+                    .hw_err_1()
+                    .frq_ct_fail()
+                    .frq_ct_fail_1()
+            });
 
-                self.info.regs.int_mask().modify(|_, w| w.ent_val().ent_val_1());
+            let mctl = self.info.regs.mctl().read();
 
-                // Check again if interrupt fired
-                if self.info.regs.mctl().read().ent_val().bit_is_set() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
+            // Check again if interrupt fired
+            if mctl.ent_val().bit_is_set() {
+                Poll::Ready(Ok(()))
+            } else if mctl.err().bit_is_set() {
+                Poll::Ready(Err(Error::HwError))
+            } else if mctl.fct_fail().bit_is_set() {
+                Poll::Ready(Err(Error::FreqCountFail))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
-            bits = self.info.regs.mctl().read();
-        }
+        let bits = self.info.regs.mctl().read();
 
         if bits.ent_val().bit_is_set() {
             let mut entropy = [0; 16];
@@ -133,7 +159,7 @@ impl<'d> Rng<'d> {
             chunk.copy_from_slice(&entropy[..chunk.len()]);
         }
 
-        Ok(())
+        res
     }
 
     fn init(&mut self) {
@@ -150,9 +176,23 @@ impl<'d> Rng<'d> {
         // Switch TRNG to programming mode
         self.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
 
-        // Enable ENT_VAL interrupt
-        self.info.regs.int_ctrl().write(|w| w.ent_val().ent_val_1());
-        self.info.regs.int_mask().write(|w| w.ent_val().ent_val_1());
+        // Enable interrupts
+        self.info.regs.int_ctrl().write(|w| {
+            w.ent_val()
+                .ent_val_1()
+                .hw_err()
+                .hw_err_1()
+                .frq_ct_fail()
+                .frq_ct_fail_1()
+        });
+        self.info.regs.int_mask().write(|w| {
+            w.ent_val()
+                .ent_val_1()
+                .hw_err()
+                .hw_err_1()
+                .frq_ct_fail()
+                .frq_ct_fail_1()
+        });
 
         // Switch TRNG to Run Mode
         self.info
