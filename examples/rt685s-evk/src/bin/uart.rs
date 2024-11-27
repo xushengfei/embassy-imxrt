@@ -5,12 +5,12 @@ extern crate embassy_imxrt_examples;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::uart::{Uart, UartRx, UartTx};
+use embassy_imxrt::uart::{Blocking, Uart, UartRx, UartTx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn usart4_task(mut uart: UartRx<'static>) {
+async fn usart4_task(mut uart: UartRx<'static, Blocking>) {
     info!("RX Task");
 
     loop {
@@ -27,7 +27,7 @@ async fn usart4_task(mut uart: UartRx<'static>) {
 }
 
 #[embassy_executor::task]
-async fn usart2_task(mut uart: UartTx<'static>) {
+async fn usart2_task(mut uart: UartTx<'static, Blocking>) {
     info!("TX Task");
 
     loop {
@@ -45,11 +45,11 @@ async fn main(spawner: Spawner) {
 
     info!("UART test start");
 
-    let usart4 = Uart::new(p.FLEXCOMM4, p.PIO0_29, p.PIO0_30, Default::default()).unwrap();
+    let usart4 = Uart::new_blocking(p.FLEXCOMM4, p.PIO0_29, p.PIO0_30, Default::default()).unwrap();
 
     let (_, usart4) = usart4.split();
     spawner.must_spawn(usart4_task(usart4));
 
-    let usart2 = UartTx::new(p.FLEXCOMM2, p.PIO0_15, Default::default()).unwrap();
+    let usart2 = UartTx::new_blocking(p.FLEXCOMM2, p.PIO0_15, Default::default()).unwrap();
     spawner.must_spawn(usart2_task(usart2));
 }
