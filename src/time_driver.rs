@@ -96,11 +96,17 @@ impl TimerDriver {
         self.compare_reg().write(|w| unsafe { w.gpdata().bits(u32::MAX) });
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
+
+        // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
+        // The following reloads 10 into the count-down timer after it triggers an int.
+        // The countdown begins anew after the write so time can continue to be measured.
+        r.wake().write(|w| unsafe { w.bits(0xA) });
     }
 
     #[cfg(feature = "rt")]
     fn on_interrupt(&self) {
         let r = rtc();
+
         // This interrupt fires every 10 ticks of the 1kHz RTC high res clk and adds
         // 10 to the 31 bit counter gpreg0. The 32nd bit is used for parity detection
         // This is done to avoid needing to calculate # of ticks spent on interrupt
@@ -109,11 +115,12 @@ impl TimerDriver {
         // TODO: this is admittedly not great for power that we're generating this
         // many interrupts, will probably get updated in future iterations.
         if r.ctrl().read().wake1khz().bit_is_set() {
-            r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
             // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
             // The following reloads 10 into the count-down timer after it triggers an int.
             // The countdown begins anew after the write so time can continue to be measured.
             r.wake().write(|w| unsafe { w.bits(0xA) });
+
+            r.ctrl().modify(|_r, w| w.wake1khz().set_bit());
             if (self.counter_reg().read().bits() + 0xA) > 0x8000_0000 {
                 // if we're going to "overflow", increase the period
                 self.next_period();

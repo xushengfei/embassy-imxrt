@@ -1,7 +1,7 @@
 #![no_std]
 
 use mimxrt600_fcb::FlexSPIFlashConfigurationBlock;
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_bbq as _, panic_probe as _};
 
 #[link_section = ".otfad"]
 #[used]
