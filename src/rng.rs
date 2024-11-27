@@ -78,53 +78,59 @@ impl<'d> Rng<'d> {
         // disposal. The idea here is to read all bits and copy the
         // necessary bytes to the slice.
         for chunk in dest.chunks_mut(64) {
-            let mut bits = self.info.regs.mctl().read();
+            self.async_fill_chunk(chunk).await?;
+        }
 
-            if bits.ent_val().bit_is_clear() {
-                // wait for interrupt
-                poll_fn(|cx| {
-                    // Check if already ready.
-                    if self.info.regs.int_status().read().ent_val().bit_is_set() {
-                        return Poll::Ready(());
-                    }
+        Ok(())
+    }
 
-                    RNG_WAKER.register(cx.waker());
+    async fn async_fill_chunk(&mut self, chunk: &mut [u8]) -> Result<(), Error> {
+        let mut bits = self.info.regs.mctl().read();
 
-                    self.info.regs.int_mask().modify(|_, w| w.ent_val().ent_val_1());
-
-                    // Check again if interrupt fired
-                    if self.info.regs.mctl().read().ent_val().bit_is_set() {
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await;
-
-                bits = self.info.regs.mctl().read();
-            }
-
-            if bits.ent_val().bit_is_set() {
-                let mut entropy = [0; 16];
-
-                for (i, item) in entropy.iter_mut().enumerate() {
-                    *item = self.info.regs.ent(i).read().bits();
+        if bits.ent_val().bit_is_clear() {
+            // wait for interrupt
+            poll_fn(|cx| {
+                // Check if already ready.
+                if self.info.regs.int_status().read().ent_val().bit_is_set() {
+                    return Poll::Ready(());
                 }
 
-                // Read MCTL after reading ENT15
-                let _ = self.info.regs.mctl().read();
+                RNG_WAKER.register(cx.waker());
 
-                if entropy.iter().any(|e| *e == 0) {
-                    return Err(Error::SeedError);
+                self.info.regs.int_mask().modify(|_, w| w.ent_val().ent_val_1());
+
+                // Check again if interrupt fired
+                if self.info.regs.mctl().read().ent_val().bit_is_set() {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
                 }
+            })
+            .await;
 
-                // SAFETY: entropy is the same for input and output types in
-                // native endianness.
-                let entropy: [u8; 64] = unsafe { core::mem::transmute(entropy) };
+            bits = self.info.regs.mctl().read();
+        }
 
-                // write bytes to chunk
-                chunk.copy_from_slice(&entropy[..chunk.len()]);
+        if bits.ent_val().bit_is_set() {
+            let mut entropy = [0; 16];
+
+            for (i, item) in entropy.iter_mut().enumerate() {
+                *item = self.info.regs.ent(i).read().bits();
             }
+
+            // Read MCTL after reading ENT15
+            let _ = self.info.regs.mctl().read();
+
+            if entropy.iter().any(|e| *e == 0) {
+                return Err(Error::SeedError);
+            }
+
+            // SAFETY: entropy is the same for input and output types in
+            // native endianness.
+            let entropy: [u8; 64] = unsafe { core::mem::transmute(entropy) };
+
+            // write bytes to chunk
+            chunk.copy_from_slice(&entropy[..chunk.len()]);
         }
 
         Ok(())
