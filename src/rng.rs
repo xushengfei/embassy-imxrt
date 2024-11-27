@@ -185,14 +185,6 @@ impl<'d> Rng<'d> {
                 .frq_ct_fail()
                 .frq_ct_fail_1()
         });
-        self.info.regs.int_mask().write(|w| {
-            w.ent_val()
-                .ent_val_1()
-                .hw_err()
-                .hw_err_1()
-                .frq_ct_fail()
-                .frq_ct_fail_1()
-        });
 
         // Switch TRNG to Run Mode
         self.info
