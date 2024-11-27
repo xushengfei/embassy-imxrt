@@ -231,24 +231,48 @@ impl SealedPin for AnyPin {}
 impl IopctlPin for AnyPin {
     fn set_function(&self, function: Function) -> &Self {
         match function {
-            Function::F0 => self.reg.modify(|_, w| w.fsel().function_0()),
-            Function::F1 => self.reg.modify(|_, w| w.fsel().function_1()),
-            Function::F2 => self.reg.modify(|_, w| w.fsel().function_2()),
-            Function::F3 => self.reg.modify(|_, w| w.fsel().function_3()),
-            Function::F4 => self.reg.modify(|_, w| w.fsel().function_4()),
-            Function::F5 => self.reg.modify(|_, w| w.fsel().function_5()),
-            Function::F6 => self.reg.modify(|_, w| w.fsel().function_6()),
-            Function::F7 => self.reg.modify(|_, w| w.fsel().function_7()),
-            Function::F8 => self.reg.modify(|_, w| w.fsel().function_8()),
+            Function::F0 => {
+                self.reg.modify(|_, w| w.fsel().function_0());
+            }
+            Function::F1 => {
+                self.reg.modify(|_, w| w.fsel().function_1());
+            }
+            Function::F2 => {
+                self.reg.modify(|_, w| w.fsel().function_2());
+            }
+            Function::F3 => {
+                self.reg.modify(|_, w| w.fsel().function_3());
+            }
+            Function::F4 => {
+                self.reg.modify(|_, w| w.fsel().function_4());
+            }
+            Function::F5 => {
+                self.reg.modify(|_, w| w.fsel().function_5());
+            }
+            Function::F6 => {
+                self.reg.modify(|_, w| w.fsel().function_6());
+            }
+            Function::F7 => {
+                self.reg.modify(|_, w| w.fsel().function_7());
+            }
+            Function::F8 => {
+                self.reg.modify(|_, w| w.fsel().function_8());
+            }
         }
         self
     }
 
     fn set_pull(&self, pull: Pull) -> &Self {
         match pull {
-            Pull::None => self.reg.modify(|_, w| w.pupdena().disabled()),
-            Pull::Up => self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_up()),
-            Pull::Down => self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_down()),
+            Pull::None => {
+                self.reg.modify(|_, w| w.pupdena().disabled());
+            }
+            Pull::Up => {
+                self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_up());
+            }
+            Pull::Down => {
+                self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_down());
+            }
         }
         self
     }
@@ -265,16 +289,24 @@ impl IopctlPin for AnyPin {
 
     fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
         match slew_rate {
-            SlewRate::Standard => self.reg.modify(|_, w| w.slewrate().normal()),
-            SlewRate::Slow => self.reg.modify(|_, w| w.slewrate().slow()),
+            SlewRate::Standard => {
+                self.reg.modify(|_, w| w.slewrate().normal());
+            }
+            SlewRate::Slow => {
+                self.reg.modify(|_, w| w.slewrate().slow());
+            }
         }
         self
     }
 
     fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
         match strength {
-            DriveStrength::Normal => self.reg.modify(|_, w| w.fulldrive().normal_drive()),
-            DriveStrength::Full => self.reg.modify(|_, w| w.fulldrive().full_drive()),
+            DriveStrength::Normal => {
+                self.reg.modify(|_, w| w.fulldrive().normal_drive());
+            }
+            DriveStrength::Full => {
+                self.reg.modify(|_, w| w.fulldrive().full_drive());
+            }
         }
         self
     }
@@ -291,16 +323,24 @@ impl IopctlPin for AnyPin {
 
     fn set_drive_mode(&self, mode: DriveMode) -> &Self {
         match mode {
-            DriveMode::PushPull => self.reg.modify(|_, w| w.odena().disabled()),
-            DriveMode::OpenDrain => self.reg.modify(|_, w| w.odena().enabled()),
+            DriveMode::PushPull => {
+                self.reg.modify(|_, w| w.odena().disabled());
+            }
+            DriveMode::OpenDrain => {
+                self.reg.modify(|_, w| w.odena().enabled());
+            }
         }
         self
     }
 
     fn set_input_inverter(&self, inverter: Inverter) -> &Self {
         match inverter {
-            Inverter::Disabled => self.reg.modify(|_, w| w.iiena().disabled()),
-            Inverter::Enabled => self.reg.modify(|_, w| w.iiena().enabled()),
+            Inverter::Disabled => {
+                self.reg.modify(|_, w| w.iiena().disabled());
+            }
+            Inverter::Enabled => {
+                self.reg.modify(|_, w| w.iiena().enabled());
+            }
         }
         self
     }

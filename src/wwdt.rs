@@ -202,9 +202,9 @@ impl<'d> WindowedWatchdog<'d> {
         // registers from being accessed in between writes of feed
         // sequence bytes as per datasheet's recommendation.
         critical_section::with(|_| {
-            [0xAA, 0x55]
-                .iter()
-                .for_each(|byte| self.info.regs.feed().write(|w| unsafe { w.feed().bits(*byte) }));
+            [0xAA, 0x55].iter().for_each(|byte| {
+                self.info.regs.feed().write(|w| unsafe { w.feed().bits(*byte) });
+            });
         });
     }
 }

@@ -65,14 +65,18 @@ impl<'a, M: Mode> I2cMaster<'a, M> {
         // 30 => 100.0 kHz
         match speed {
             // 100 kHz
-            Speed::Standard => regs.clkdiv().write(|w|
+            Speed::Standard => {
+                regs.clkdiv().write(|w|
                 // SAFETY: only unsafe due to .bits usage
-                unsafe { w.divval().bits(30) }),
+                unsafe { w.divval().bits(30) });
+            }
 
             // 400 kHz
-            Speed::Fast => regs.clkdiv().write(|w|
+            Speed::Fast => {
+                regs.clkdiv().write(|w|
                 // SAFETY: only unsafe due to .bits usage
-                unsafe { w.divval().bits(7) }),
+                unsafe { w.divval().bits(7) });
+            }
 
             _ => return Err(Error::UnsupportedConfiguration),
         }
@@ -289,7 +293,7 @@ impl<'a> I2cMaster<'a, Async> {
                         .set_bit()
                         .mstststperren()
                         .set_bit()
-                })
+                });
             },
         )
         .await?;
@@ -326,7 +330,7 @@ impl<'a> I2cMaster<'a, Async> {
                         .set_bit()
                         .mstststperren()
                         .set_bit()
-                })
+                });
             },
         )
         .await
@@ -379,7 +383,7 @@ impl<'a> I2cMaster<'a, Async> {
                             .set_bit()
                             .mstststperren()
                             .set_bit()
-                    })
+                    });
                 },
             )
             .await;
@@ -445,7 +449,7 @@ impl<'a> I2cMaster<'a, Async> {
                             .set_bit()
                             .mstststperren()
                             .set_bit()
-                    })
+                    });
                 },
             )
             .await;

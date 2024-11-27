@@ -194,13 +194,27 @@ impl sealed::SCTimer for crate::peripherals::SCT0 {
         let clkctl0 = unsafe { pac::Clkctl0::steal() };
 
         match clock {
-            Main => clkctl0.sctfclksel().write(|w| w.sel().main_clk()),
-            MainPLL => clkctl0.sctfclksel().write(|w| w.sel().main_sys_pll_clk()),
-            AUX0PLL => clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux0_pll_clock()),
-            FFRO => clkctl0.sctfclksel().write(|w| w.sel().ffro_clk()),
-            AUX1PLL => clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux1_pll_clock()),
-            AudioPLL => clkctl0.sctfclksel().write(|w| w.sel().audio_pll_clk()),
-            None => clkctl0.sctfclksel().write(|w| w.sel().none()),
+            Main => {
+                clkctl0.sctfclksel().write(|w| w.sel().main_clk());
+            }
+            MainPLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().main_sys_pll_clk());
+            }
+            AUX0PLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux0_pll_clock());
+            }
+            FFRO => {
+                clkctl0.sctfclksel().write(|w| w.sel().ffro_clk());
+            }
+            AUX1PLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().syspll0_aux1_pll_clock());
+            }
+            AudioPLL => {
+                clkctl0.sctfclksel().write(|w| w.sel().audio_pll_clk());
+            }
+            None => {
+                clkctl0.sctfclksel().write(|w| w.sel().none());
+            }
         }
 
         enable_and_reset::<SCT0>();
@@ -494,36 +508,56 @@ impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
         use Channel::{Ch0, Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9};
 
         match channel {
-            Ch0 => sct0.matchrel0().write(|w|
+            Ch0 => {
+                sct0.matchrel0().write(|w|
                 // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch1 => sct0.matchrel1().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch1 => {
+                sct0.matchrel1().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch2 => sct0.matchrel2().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch2 => {
+                sct0.matchrel2().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch3 => sct0.matchrel3().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch3 => {
+                sct0.matchrel3().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch4 => sct0.matchrel4().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch4 => {
+                sct0.matchrel4().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch5 => sct0.matchrel5().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch5 => {
+                sct0.matchrel5().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch6 => sct0.matchrel6().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch6 => {
+                sct0.matchrel6().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch7 => sct0.matchrel7().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch7 => {
+                sct0.matchrel7().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch8 => sct0.matchrel8().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch8 => {
+                sct0.matchrel8().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
-            Ch9 => sct0.matchrel9().write(|w|
+                unsafe { w.bits(scaled) });
+            }
+            Ch9 => {
+                sct0.matchrel9().write(|w|
                     // SAFETY: safe as both L and H are used
-                unsafe { w.bits(scaled) }),
+                unsafe { w.bits(scaled) });
+            }
         }
     }
 
