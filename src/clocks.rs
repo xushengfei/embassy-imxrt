@@ -1617,19 +1617,20 @@ macro_rules! impl_perph_clk {
 // These should enabled once the relevant peripherals are implemented.
 // impl_perph_clk!(GPIOINTCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 30);
 // impl_perph_clk!(OTP, Clkctl0, pscctl0, Rstctl0, prstctl0, 17);
-// impl_perph_clk!(PIMCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 31);
+
 // impl_perph_clk!(ROM_CTL_128KB, Clkctl0, pscctl0, Rstctl0, prstctl0, 2);
 // impl_perph_clk!(USBHS_SRAM, Clkctl0, pscctl0, Rstctl0, prstctl0, 23);
 
+impl_perph_clk!(PIMCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 31);
 impl_perph_clk!(ACMP, Clkctl0, pscctl1, Rstctl0, prstctl1, 15);
 impl_perph_clk!(ADC0, Clkctl0, pscctl1, Rstctl0, prstctl1, 16);
 impl_perph_clk!(CASPER, Clkctl0, pscctl0, Rstctl0, prstctl0, 9);
 impl_perph_clk!(CRC, Clkctl1, pscctl1, Rstctl1, prstctl1, 16);
-impl_perph_clk!(CTIMER0, Clkctl1, pscctl2, Rstctl1, prstctl2, 0);
-impl_perph_clk!(CTIMER1, Clkctl1, pscctl2, Rstctl1, prstctl2, 1);
-impl_perph_clk!(CTIMER2, Clkctl1, pscctl2, Rstctl1, prstctl2, 2);
-impl_perph_clk!(CTIMER3, Clkctl1, pscctl2, Rstctl1, prstctl2, 3);
-impl_perph_clk!(CTIMER4, Clkctl1, pscctl2, Rstctl1, prstctl2, 4);
+impl_perph_clk!(CTIMER0_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 0);
+impl_perph_clk!(CTIMER1_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 1);
+impl_perph_clk!(CTIMER2_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 2);
+impl_perph_clk!(CTIMER3_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 3);
+impl_perph_clk!(CTIMER4_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 4);
 impl_perph_clk!(DMA0, Clkctl1, pscctl1, Rstctl1, prstctl1, 23);
 impl_perph_clk!(DMA1, Clkctl1, pscctl1, Rstctl1, prstctl1, 24);
 impl_perph_clk!(DMIC0, Clkctl1, pscctl0, Rstctl1, prstctl0, 24);
