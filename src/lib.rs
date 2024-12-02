@@ -478,6 +478,7 @@ pub fn init(config: config::Config) -> Peripherals {
         #[cfg(feature = "time-driver")]
         time_driver::init(config.time_interrupt_priority);
         dma::init();
+        gpio::init();
     }
 
     peripherals

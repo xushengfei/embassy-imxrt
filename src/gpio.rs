@@ -107,11 +107,7 @@ fn irq_handler(port_wakers: &[Option<&PortWaker>]) {
 
 /// Initialization Logic
 /// Note: GPIO port clocks are initialized in the clocks module.
-/// # Safety
-///
-/// This function enables GPIO INT A interrupt. It should not be called
-/// until you are ready to handle the interrupt
-pub unsafe fn init() {
+pub(crate) fn init() {
     // Enable GPIO clocks
     enable_and_reset::<peripherals::HSGPIO0>();
     enable_and_reset::<peripherals::HSGPIO1>();
@@ -124,7 +120,13 @@ pub unsafe fn init() {
 
     // Enable INTA
     interrupt::GPIO_INTA.unpend();
-    interrupt::GPIO_INTA.enable();
+
+    // SAFETY:
+    //
+    // At this point, all GPIO interrupts are masked. No interrupts
+    // will trigger until a pin is configured as Input, which can only
+    // happen after initialization of the HAL
+    unsafe { interrupt::GPIO_INTA.enable() };
 }
 
 mod sealed {

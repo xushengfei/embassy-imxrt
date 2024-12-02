@@ -37,7 +37,6 @@ async fn main(spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
     debug!("Initializing GPIO");
-    unsafe { gpio::init() };
 
     let mut output = gpio::Output::new(
         p.PIO1_2,
