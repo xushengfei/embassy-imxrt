@@ -111,14 +111,7 @@ impl<'d> Rng<'d> {
 
             RNG_WAKER.register(cx.waker());
 
-            self.info.regs.int_mask().modify(|_, w| {
-                w.ent_val()
-                    .ent_val_1()
-                    .hw_err()
-                    .hw_err_1()
-                    .frq_ct_fail()
-                    .frq_ct_fail_1()
-            });
+            self.unmask_interrupts();
 
             let mctl = self.info.regs.mctl().read();
 
@@ -162,8 +155,7 @@ impl<'d> Rng<'d> {
         res
     }
 
-    fn init(&mut self) {
-        // Mask all interrupts
+    fn mask_interrupts(&mut self) {
         self.info.regs.int_mask().write(|w| {
             w.ent_val()
                 .ent_val_0()
@@ -172,11 +164,20 @@ impl<'d> Rng<'d> {
                 .frq_ct_fail()
                 .frq_ct_fail_0()
         });
+    }
 
-        // Switch TRNG to programming mode
-        self.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
+    fn unmask_interrupts(&mut self) {
+        self.info.regs.int_mask().modify(|_, w| {
+            w.ent_val()
+                .ent_val_1()
+                .hw_err()
+                .hw_err_1()
+                .frq_ct_fail()
+                .frq_ct_fail_1()
+        });
+    }
 
-        // Enable interrupts
+    fn enable_interrupts(&mut self) {
         self.info.regs.int_ctrl().write(|w| {
             w.ent_val()
                 .ent_val_1()
@@ -185,6 +186,15 @@ impl<'d> Rng<'d> {
                 .frq_ct_fail()
                 .frq_ct_fail_1()
         });
+    }
+
+    fn init(&mut self) {
+        self.mask_interrupts();
+
+        // Switch TRNG to programming mode
+        self.info.regs.mctl().modify(|_, w| w.prgm().set_bit());
+
+        self.enable_interrupts();
 
         // Switch TRNG to Run Mode
         self.info
