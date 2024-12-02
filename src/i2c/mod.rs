@@ -163,13 +163,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// io configuration trait for easier configuration
-pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SclPin<Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for SCL usage
     fn as_scl(&self);
 }
 
 /// io configuration trait for easier configuration
-pub trait SdaPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SdaPin<Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for SDA usage
     fn as_sda(&self);
 }

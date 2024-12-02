@@ -1032,25 +1032,25 @@ mod sealed {
 impl<T: Pin> sealed::Sealed for T {}
 
 /// io configuration trait for Uart Tx configuration
-pub trait TxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait TxPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Tx  usage
     fn as_tx(&self);
 }
 
 /// io configuration trait for Uart Rx configuration
-pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait RxPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Rx  usage
     fn as_rx(&self);
 }
 
 /// io configuration trait for Uart Cts
-pub trait CtsPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait CtsPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Cts usage
     fn as_cts(&self);
 }
 
 /// io configuration trait for Uart Rts
-pub trait RtsPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait RtsPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Rts usage
     fn as_rts(&self);
 }
