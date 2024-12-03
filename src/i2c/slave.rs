@@ -71,7 +71,7 @@ pub enum Response {
 pub struct I2cSlave<'a, M: Mode> {
     info: Info,
     _phantom: PhantomData<M>,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+    dma_ch: Option<dma::channel::Channel<'a>>,
 }
 
 impl<'a, M: Mode> I2cSlave<'a, M> {
@@ -82,7 +82,7 @@ impl<'a, M: Mode> I2cSlave<'a, M> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+        dma_ch: Option<dma::channel::Channel<'a>>,
     ) -> Result<Self> {
         into_ref!(_bus);
         into_ref!(scl);

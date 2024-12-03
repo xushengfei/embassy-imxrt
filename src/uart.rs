@@ -4,11 +4,13 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::select::{select, Either};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
-use crate::dma::channel::ChannelAndRequest;
+use crate::dma::channel::Channel;
+use crate::dma::transfer::Transfer;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
@@ -40,14 +42,14 @@ pub struct Uart<'a, M: Mode> {
 /// Uart TX driver.
 pub struct UartTx<'a, M: Mode> {
     info: Info,
-    _tx_dma: Option<ChannelAndRequest<'a>>,
+    _tx_dma: Option<Channel<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
 /// Uart RX driver.
 pub struct UartRx<'a, M: Mode> {
     info: Info,
-    _rx_dma: Option<ChannelAndRequest<'a>>,
+    _rx_dma: Option<Channel<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
@@ -132,7 +134,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {
-    fn new_inner<T: Instance>(_tx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+    fn new_inner<T: Instance>(_tx_dma: Option<Channel<'a>>) -> Self {
         Self {
             info: T::info(),
             _tx_dma,
@@ -217,7 +219,7 @@ impl<'a> UartTx<'a, Blocking> {
 }
 
 impl<'a, M: Mode> UartRx<'a, M> {
-    fn new_inner<T: Instance>(_rx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+    fn new_inner<T: Instance>(_rx_dma: Option<Channel<'a>>) -> Self {
         Self {
             info: T::info(),
             _rx_dma,
@@ -563,20 +565,52 @@ impl<'a> UartTx<'a, Async> {
 
         regs.fifocfg().modify(|_, w| w.dmatx().enabled());
 
-        self._tx_dma
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(buf, regs.fifowr().as_ptr() as *mut u8, Default::default());
+        let transfer = Transfer::new_write(
+            self._tx_dma.as_ref().unwrap(),
+            buf,
+            regs.fifowr().as_ptr() as *mut u8,
+            Default::default(),
+        );
 
-        let result = poll_fn(|cx| {
-            self._tx_dma.as_ref().unwrap().get_waker().register(cx.waker());
-            Poll::Ready(Ok(()))
-        })
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                UART_WAKERS[self.info.index].register(cx.waker());
+
+                self.info.regs.intenset().write(|w| {
+                    w.framerren()
+                        .set_bit()
+                        .parityerren()
+                        .set_bit()
+                        .rxnoiseen()
+                        .set_bit()
+                        .aberren()
+                        .set_bit()
+                });
+
+                let stat = self.info.regs.stat().read();
+
+                if stat.framerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Framing))
+                } else if stat.parityerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Parity))
+                } else if stat.rxnoiseint().bit_is_set() {
+                    Poll::Ready(Err(Error::Noise))
+                } else if stat.aberr().bit_is_set() {
+                    Poll::Ready(Err(Error::Fail))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
         .await;
 
         regs.fifocfg().modify(|_, w| w.dmatx().disabled());
 
-        result
+        match res {
+            Either::First(()) | Either::Second(Ok(())) => Ok(()),
+            Either::Second(e) => e,
+        }
     }
 
     /// Flush UART TX asynchronously.
@@ -647,20 +681,52 @@ impl<'a> UartRx<'a, Async> {
 
         regs.fifocfg().modify(|_, w| w.dmarx().enabled());
 
-        self._rx_dma
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(regs.fiford().as_ptr() as *mut u8, buf, Default::default());
+        let transfer = Transfer::new_read(
+            self._rx_dma.as_ref().unwrap(),
+            regs.fiford().as_ptr() as *mut u8,
+            buf,
+            Default::default(),
+        );
 
-        let result = poll_fn(|cx| {
-            self._rx_dma.as_ref().unwrap().get_waker().register(cx.waker());
-            Poll::Ready(Ok(()))
-        })
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                UART_WAKERS[self.info.index].register(cx.waker());
+
+                self.info.regs.intenset().write(|w| {
+                    w.framerren()
+                        .set_bit()
+                        .parityerren()
+                        .set_bit()
+                        .rxnoiseen()
+                        .set_bit()
+                        .aberren()
+                        .set_bit()
+                });
+
+                let stat = self.info.regs.stat().read();
+
+                if stat.framerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Framing))
+                } else if stat.parityerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Parity))
+                } else if stat.rxnoiseint().bit_is_set() {
+                    Poll::Ready(Err(Error::Noise))
+                } else if stat.aberr().bit_is_set() {
+                    Poll::Ready(Err(Error::Fail))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
         .await;
 
         regs.fifocfg().modify(|_, w| w.dmarx().disabled());
 
-        result
+        match res {
+            Either::First(()) | Either::Second(Ok(())) => Ok(()),
+            Either::Second(e) => e,
+        }
     }
 }
 
@@ -981,8 +1047,24 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let regs = T::info().regs;
         let stat = regs.intstat().read();
 
-        if stat.txidle().bit_is_set() {
-            regs.intenclr().write(|w| w.txidleclr().set_bit());
+        if stat.txidle().bit_is_set()
+            || stat.framerrint().bit_is_set()
+            || stat.parityerrint().bit_is_set()
+            || stat.rxnoiseint().bit_is_set()
+            || stat.aberrint().bit_is_set()
+        {
+            regs.intenclr().write(|w| {
+                w.txidleclr()
+                    .set_bit()
+                    .framerrclr()
+                    .set_bit()
+                    .parityerrclr()
+                    .set_bit()
+                    .rxnoiseclr()
+                    .set_bit()
+                    .aberrclr()
+                    .set_bit()
+            });
         }
 
         waker.wake();

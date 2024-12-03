@@ -1,6 +1,10 @@
 //! DMA transfer management
 
-use crate::dma::channel::{Channel, Request};
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
+use crate::dma::channel::Channel;
 
 /// DMA transfer options
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -100,14 +104,12 @@ impl<'d> Transfer<'d> {
     /// Reads from a peripheral register into a memory buffer using DMA
     pub fn new_read(
         channel: &'d Channel<'d>,
-        request: Request,
         peri_addr: *const u8,
         buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Self {
         Self::new_inner_transfer(
             channel,
-            request,
             Direction::PeripheralToMemory,
             peri_addr as *const u32,
             buf as *mut [u8] as *mut u32,
@@ -117,16 +119,9 @@ impl<'d> Transfer<'d> {
     }
 
     /// Writes a memory buffer into a peripheral register using DMA
-    pub fn new_write(
-        channel: &'d Channel<'d>,
-        request: Request,
-        buf: &'d [u8],
-        peri_addr: *mut u8,
-        options: TransferOptions,
-    ) -> Self {
+    pub fn new_write(channel: &'d Channel<'d>, buf: &'d [u8], peri_addr: *mut u8, options: TransferOptions) -> Self {
         Self::new_inner_transfer(
             channel,
-            request,
             Direction::MemoryToPeripheral,
             buf as *const [u8] as *const u32,
             peri_addr as *mut u32,
@@ -138,14 +133,12 @@ impl<'d> Transfer<'d> {
     /// Writes a memory buffer into another memory buffer using DMA
     pub fn new_write_mem(
         channel: &'d Channel<'d>,
-        request: Request,
         src_buf: &'d [u8],
         dst_buf: &'d mut [u8],
         options: TransferOptions,
     ) -> Self {
         Self::new_inner_transfer(
             channel,
-            request,
             Direction::MemoryToMemory,
             src_buf as *const [u8] as *const u32,
             dst_buf as *mut [u8] as *mut u32,
@@ -157,7 +150,6 @@ impl<'d> Transfer<'d> {
     /// Configures the channel and initiates the DMA transfer
     fn new_inner_transfer(
         channel: &'d Channel<'d>,
-        _request: Request,
         dir: Direction,
         src_buf: *const u32,
         dst_buf: *mut u32,
@@ -174,5 +166,30 @@ impl<'d> Transfer<'d> {
         channel.trigger_channel();
 
         Self { _inner: channel }
+    }
+}
+
+impl Unpin for Transfer<'_> {}
+impl Future for Transfer<'_> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let channel = self._inner.info.ch_num;
+
+        // Re-register the waker on each call to poll() because any calls to
+        // wake will deregister the waker.
+        super::DMA_WAKERS[channel].register(cx.waker());
+
+        if self._inner.info.regs.active0().read().act().bits() & (1 << channel) == 0 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl Drop for Transfer<'_> {
+    fn drop(&mut self) {
+        self._inner.abort()
     }
 }
