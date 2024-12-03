@@ -94,6 +94,9 @@ impl TimerDriver {
         // as a compare register for triggering an alarm so to avoid unnecessary triggers
         // after initialization, this is set to 0x:FFFF_FFFF
         self.compare_reg().write(|w| unsafe { w.gpdata().bits(u32::MAX) });
+        // safety: writing a value to the 1kHz RTC wake counter is always considered unsafe.
+        // The following loads 10 into the count-down timer.
+        r.wake().write(|w| unsafe { w.bits(0xA) });
         interrupt::RTC.set_priority(irq_prio);
         unsafe { interrupt::RTC.enable() };
     }
