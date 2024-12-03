@@ -21,6 +21,10 @@ pub mod adc;
 pub mod clocks;
 pub mod crc;
 pub mod dma;
+
+#[cfg(feature = "_espi")]
+pub mod espi;
+
 pub mod flash;
 pub mod flexcomm;
 pub mod gpio;
