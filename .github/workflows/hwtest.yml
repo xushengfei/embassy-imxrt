@@ -7,6 +7,9 @@ on:
     workflow_dispatch
   #  push:
   #    branches: [main]
+
+env:
+ BRANCH_NAME: ${{ github.head_ref || github.ref_name }} 
 name: hwtest-automation
 jobs:
     hwtest-automation:
@@ -30,5 +33,5 @@ jobs:
         - name: run tests
           run: |
             cd examples\rt685s-evk
-            .\run_tests.ps1
+            .\run_tests.ps1 -Arg ${{env.BRANCH_NAME}}
             
