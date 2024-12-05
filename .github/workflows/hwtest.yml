@@ -25,10 +25,10 @@ jobs:
           run: rustup target add ${{ matrix.target }}
         - name: cargo build
           run: cargo build --target ${{ matrix.target }}
-        - name: install test-parser
-          run: cargo install --git https://github.com/tullom/test-parser.git
+        # - name: install test-parser
+        #   run: cargo install --git https://github.com/tullom/test-parser.git
         - name: run tests
           run: |
-            cd examples\rt685s-evk\src\tests
-            .\test.ps1
+            cd examples\rt685s-evk
+            .\run_tests.ps1
             
