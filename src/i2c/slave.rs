@@ -354,6 +354,7 @@ impl I2cSlave<'_, Async> {
     /// Respond to write command from master
     pub async fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<Response> {
         let i2c = self.info.regs;
+        let buf_len = buf.len();
 
         // Verify that we are ready for write
         let stat = i2c.stat().read();
@@ -373,10 +374,12 @@ impl I2cSlave<'_, Async> {
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
         let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(i2c.slvdat().as_ptr() as *mut u8, buf, options);
+        // Keep a reference to Transfer so it does not get dropped and aborted the DMA transfer
+        let _transfer =
+            self.dma_ch
+                .as_ref()
+                .unwrap()
+                .read_from_peripheral(i2c.slvdat().as_ptr() as *mut u8, buf, options);
 
         poll_fn(|cx| {
             let i2c = self.info.regs;
@@ -404,7 +407,7 @@ impl I2cSlave<'_, Async> {
         .await;
 
         // Complete DMA transaction and get transfer count
-        let xfer_count = self.abort_dma(buf.len());
+        let xfer_count = self.abort_dma(buf_len);
         let stat = i2c.stat().read();
         // We got a stop from master, either way this transaction is
         // completed
@@ -444,10 +447,12 @@ impl I2cSlave<'_, Async> {
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
         let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(buf, i2c.slvdat().as_ptr() as *mut u8, options);
+        // Keep a reference to Transfer so it does not get dropped and aborted the DMA transfer
+        let _transfer =
+            self.dma_ch
+                .as_ref()
+                .unwrap()
+                .write_to_peripheral(buf, i2c.slvdat().as_ptr() as *mut u8, options);
 
         poll_fn(|cx| {
             let i2c = self.info.regs;
