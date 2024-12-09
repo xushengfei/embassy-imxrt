@@ -7,7 +7,8 @@ use embassy_futures::select::{select, Either};
 use embassy_hal_internal::into_ref;
 
 use super::{
-    Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
+    Async, Blocking, Error, Info, Instance, InterruptHandler, MasterDma, Mode, Result, SclPin, SdaPin, TransferError,
+    I2C_WAKERS,
 };
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::{dma, interrupt, Peripheral};
@@ -114,13 +115,12 @@ impl<'a, M: Mode> I2cMaster<'a, M> {
 
 impl<'a> I2cMaster<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking<T: Instance, D: dma::Instance>(
+    pub fn new_blocking<T: Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         speed: Speed,
-        _dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -246,14 +246,14 @@ impl<'a> I2cMaster<'a, Blocking> {
 
 impl<'a> I2cMaster<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         speed: Speed,
-        dma_ch: impl Peripheral<P = D> + 'a,
+        dma_ch: impl Peripheral<P = impl MasterDma<T>> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
