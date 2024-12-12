@@ -7,7 +7,8 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, Peripheral};
 
 use super::{
-    Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
+    Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, SlaveDma, TransferError,
+    I2C_WAKERS,
 };
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::pac::i2c0::stat::Slvstate;
@@ -129,13 +130,12 @@ impl<'a, M: Mode> I2cSlave<'a, M> {
 
 impl<'a> I2cSlave<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking<T: Instance, D: dma::Instance>(
+    pub fn new_blocking<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        _dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -168,14 +168,14 @@ impl<'a> I2cSlave<'a, Blocking> {
 
 impl<'a> I2cSlave<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        dma_ch: impl Peripheral<P = D> + 'a,
+        dma_ch: impl Peripheral<P = impl SlaveDma<T>> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;

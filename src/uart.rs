@@ -537,11 +537,11 @@ impl<'a> Uart<'a, Blocking> {
 
 impl<'a> UartTx<'a, Async> {
     /// Create a new DMA enabled UART which can only send data
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        tx_dma: impl Peripheral<P = D> + 'a,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -653,11 +653,11 @@ impl<'a> UartTx<'a, Async> {
 
 impl<'a> UartRx<'a, Async> {
     /// Create a new DMA enabled UART which can only receive data
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        rx_dma: impl Peripheral<P = D> + 'a,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -732,13 +732,13 @@ impl<'a> UartRx<'a, Async> {
 
 impl<'a> Uart<'a, Async> {
     /// Create a new DMA enabled UART
-    pub fn new_async<T: Instance, TXDMA: dma::Instance, RXDMA: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        tx_dma: impl Peripheral<P = TXDMA> + 'a,
-        rx_dma: impl Peripheral<P = RXDMA> + 'a,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'a,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -764,15 +764,15 @@ impl<'a> Uart<'a, Async> {
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts<T: Instance, TXDMA: dma::Instance, RXDMA: dma::Instance>(
+    pub fn new_with_rtscts<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'a,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        tx_dma: impl Peripheral<P = TXDMA> + 'a,
-        rx_dma: impl Peripheral<P = RXDMA> + 'a,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'a,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -1206,3 +1206,43 @@ impl_pin_trait!(FLEXCOMM7, tx, PIO4_1, F1);
 impl_pin_trait!(FLEXCOMM7, rx, PIO4_2, F1);
 impl_pin_trait!(FLEXCOMM7, cts, PIO4_3, F1);
 impl_pin_trait!(FLEXCOMM7, rts, PIO4_4, F1);
+
+/// UART Tx DMA trait.
+#[allow(private_bounds)]
+pub trait TxDma<T: Instance>: dma::Instance {}
+
+/// UART Rx DMA trait.
+#[allow(private_bounds)]
+pub trait RxDma<T: Instance>: dma::Instance {}
+
+macro_rules! impl_dma {
+    ($fcn:ident, $mode:ident, $dma:ident) => {
+        paste! {
+            impl [<$mode Dma>]<crate::peripherals::$fcn> for crate::peripherals::$dma {}
+        }
+    };
+}
+
+impl_dma!(FLEXCOMM0, Rx, DMA0_CH0);
+impl_dma!(FLEXCOMM0, Tx, DMA0_CH1);
+
+impl_dma!(FLEXCOMM1, Rx, DMA0_CH2);
+impl_dma!(FLEXCOMM1, Tx, DMA0_CH3);
+
+impl_dma!(FLEXCOMM2, Rx, DMA0_CH4);
+impl_dma!(FLEXCOMM2, Tx, DMA0_CH5);
+
+impl_dma!(FLEXCOMM3, Rx, DMA0_CH6);
+impl_dma!(FLEXCOMM3, Tx, DMA0_CH7);
+
+impl_dma!(FLEXCOMM4, Rx, DMA0_CH8);
+impl_dma!(FLEXCOMM4, Tx, DMA0_CH9);
+
+impl_dma!(FLEXCOMM5, Rx, DMA0_CH10);
+impl_dma!(FLEXCOMM5, Tx, DMA0_CH11);
+
+impl_dma!(FLEXCOMM6, Rx, DMA0_CH12);
+impl_dma!(FLEXCOMM6, Tx, DMA0_CH13);
+
+impl_dma!(FLEXCOMM7, Rx, DMA0_CH14);
+impl_dma!(FLEXCOMM7, Tx, DMA0_CH15);

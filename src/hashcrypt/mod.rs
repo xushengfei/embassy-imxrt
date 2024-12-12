@@ -29,7 +29,7 @@ impl Mode for Async {}
 
 /// Trait for compatible DMA channels
 #[allow(private_bounds)]
-pub trait HashcryptDma: Sealed {}
+pub trait HashcryptDma: Sealed + dma::Instance {}
 impl Sealed for DMA0_CH30 {}
 impl HashcryptDma for DMA0_CH30 {}
 
@@ -100,9 +100,9 @@ impl<'d> Hashcrypt<'d, Blocking> {
 
 impl<'d> Hashcrypt<'d, Async> {
     /// Create a new instance
-    pub fn new_async<D: dma::Instance + HashcryptDma>(
+    pub fn new_async(
         peripheral: impl Peripheral<P = HASHCRYPT> + 'd,
-        dma_ch: impl Peripheral<P = D> + 'd,
+        dma_ch: impl Peripheral<P = impl HashcryptDma> + 'd,
     ) -> Self {
         Self::new_inner(peripheral, Some(dma::Dma::reserve_channel(dma_ch)))
     }
