@@ -347,15 +347,20 @@ impl<'a> I2cMaster<'a, Async> {
 
         self.start(address, true).await?;
 
-        // After address is acknowledged, enable DMA
-        i2cregs.mstctl().write(|w| w.mstdma().enabled());
-
         let transfer = dma::transfer::Transfer::new_read(
             self.dma_ch.as_mut().unwrap(),
             i2cregs.mstdat().as_ptr() as *mut u8,
             read,
             Default::default(),
         );
+
+        // According to sections 24.7.7.1 and 24.7.7.2, we should
+        // first program the DMA channel for carrying out a transfer
+        // and only then set MSTDMA bit.
+        //
+        // Additionally, at this point we know the slave has
+        // acknowledged the address.
+        i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
         let res = select(
             transfer,
@@ -404,15 +409,20 @@ impl<'a> I2cMaster<'a, Async> {
             return Ok(());
         }
 
-        // After address is acknowledged, enable DMA
-        i2cregs.mstctl().write(|w| w.mstdma().enabled());
-
         let transfer = dma::transfer::Transfer::new_write(
             self.dma_ch.as_mut().unwrap(),
             write,
             i2cregs.mstdat().as_ptr() as *mut u8,
             Default::default(),
         );
+
+        // According to sections 24.7.7.1 and 24.7.7.2, we should
+        // first program the DMA channel for carrying out a transfer
+        // and only then set MSTDMA bit.
+        //
+        // Additionally, at this point we know the slave has
+        // acknowledged the address.
+        i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
         let res = select(
             transfer,
