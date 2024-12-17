@@ -27,7 +27,6 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
     "executor-thread",
     "executor-interrupt",
     "defmt",
-    "integrated-timers",
 ] }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = [
