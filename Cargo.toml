@@ -28,11 +28,12 @@ defmt = ["dep:defmt", "mimxrt685s-pac/defmt"]
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time"]
 ## Enable custom embassy time-driver implementation, using 1kHz RTC
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000"]
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000", "dep:embassy-time-queue-driver"]
 
 [dependencies]
 embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", optional = true }
+embassy-time-queue-driver = { git = "https://github.com/embassy-rs/embassy", optional = true }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", optional = true }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = [

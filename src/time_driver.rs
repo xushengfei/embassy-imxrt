@@ -1,11 +1,11 @@
-use core::cell::Cell;
-use core::ptr;
-use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
+use core::cell::{Cell, RefCell};
+use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_time_driver::Driver;
+use embassy_time_queue_driver::Queue;
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, into_ref, pac, peripherals, Peripheral, PeripheralRef};
@@ -30,10 +30,6 @@ fn calc_now(period: u32, counter: u32) -> u64 {
 
 struct AlarmState {
     timestamp: Cell<u64>,
-    // This is really a Option<(fn(*mut ()), *mut ())>
-    // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
 }
 
 unsafe impl Send for AlarmState {}
@@ -42,26 +38,22 @@ impl AlarmState {
     const fn new() -> Self {
         Self {
             timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
         }
     }
 }
 
-const ALARM_COUNT: usize = 1;
-
 struct TimerDriver {
     /// Number of 2^31 periods elapsed since boot.
     period: AtomicU32,
-    alarm_count: AtomicU8,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<[AlarmState; ALARM_COUNT]>,
+    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
+    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver {
     period: AtomicU32::new(0),
-    alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [AlarmState::new(); ALARM_COUNT]),
+    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
 impl TimerDriver {
@@ -138,7 +130,7 @@ impl TimerDriver {
                 // gpreg0 is our extended counter register, check if
                 // our counter is larger than the compare value
                 if self.counter_reg().read().bits() > self.compare_reg().read().bits() {
-                    self.trigger_alarm(0, cs);
+                    self.trigger_alarm(cs);
                 }
             }
         })
@@ -158,7 +150,7 @@ impl TimerDriver {
                 });
             let t = (period as u64) << 31;
 
-            let alarm = &self.alarms.borrow(cs)[0];
+            let alarm = &self.alarms.borrow(cs);
             let at = alarm.timestamp.get();
             if at < t + 0xc000_0000 {
                 // safety: writing to gpregs is always unsafe, gpreg2 is an alarm
@@ -169,31 +161,60 @@ impl TimerDriver {
         })
     }
 
-    fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
-        // safety: we're allowed to assume the AlarmState is created by us, and
-        // we never create one that's out of bounds.
-        unsafe { self.alarms.borrow(cs).get_unchecked(alarm.id() as usize) }
+    #[must_use]
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+        let alarm = self.alarms.borrow(cs);
+        alarm.timestamp.set(timestamp);
+
+        let t = self.now();
+        if timestamp <= t {
+            // safety: Writing to the gpregs is always unsafe, gpreg2 is
+            // always just used as the alarm enable for the timer driver.
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+            self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
+
+            alarm.timestamp.set(u64::MAX);
+
+            return false;
+        }
+
+        // If it hasn't triggered yet, setup it by writing to the compare field
+        // An alarm can be delayed, but this is allowed by the Alarm trait contract.
+        // What's not allowed is triggering alarms *before* their scheduled time,
+        let safe_timestamp = timestamp.max(t + 10); //t+3 was done for nrf chip, choosing 10
+
+        // safety: writing to the gregs is always unsafe. When a new alarm is set,
+        // the compare register, gpreg1, is set to the last 31 bits of the timestamp
+        // as the 32nd and final bit is used for the parity check in `next_period`
+        // `period` will be used for the upper bits in a timestamp comparison.
+        self.compare_reg()
+            .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
+
+        // The following checks that the difference in timestamp is less than the overflow period
+        let diff = timestamp - t;
+        if diff < 0xc000_0000 {
+            // this is 0b11 << (30). NRF chip used 23 bit periods and checked against 0b11<<22
+
+            // safety: writing to the gpregs is always unsafe. If the alarm
+            // must trigger within the next period, set the "int enable"
+            self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
+        } else {
+            // safety: writing to the gpregs is always unsafe. If alarm must trigger
+            // some time after the current period, too far in the future, don't setup
+            // the alarm enable, gpreg2, yet. It will be setup later by `next_period`.
+            self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
+        }
+
+        true
     }
 
     #[cfg(feature = "rt")]
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        // safety: writing to gpregs is always unsafe. Because
-        // gpreg 2 is "int_en" and gpreg1 is the compare register,
-        // after we trigger an alarm, the enable must be cleared and
-        // our compare must go back to the initialization value
-        self.int_en_reg().write(|w| unsafe { w.bits(0) });
-        self.compare_reg().write(|w| unsafe { w.bits(0xFFFF_FFFF) });
-
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-
-        // safety:
-        // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-        // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { core::mem::transmute(alarm.callback.get()) };
-        f(alarm.ctx.get());
+    fn trigger_alarm(&self, cs: CriticalSection) {
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        while !self.set_alarm(cs, next) {
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        }
     }
 }
 
@@ -206,73 +227,16 @@ impl Driver for TimerDriver {
         calc_now(period, counter)
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        critical_section::with(|_| {
-            let id = self.alarm_count.load(Ordering::Relaxed);
-            if id < ALARM_COUNT as u8 {
-                self.alarm_count.store(id + 1, Ordering::Relaxed);
-                Some(AlarmHandle::new(id))
-            } else {
-                None
-            }
-        })
-    }
-
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         critical_section::with(|cs| {
-            let alarm = self.get_alarm(cs, alarm);
+            let mut queue = self.queue.borrow(cs).borrow_mut();
 
-            alarm.callback.set(callback as *const ());
-            alarm.ctx.set(ctx);
-        })
-    }
-
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
-            let alarm = self.get_alarm(cs, alarm);
-            alarm.timestamp.set(timestamp);
-
-            let t = self.now();
-            if timestamp <= t {
-                // safety: Writing to the gpregs is always unsafe, gpreg2 is
-                // always just used as the alarm enable for the timer driver.
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
-
-                alarm.timestamp.set(u64::MAX);
-
-                return false;
+            if queue.schedule_wake(at, waker) {
+                let mut next = queue.next_expiration(self.now());
+                while !self.set_alarm(cs, next) {
+                    next = queue.next_expiration(self.now());
+                }
             }
-
-            // If it hasn't triggered yet, setup it by writing to the compare field
-            // An alarm can be delayed, but this is allowed by the Alarm trait contract.
-            // What's not allowed is triggering alarms *before* their scheduled time,
-            let safe_timestamp = timestamp.max(t + 10); //t+3 was done for nrf chip, choosing 10
-
-            // safety: writing to the gregs is always unsafe. When a new alarm is set,
-            // the compare register, gpreg1, is set to the last 31 bits of the timestamp
-            // as the 32nd and final bit is used for the parity check in `next_period`
-            // `period` will be used for the upper bits in a timestamp comparison.
-            self.compare_reg()
-                .modify(|_r, w| unsafe { w.bits(safe_timestamp as u32 & 0x7FFF_FFFF) });
-
-            // The following checks that the difference in timestamp is less than the overflow period
-            let diff = timestamp - t;
-            if diff < 0xc000_0000 {
-                // this is 0b11 << (30). NRF chip used 23 bit periods and checked against 0b11<<22
-
-                // safety: writing to the gpregs is always unsafe. If the alarm
-                // must trigger within the next period, set the "int enable"
-                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(1) });
-            } else {
-                // safety: writing to the gpregs is always unsafe. If alarm must trigger
-                // some time after the current period, too far in the future, don't setup
-                // the alarm enable, gpreg2, yet. It will be setup later by `next_period`.
-                self.int_en_reg().write(|w| unsafe { w.gpdata().bits(0) });
-            }
-
-            true
         })
     }
 }
