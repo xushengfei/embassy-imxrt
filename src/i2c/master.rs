@@ -379,7 +379,7 @@ impl<'a> I2cMaster<'a, Async> {
                 let stat = i2cregs.stat().read();
 
                 if stat.mststate().is_receive_ready() {
-                    Poll::Ready(Ok(()))
+                    Poll::Ready(Ok::<(), Error>(()))
                 } else if stat.mstarbloss().is_arbitration_loss() {
                     Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
                 } else if stat.mstststperr().is_error() {
@@ -393,10 +393,36 @@ impl<'a> I2cMaster<'a, Async> {
 
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
-        match res {
-            Either::First(_) | Either::Second(Ok(_)) => Ok(()),
-            Either::Second(e) => e,
+        if let Either::Second(e) = res {
+            e?;
         }
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await
     }
 
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
@@ -441,7 +467,7 @@ impl<'a> I2cMaster<'a, Async> {
                 let stat = i2cregs.stat().read();
 
                 if stat.mststate().is_transmit_ready() {
-                    Poll::Ready(Ok(()))
+                    Poll::Ready(Ok::<(), Error>(()))
                 } else if stat.mstarbloss().is_arbitration_loss() {
                     Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
                 } else if stat.mstststperr().is_error() {
@@ -455,15 +481,45 @@ impl<'a> I2cMaster<'a, Async> {
 
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
-        match res {
-            Either::First(_) | Either::Second(Ok(_)) => Ok(()),
-            Either::Second(e) => e,
+        if let Either::Second(e) = res {
+            e?;
         }
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await
     }
 
     async fn stop(&mut self) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.info.regs;
+
+        if i2cregs.stat().read().mstpending().is_in_progress() {
+            return Err(TransferError::StartStopError.into());
+        }
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
 
