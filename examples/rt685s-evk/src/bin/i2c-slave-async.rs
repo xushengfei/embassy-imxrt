@@ -7,7 +7,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::i2c::slave::{Address, Command, I2cSlave, Response};
 use embassy_imxrt::i2c::{self, Async};
-use embassy_imxrt::{bind_interrupts, pac, peripherals};
+use embassy_imxrt::{bind_interrupts, peripherals};
 
 const SLAVE_ADDR: Option<Address> = Address::new(0x20);
 const BUFLEN: usize = 8;
@@ -59,11 +59,6 @@ async fn slave_service(mut i2c: I2cSlave<'static, Async>) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let pac = pac::Peripherals::take().unwrap();
-
-    // Ensure SFRO Clock is set to run (power down is cleared)
-    pac.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
-
     info!("i2cs example - embassy_imxrt::init");
     let p = embassy_imxrt::init(Default::default());
 

@@ -40,9 +40,6 @@ async fn main(_spawner: Spawner) {
     info!("i2c example - embassy_imxrt::init");
     let p = embassy_imxrt::init(Default::default());
 
-    info!("i2c example - Configure Pins");
-    board_init_pin_clocks();
-
     info!("i2c example - Configure GPIOs");
     use embassy_imxrt::gpio::*;
 
@@ -176,18 +173,4 @@ async fn main(_spawner: Spawner) {
     loop {
         Timer::after_millis(1000).await;
     }
-}
-
-fn board_init_pin_clocks() {
-    let pac = embassy_imxrt::pac::Peripherals::take().unwrap();
-
-    // Ensure SFRO Clock is set to run (power down is cleared)
-    pac.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
-
-    info!("Enabling GPIO1 clock");
-    pac.clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
-
-    // Take GPIO0 out of reset
-    info!("Clearing GPIO1 reset");
-    pac.rstctl1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
 }
