@@ -836,7 +836,7 @@ impl ConfigurableClock for MainPllClkConfig {
                     trace!("waiting for mainpll clock to be ready");
                     while clkctl0.syspll0pfd().read().pfd0_clkrdy().bit_is_clear() {}
                     // clear by writing a 1
-                    clkctl0.syspll0pfd().write(|w| w.pfd0_clkrdy().set_bit());
+                    clkctl0.syspll0pfd().modify(|_, w| w.pfd0_clkrdy().set_bit());
 
                     Ok(())
                 }
