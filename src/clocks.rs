@@ -725,8 +725,9 @@ impl ConfigurableClock for MainPllClkConfig {
             let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
 
             // Power down pll before changes
-            sysctl0.pdruncfg0().write(|w| w.syspllldo_pd().power_down());
-            sysctl0.pdruncfg0().write(|w| w.syspllana_pd().power_down());
+            sysctl0
+                .pdruncfg0_set()
+                .write(|w| w.syspllldo_pd().set_pdruncfg0().syspllana_pd().set_pdruncfg0());
 
             let desired_freq: u64 = self.freq.load(Ordering::Relaxed).into();
 
@@ -770,8 +771,8 @@ impl ConfigurableClock for MainPllClkConfig {
                         clkctl0.syspll0ctl0().write(|w| w.reset().normal());
                         // Power up SYSPLL
                         sysctl0
-                            .pdruncfg0()
-                            .write(|w| w.syspllana_pd().clear_bit().syspllldo_pd().clear_bit());
+                            .pdruncfg0_clr()
+                            .write(|w| w.syspllana_pd().clr_pdruncfg0().syspllldo_pd().clr_pdruncfg0());
                         return Err(ClockError::InvalidFrequency);
                     }
                     trace!("setting default num and denom");
