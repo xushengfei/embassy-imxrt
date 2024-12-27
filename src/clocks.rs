@@ -1324,9 +1324,14 @@ fn set_pad_voltage_range() {
         let pmc = crate::pac::Pmc::steal();
         // Set up IO voltages
         // all 3 ranges need to be 1.71-1.98V which is 01
-        pmc.padvrange().write(|w| w.vddio_0range().bits(0b01));
-        pmc.padvrange().write(|w| w.vddio_1range().bits(0b01));
-        pmc.padvrange().write(|w| w.vddio_2range().bits(0b01));
+        pmc.padvrange().write(|w| {
+            w.vddio_0range()
+                .bits(0b01)
+                .vddio_1range()
+                .bits(0b01)
+                .vddio_2range()
+                .bits(0b01)
+        });
     }
 }
 
