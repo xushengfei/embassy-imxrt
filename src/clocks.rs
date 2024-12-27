@@ -966,13 +966,17 @@ impl MainClkConfig {
         // Set PFC0DIV divider to value 2, Subtract 1 since 0-> 1, 1-> 2, etc...
         clkctl0.pfcdiv(0).modify(|_, w| w.reset().set_bit());
         // SAFETY: unsafe needed to write the bits for pfcdiv
-        clkctl0.pfcdiv(0).write(|w| unsafe { w.div().bits(2 - 1) });
+        clkctl0
+            .pfcdiv(0)
+            .write(|w| unsafe { w.div().bits(2 - 1).halt().clear_bit() });
         while clkctl0.pfcdiv(0).read().reqflag().bit_is_set() {}
 
         // Set FRGPLLCLKDIV divider to value 12, Subtract 1 since 0-> 1, 1-> 2, etc...
         clkctl1.frgpllclkdiv().modify(|_, w| w.reset().set_bit());
         // SAFETY: unsafe needed to write the bits for frgpllclkdiv
-        clkctl1.frgpllclkdiv().write(|w| unsafe { w.div().bits(12 - 1) });
+        clkctl1
+            .frgpllclkdiv()
+            .write(|w| unsafe { w.div().bits(12 - 1).halt().clear_bit() });
         while clkctl1.frgpllclkdiv().read().reqflag().bit_is_set() {}
     }
 }
