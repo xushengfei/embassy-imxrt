@@ -165,6 +165,7 @@ async fn main(_spawner: Spawner) {
         } else {
             error!("i2c example - Error reading status register {}", result.unwrap_err());
         }
+        Timer::after_millis(100).await;
     }
 
     /* Accelerometer status register, first byte always 0xFF, then X:Y:Z each 2 bytes, in total 7 bytes */
