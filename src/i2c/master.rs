@@ -378,12 +378,10 @@ impl<'a> I2cMaster<'a, Async> {
 
                 let stat = i2cregs.stat().read();
 
-                if stat.mststate().is_receive_ready() {
-                    Poll::Ready(Ok::<(), Error>(()))
-                } else if stat.mstarbloss().is_arbitration_loss() {
-                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err::<(), Error>(TransferError::ArbitrationLoss.into()))
                 } else if stat.mstststperr().is_error() {
-                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                    Poll::Ready(Err::<(), Error>(TransferError::StartStopError.into()))
                 } else {
                     Poll::Pending
                 }
@@ -466,12 +464,10 @@ impl<'a> I2cMaster<'a, Async> {
 
                 let stat = i2cregs.stat().read();
 
-                if stat.mststate().is_transmit_ready() {
-                    Poll::Ready(Ok::<(), Error>(()))
-                } else if stat.mstarbloss().is_arbitration_loss() {
-                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err::<(), Error>(TransferError::ArbitrationLoss.into()))
                 } else if stat.mstststperr().is_error() {
-                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                    Poll::Ready(Err::<(), Error>(TransferError::StartStopError.into()))
                 } else {
                     Poll::Pending
                 }
