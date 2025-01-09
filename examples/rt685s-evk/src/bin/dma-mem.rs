@@ -2,12 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::dma::channel::Channel;
 use embassy_imxrt::dma::transfer::{Priority, Transfer, TransferOptions, Width};
 use embassy_imxrt::dma::Dma;
 use embassy_imxrt::peripherals::*;
-use {defmt_rtt as _, panic_probe as _};
 
 const TEST_LEN: usize = 16;
 

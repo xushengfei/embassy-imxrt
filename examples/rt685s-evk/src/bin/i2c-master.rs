@@ -4,11 +4,11 @@
 extern crate embassy_imxrt_examples;
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::i2c;
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
-use {defmt_rtt as _, panic_probe as _};
 
 const ACC_ADDR: u8 = 0x1E;
 
