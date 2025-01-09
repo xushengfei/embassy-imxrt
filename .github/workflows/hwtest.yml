@@ -1,0 +1,51 @@
+# This workflow executes HW tests on an NXP RT600 EVK.
+# NOTE: for now it simply executes a build on the self-hosted test runner PC.
+#
+permissions:
+    contents: read
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+ BRANCH_NAME: ${{ github.head_ref || github.ref_name }} 
+name: hwtest-automation
+jobs:
+    hwtest-automation:
+      runs-on: self-hosted
+      name: Run integration tests
+      strategy:
+        matrix:
+          target: [thumbv8m.main-none-eabihf]
+      steps:
+        - uses: actions/checkout@v4
+          with:
+            submodules: true
+        - name: run tests
+          run: |
+            cd examples\rt685s-evk
+            $sshcommand = "ssh hwrunner@172.29.127.20 ./run_tests.sh " + "${{env.BRANCH_NAME}}"
+            Write-Output $sshcommand
+
+            Restore-VMCheckpoint -VMName "hwrunner" -Name "fresh" -Confirm:$false 
+
+            # Pause for 5 seconds
+            Start-Sleep -Seconds 5
+
+            $output = Invoke-Expression $sshcommand
+
+            # Output the result
+            Write-Output $output
+
+            Restore-VMCheckpoint -VMName "hwrunner" -Name "fresh" -Confirm:$false 
+
+            # Determine the success or failure based on the output
+            if ($output -match "Some tests failed:") {
+                exit 1
+            }
+            elseif ($output -match "All tests passed!") {
+                exit 0
+            }
+
+            exit 1
