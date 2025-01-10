@@ -7,8 +7,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 use sealed::Sealed;
 
-use crate::interrupt;
 use crate::iopctl::IopctlPin as Pin;
+use crate::{dma, interrupt};
 
 /// I2C Master Driver
 pub mod master;
@@ -163,13 +163,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// io configuration trait for easier configuration
-pub trait SclPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SclPin<Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for SCL usage
     fn as_scl(&self);
 }
 
 /// io configuration trait for easier configuration
-pub trait SdaPin<Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait SdaPin<Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for SDA usage
     fn as_sda(&self);
 }
@@ -289,3 +289,43 @@ impl_scl!(PIO4_1, F1, FLEXCOMM7);
 impl_sda!(PIO4_2, F1, FLEXCOMM7);
 impl_sda!(PIO4_3, F1, FLEXCOMM7);
 impl_scl!(PIO4_4, F1, FLEXCOMM7);
+
+/// I2C Master DMA trait.
+#[allow(private_bounds)]
+pub trait MasterDma<T: Instance>: dma::Instance {}
+
+/// I2C Slave DMA trait.
+#[allow(private_bounds)]
+pub trait SlaveDma<T: Instance>: dma::Instance {}
+
+macro_rules! impl_dma {
+    ($fcn:ident, $mode:ident, $dma:ident) => {
+        paste! {
+            impl [<$mode Dma>]<crate::peripherals::$fcn> for crate::peripherals::$dma {}
+        }
+    };
+}
+
+impl_dma!(FLEXCOMM0, Slave, DMA0_CH0);
+impl_dma!(FLEXCOMM0, Master, DMA0_CH1);
+
+impl_dma!(FLEXCOMM1, Slave, DMA0_CH2);
+impl_dma!(FLEXCOMM1, Master, DMA0_CH3);
+
+impl_dma!(FLEXCOMM2, Slave, DMA0_CH4);
+impl_dma!(FLEXCOMM2, Master, DMA0_CH5);
+
+impl_dma!(FLEXCOMM3, Slave, DMA0_CH6);
+impl_dma!(FLEXCOMM3, Master, DMA0_CH7);
+
+impl_dma!(FLEXCOMM4, Slave, DMA0_CH8);
+impl_dma!(FLEXCOMM4, Master, DMA0_CH9);
+
+impl_dma!(FLEXCOMM5, Slave, DMA0_CH10);
+impl_dma!(FLEXCOMM5, Master, DMA0_CH11);
+
+impl_dma!(FLEXCOMM6, Slave, DMA0_CH12);
+impl_dma!(FLEXCOMM6, Master, DMA0_CH13);
+
+impl_dma!(FLEXCOMM7, Slave, DMA0_CH14);
+impl_dma!(FLEXCOMM7, Master, DMA0_CH15);

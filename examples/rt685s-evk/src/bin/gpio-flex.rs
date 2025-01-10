@@ -14,7 +14,6 @@ async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
 
     info!("Initializing GPIO");
-    unsafe { gpio::init() };
 
     // Start with a level sensing disabled, output only state
     let flex = gpio::Flex::<SenseDisabled>::new(p.PIO1_0);

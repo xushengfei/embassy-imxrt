@@ -7,7 +7,8 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, Peripheral};
 
 use super::{
-    Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
+    Async, Blocking, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, SlaveDma, TransferError,
+    I2C_WAKERS,
 };
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::pac::i2c0::stat::Slvstate;
@@ -71,7 +72,7 @@ pub enum Response {
 pub struct I2cSlave<'a, M: Mode> {
     info: Info,
     _phantom: PhantomData<M>,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+    dma_ch: Option<dma::channel::Channel<'a>>,
 }
 
 impl<'a, M: Mode> I2cSlave<'a, M> {
@@ -82,7 +83,7 @@ impl<'a, M: Mode> I2cSlave<'a, M> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+        dma_ch: Option<dma::channel::Channel<'a>>,
     ) -> Result<Self> {
         into_ref!(_bus);
         into_ref!(scl);
@@ -129,13 +130,12 @@ impl<'a, M: Mode> I2cSlave<'a, M> {
 
 impl<'a> I2cSlave<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking<T: Instance, D: dma::Instance>(
+    pub fn new_blocking<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        _dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -168,14 +168,14 @@ impl<'a> I2cSlave<'a, Blocking> {
 
 impl<'a> I2cSlave<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _bus: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         address: Address,
-        dma_ch: impl Peripheral<P = D> + 'a,
+        dma_ch: impl Peripheral<P = impl SlaveDma<T>> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -354,6 +354,7 @@ impl I2cSlave<'_, Async> {
     /// Respond to write command from master
     pub async fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<Response> {
         let i2c = self.info.regs;
+        let buf_len = buf.len();
 
         // Verify that we are ready for write
         let stat = i2c.stat().read();
@@ -373,10 +374,12 @@ impl I2cSlave<'_, Async> {
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
         let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(i2c.slvdat().as_ptr() as *mut u8, buf, options);
+        // Keep a reference to Transfer so it does not get dropped and aborted the DMA transfer
+        let _transfer =
+            self.dma_ch
+                .as_ref()
+                .unwrap()
+                .read_from_peripheral(i2c.slvdat().as_ptr() as *mut u8, buf, options);
 
         poll_fn(|cx| {
             let i2c = self.info.regs;
@@ -404,7 +407,7 @@ impl I2cSlave<'_, Async> {
         .await;
 
         // Complete DMA transaction and get transfer count
-        let xfer_count = self.abort_dma(buf.len());
+        let xfer_count = self.abort_dma(buf_len);
         let stat = i2c.stat().read();
         // We got a stop from master, either way this transaction is
         // completed
@@ -444,10 +447,12 @@ impl I2cSlave<'_, Async> {
             .write(|w| w.slvpendingen().enabled().slvdeselen().enabled());
 
         let options = dma::transfer::TransferOptions::default();
-        self.dma_ch
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(buf, i2c.slvdat().as_ptr() as *mut u8, options);
+        // Keep a reference to Transfer so it does not get dropped and aborted the DMA transfer
+        let _transfer =
+            self.dma_ch
+                .as_ref()
+                .unwrap()
+                .write_to_peripheral(buf, i2c.slvdat().as_ptr() as *mut u8, options);
 
         poll_fn(|cx| {
             let i2c = self.info.regs;

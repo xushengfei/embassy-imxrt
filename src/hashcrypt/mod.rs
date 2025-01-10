@@ -29,14 +29,14 @@ impl Mode for Async {}
 
 /// Trait for compatible DMA channels
 #[allow(private_bounds)]
-pub trait HashcryptDma: Sealed {}
+pub trait HashcryptDma: Sealed + dma::Instance {}
 impl Sealed for DMA0_CH30 {}
 impl HashcryptDma for DMA0_CH30 {}
 
 /// Hashcrypt driver
 pub struct Hashcrypt<'d, M: Mode> {
     hashcrypt: pac::Hashcrypt,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
+    dma_ch: Option<dma::channel::Channel<'d>>,
     _peripheral: PeripheralRef<'d, HASHCRYPT>,
     _mode: PhantomData<M>,
 }
@@ -59,10 +59,7 @@ impl From<Algorithm> for u8 {
 
 impl<'d, M: Mode> Hashcrypt<'d, M> {
     /// Instantiate new Hashcrypt peripheral
-    fn new_inner(
-        peripheral: impl Peripheral<P = HASHCRYPT> + 'd,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'d>>,
-    ) -> Self {
+    fn new_inner(peripheral: impl Peripheral<P = HASHCRYPT> + 'd, dma_ch: Option<dma::channel::Channel<'d>>) -> Self {
         enable_and_reset::<HASHCRYPT>();
 
         into_ref!(peripheral);
@@ -103,9 +100,9 @@ impl<'d> Hashcrypt<'d, Blocking> {
 
 impl<'d> Hashcrypt<'d, Async> {
     /// Create a new instance
-    pub fn new_async<D: dma::Instance + HashcryptDma>(
+    pub fn new_async(
         peripheral: impl Peripheral<P = HASHCRYPT> + 'd,
-        dma_ch: impl Peripheral<P = D> + 'd,
+        dma_ch: impl Peripheral<P = impl HashcryptDma> + 'd,
     ) -> Self {
         Self::new_inner(peripheral, Some(dma::Dma::reserve_channel(dma_ch)))
     }

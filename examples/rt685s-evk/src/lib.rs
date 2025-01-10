@@ -3,6 +3,9 @@
 use mimxrt600_fcb::FlexSPIFlashConfigurationBlock;
 use {defmt_rtt as _, panic_probe as _};
 
+// auto-generated version information from Cargo.toml
+include!(concat!(env!("OUT_DIR"), "/biv.rs"));
+
 #[link_section = ".otfad"]
 #[used]
 static OTFAD: [u8; 256] = [0; 256];
@@ -11,10 +14,6 @@ static OTFAD: [u8; 256] = [0; 256];
 #[link_section = ".fcb"]
 #[used]
 static FCB: FlexSPIFlashConfigurationBlock = FlexSPIFlashConfigurationBlock::build();
-
-#[link_section = ".biv"]
-#[used]
-static BOOT_IMAGE_VERSION: u32 = 0x01000000;
 
 #[link_section = ".keystore"]
 #[used]

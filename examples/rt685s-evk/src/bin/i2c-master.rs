@@ -40,9 +40,6 @@ async fn main(_spawner: Spawner) {
     info!("i2c example - embassy_imxrt::init");
     let p = embassy_imxrt::init(Default::default());
 
-    info!("i2c example - Configure Pins");
-    board_init_pin_clocks();
-
     info!("i2c example - Configure GPIOs");
     use embassy_imxrt::gpio::*;
 
@@ -84,14 +81,8 @@ async fn main(_spawner: Spawner) {
     let _isr_pin = Input::new(p.PIO1_5, Pull::Down, Inverter::Disabled);
 
     info!("i2c example - I2c::new");
-    let mut i2c = i2c::master::I2cMaster::new_blocking(
-        p.FLEXCOMM2,
-        p.PIO0_18,
-        p.PIO0_17,
-        i2c::master::Speed::Standard,
-        p.DMA0_CH5,
-    )
-    .unwrap();
+    let mut i2c =
+        i2c::master::I2cMaster::new_blocking(p.FLEXCOMM2, p.PIO0_18, p.PIO0_17, i2c::master::Speed::Standard).unwrap();
 
     // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
     info!("i2c example - ACC WHO_AM_I register check");
@@ -182,18 +173,4 @@ async fn main(_spawner: Spawner) {
     loop {
         Timer::after_millis(1000).await;
     }
-}
-
-fn board_init_pin_clocks() {
-    let pac = embassy_imxrt::pac::Peripherals::take().unwrap();
-
-    // Ensure SFRO Clock is set to run (power down is cleared)
-    pac.sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().set_bit());
-
-    info!("Enabling GPIO1 clock");
-    pac.clkctl1.pscctl1_set().write(|w| w.hsgpio1_clk_set().set_clock());
-
-    // Take GPIO0 out of reset
-    info!("Clearing GPIO1 reset");
-    pac.rstctl1.prstctl1_clr().write(|w| w.hsgpio1_rst_clr().clr_reset());
 }

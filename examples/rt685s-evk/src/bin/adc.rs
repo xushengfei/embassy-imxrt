@@ -6,11 +6,11 @@ extern crate embassy_imxrt_examples;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::adc::{Adc, ChannelConfig, Config, InterruptHandler};
-use embassy_imxrt::bind_interrupts;
+use embassy_imxrt::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 
 bind_interrupts!(struct Irqs {
-    ADC0 => InterruptHandler;
+    ADC0 => InterruptHandler<peripherals::ADC0>;
 });
 
 #[embassy_executor::main]

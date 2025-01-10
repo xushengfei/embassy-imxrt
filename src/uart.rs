@@ -4,11 +4,13 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::select::{select, Either};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
-use crate::dma::channel::ChannelAndRequest;
+use crate::dma::channel::Channel;
+use crate::dma::transfer::Transfer;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
@@ -40,14 +42,14 @@ pub struct Uart<'a, M: Mode> {
 /// Uart TX driver.
 pub struct UartTx<'a, M: Mode> {
     info: Info,
-    _tx_dma: Option<ChannelAndRequest<'a>>,
+    _tx_dma: Option<Channel<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
 /// Uart RX driver.
 pub struct UartRx<'a, M: Mode> {
     info: Info,
-    _rx_dma: Option<ChannelAndRequest<'a>>,
+    _rx_dma: Option<Channel<'a>>,
     _phantom: PhantomData<(&'a (), M)>,
 }
 
@@ -132,7 +134,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {
-    fn new_inner<T: Instance>(_tx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+    fn new_inner<T: Instance>(_tx_dma: Option<Channel<'a>>) -> Self {
         Self {
             info: T::info(),
             _tx_dma,
@@ -217,7 +219,7 @@ impl<'a> UartTx<'a, Blocking> {
 }
 
 impl<'a, M: Mode> UartRx<'a, M> {
-    fn new_inner<T: Instance>(_rx_dma: Option<ChannelAndRequest<'a>>) -> Self {
+    fn new_inner<T: Instance>(_rx_dma: Option<Channel<'a>>) -> Self {
         Self {
             info: T::info(),
             _rx_dma,
@@ -535,11 +537,11 @@ impl<'a> Uart<'a, Blocking> {
 
 impl<'a> UartTx<'a, Async> {
     /// Create a new DMA enabled UART which can only send data
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        tx_dma: impl Peripheral<P = D> + 'a,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -563,20 +565,52 @@ impl<'a> UartTx<'a, Async> {
 
         regs.fifocfg().modify(|_, w| w.dmatx().enabled());
 
-        self._tx_dma
-            .as_mut()
-            .unwrap()
-            .write_to_peripheral(buf, regs.fifowr().as_ptr() as *mut u8, Default::default());
+        let transfer = Transfer::new_write(
+            self._tx_dma.as_ref().unwrap(),
+            buf,
+            regs.fifowr().as_ptr() as *mut u8,
+            Default::default(),
+        );
 
-        let result = poll_fn(|cx| {
-            self._tx_dma.as_ref().unwrap().get_waker().register(cx.waker());
-            Poll::Ready(Ok(()))
-        })
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                UART_WAKERS[self.info.index].register(cx.waker());
+
+                self.info.regs.intenset().write(|w| {
+                    w.framerren()
+                        .set_bit()
+                        .parityerren()
+                        .set_bit()
+                        .rxnoiseen()
+                        .set_bit()
+                        .aberren()
+                        .set_bit()
+                });
+
+                let stat = self.info.regs.stat().read();
+
+                if stat.framerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Framing))
+                } else if stat.parityerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Parity))
+                } else if stat.rxnoiseint().bit_is_set() {
+                    Poll::Ready(Err(Error::Noise))
+                } else if stat.aberr().bit_is_set() {
+                    Poll::Ready(Err(Error::Fail))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
         .await;
 
         regs.fifocfg().modify(|_, w| w.dmatx().disabled());
 
-        result
+        match res {
+            Either::First(()) | Either::Second(Ok(())) => Ok(()),
+            Either::Second(e) => e,
+        }
     }
 
     /// Flush UART TX asynchronously.
@@ -619,11 +653,11 @@ impl<'a> UartTx<'a, Async> {
 
 impl<'a> UartRx<'a, Async> {
     /// Create a new DMA enabled UART which can only receive data
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        rx_dma: impl Peripheral<P = D> + 'a,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -647,32 +681,64 @@ impl<'a> UartRx<'a, Async> {
 
         regs.fifocfg().modify(|_, w| w.dmarx().enabled());
 
-        self._rx_dma
-            .as_mut()
-            .unwrap()
-            .read_from_peripheral(regs.fiford().as_ptr() as *mut u8, buf, Default::default());
+        let transfer = Transfer::new_read(
+            self._rx_dma.as_ref().unwrap(),
+            regs.fiford().as_ptr() as *mut u8,
+            buf,
+            Default::default(),
+        );
 
-        let result = poll_fn(|cx| {
-            self._rx_dma.as_ref().unwrap().get_waker().register(cx.waker());
-            Poll::Ready(Ok(()))
-        })
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                UART_WAKERS[self.info.index].register(cx.waker());
+
+                self.info.regs.intenset().write(|w| {
+                    w.framerren()
+                        .set_bit()
+                        .parityerren()
+                        .set_bit()
+                        .rxnoiseen()
+                        .set_bit()
+                        .aberren()
+                        .set_bit()
+                });
+
+                let stat = self.info.regs.stat().read();
+
+                if stat.framerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Framing))
+                } else if stat.parityerrint().bit_is_set() {
+                    Poll::Ready(Err(Error::Parity))
+                } else if stat.rxnoiseint().bit_is_set() {
+                    Poll::Ready(Err(Error::Noise))
+                } else if stat.aberr().bit_is_set() {
+                    Poll::Ready(Err(Error::Fail))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
         .await;
 
         regs.fifocfg().modify(|_, w| w.dmarx().disabled());
 
-        result
+        match res {
+            Either::First(()) | Either::Second(Ok(())) => Ok(()),
+            Either::Second(e) => e,
+        }
     }
 }
 
 impl<'a> Uart<'a, Async> {
     /// Create a new DMA enabled UART
-    pub fn new_async<T: Instance, TXDMA: dma::Instance, RXDMA: dma::Instance>(
+    pub fn new_async<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        tx_dma: impl Peripheral<P = TXDMA> + 'a,
-        rx_dma: impl Peripheral<P = RXDMA> + 'a,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'a,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -698,15 +764,15 @@ impl<'a> Uart<'a, Async> {
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts<T: Instance, TXDMA: dma::Instance, RXDMA: dma::Instance>(
+    pub fn new_with_rtscts<T: Instance>(
         _inner: impl Peripheral<P = T> + 'a,
         tx: impl Peripheral<P = impl TxPin<T>> + 'a,
         rx: impl Peripheral<P = impl RxPin<T>> + 'a,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'a,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
-        tx_dma: impl Peripheral<P = TXDMA> + 'a,
-        rx_dma: impl Peripheral<P = RXDMA> + 'a,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'a,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'a,
         config: Config,
     ) -> Result<Self> {
         into_ref!(_inner);
@@ -981,8 +1047,24 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let regs = T::info().regs;
         let stat = regs.intstat().read();
 
-        if stat.txidle().bit_is_set() {
-            regs.intenclr().write(|w| w.txidleclr().set_bit());
+        if stat.txidle().bit_is_set()
+            || stat.framerrint().bit_is_set()
+            || stat.parityerrint().bit_is_set()
+            || stat.rxnoiseint().bit_is_set()
+            || stat.aberrint().bit_is_set()
+        {
+            regs.intenclr().write(|w| {
+                w.txidleclr()
+                    .set_bit()
+                    .framerrclr()
+                    .set_bit()
+                    .parityerrclr()
+                    .set_bit()
+                    .rxnoiseclr()
+                    .set_bit()
+                    .aberrclr()
+                    .set_bit()
+            });
         }
 
         waker.wake();
@@ -1032,25 +1114,25 @@ mod sealed {
 impl<T: Pin> sealed::Sealed for T {}
 
 /// io configuration trait for Uart Tx configuration
-pub trait TxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait TxPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Tx  usage
     fn as_tx(&self);
 }
 
 /// io configuration trait for Uart Rx configuration
-pub trait RxPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait RxPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Rx  usage
     fn as_rx(&self);
 }
 
 /// io configuration trait for Uart Cts
-pub trait CtsPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait CtsPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Cts usage
     fn as_cts(&self);
 }
 
 /// io configuration trait for Uart Rts
-pub trait RtsPin<T: Instance>: Pin + sealed::Sealed + crate::Peripheral {
+pub trait RtsPin<T: Instance>: Pin + sealed::Sealed + Peripheral {
     /// convert the pin to appropriate function for Uart Rts usage
     fn as_rts(&self);
 }
@@ -1124,3 +1206,43 @@ impl_pin_trait!(FLEXCOMM7, tx, PIO4_1, F1);
 impl_pin_trait!(FLEXCOMM7, rx, PIO4_2, F1);
 impl_pin_trait!(FLEXCOMM7, cts, PIO4_3, F1);
 impl_pin_trait!(FLEXCOMM7, rts, PIO4_4, F1);
+
+/// UART Tx DMA trait.
+#[allow(private_bounds)]
+pub trait TxDma<T: Instance>: dma::Instance {}
+
+/// UART Rx DMA trait.
+#[allow(private_bounds)]
+pub trait RxDma<T: Instance>: dma::Instance {}
+
+macro_rules! impl_dma {
+    ($fcn:ident, $mode:ident, $dma:ident) => {
+        paste! {
+            impl [<$mode Dma>]<crate::peripherals::$fcn> for crate::peripherals::$dma {}
+        }
+    };
+}
+
+impl_dma!(FLEXCOMM0, Rx, DMA0_CH0);
+impl_dma!(FLEXCOMM0, Tx, DMA0_CH1);
+
+impl_dma!(FLEXCOMM1, Rx, DMA0_CH2);
+impl_dma!(FLEXCOMM1, Tx, DMA0_CH3);
+
+impl_dma!(FLEXCOMM2, Rx, DMA0_CH4);
+impl_dma!(FLEXCOMM2, Tx, DMA0_CH5);
+
+impl_dma!(FLEXCOMM3, Rx, DMA0_CH6);
+impl_dma!(FLEXCOMM3, Tx, DMA0_CH7);
+
+impl_dma!(FLEXCOMM4, Rx, DMA0_CH8);
+impl_dma!(FLEXCOMM4, Tx, DMA0_CH9);
+
+impl_dma!(FLEXCOMM5, Rx, DMA0_CH10);
+impl_dma!(FLEXCOMM5, Tx, DMA0_CH11);
+
+impl_dma!(FLEXCOMM6, Rx, DMA0_CH12);
+impl_dma!(FLEXCOMM6, Tx, DMA0_CH13);
+
+impl_dma!(FLEXCOMM7, Rx, DMA0_CH14);
+impl_dma!(FLEXCOMM7, Tx, DMA0_CH15);

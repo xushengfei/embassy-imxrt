@@ -3,10 +3,12 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_futures::select::{select, Either};
 use embassy_hal_internal::into_ref;
 
 use super::{
-    Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin, TransferError, I2C_WAKERS,
+    Async, Blocking, Error, Info, Instance, InterruptHandler, MasterDma, Mode, Result, SclPin, SdaPin, TransferError,
+    I2C_WAKERS,
 };
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::{dma, interrupt, Peripheral};
@@ -30,7 +32,7 @@ pub enum Speed {
 pub struct I2cMaster<'a, M: Mode> {
     info: Info,
     _phantom: PhantomData<M>,
-    dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+    dma_ch: Option<dma::channel::Channel<'a>>,
 }
 
 impl<'a, M: Mode> I2cMaster<'a, M> {
@@ -40,7 +42,7 @@ impl<'a, M: Mode> I2cMaster<'a, M> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         speed: Speed,
-        dma_ch: Option<dma::channel::ChannelAndRequest<'a>>,
+        dma_ch: Option<dma::channel::Channel<'a>>,
     ) -> Result<Self> {
         into_ref!(_bus);
         into_ref!(scl);
@@ -113,13 +115,12 @@ impl<'a, M: Mode> I2cMaster<'a, M> {
 
 impl<'a> I2cMaster<'a, Blocking> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_blocking<T: Instance, D: dma::Instance>(
+    pub fn new_blocking<T: Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         speed: Speed,
-        _dma_ch: impl Peripheral<P = D> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -245,14 +246,14 @@ impl<'a> I2cMaster<'a, Blocking> {
 
 impl<'a> I2cMaster<'a, Async> {
     /// use flexcomm fc with Pins scl, sda as an I2C Master bus, configuring to speed and pull
-    pub fn new_async<T: Instance, D: dma::Instance>(
+    pub fn new_async<T: Instance>(
         fc: impl Peripheral<P = T> + 'a,
         scl: impl Peripheral<P = impl SclPin<T>> + 'a,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'a,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
         // TODO - integrate clock APIs to allow dynamic freq selection | clock: crate::flexcomm::Clock,
         speed: Speed,
-        dma_ch: impl Peripheral<P = D> + 'a,
+        dma_ch: impl Peripheral<P = impl MasterDma<T>> + 'a,
     ) -> Result<Self> {
         // TODO - clock integration
         let clock = crate::flexcomm::Clock::Sfro;
@@ -346,61 +347,85 @@ impl<'a> I2cMaster<'a, Async> {
 
         self.start(address, true).await?;
 
-        if read.len() > 1 {
-            // After address is acknowledged, enable DMA
-            i2cregs.mstctl().write(|w| w.mstdma().enabled());
+        let transfer = dma::transfer::Transfer::new_read(
+            self.dma_ch.as_mut().unwrap(),
+            i2cregs.mstdat().as_ptr() as *mut u8,
+            read,
+            Default::default(),
+        );
 
-            let options = dma::transfer::TransferOptions::default();
+        // According to sections 24.7.7.1 and 24.7.7.2, we should
+        // first program the DMA channel for carrying out a transfer
+        // and only then set MSTDMA bit.
+        //
+        // Additionally, at this point we know the slave has
+        // acknowledged the address.
+        i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-            self.dma_ch
-                .as_mut()
-                .unwrap()
-                .read_from_peripheral(i2cregs.mstdat().as_ptr() as *mut u8, read, options);
-        } else {
-            read[0] = i2cregs.mstdat().read().data().bits();
-        }
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                I2C_WAKERS[self.info.index].register(cx.waker());
 
-        let res = self
-            .wait_on(
-                |me| {
-                    let stat = me.info.regs.stat().read();
+                i2cregs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
 
-                    if stat.mststate().is_receive_ready() {
-                        Poll::Ready(Ok(()))
-                    } else if stat.mstarbloss().is_arbitration_loss() {
-                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
-                    } else if stat.mstststperr().is_error() {
-                        Poll::Ready(Err(TransferError::StartStopError.into()))
-                    } else {
-                        Poll::Pending
-                    }
-                },
-                |me| {
-                    me.info.regs.intenset().write(|w| {
-                        w.mstpendingen()
-                            .set_bit()
-                            .mstarblossen()
-                            .set_bit()
-                            .mstststperren()
-                            .set_bit()
-                    });
-                },
-            )
-            .await;
+                let stat = i2cregs.stat().read();
 
-        // Here we're unconditionally disabling DMA, even if we have
-        // not used it. The only reason for doing this is to avoid an extra
-        // branch. We're assuming it's always okay to clear `MSTDMA' even if
-        // it's already cleared.
+                if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err::<(), Error>(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err::<(), Error>(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
+        .await;
+
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
-        res
+        if let Either::Second(e) = res {
+            e?;
+        }
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await
     }
 
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.info.regs;
-        let mut is_dma = false;
 
         self.start(address, false).await?;
 
@@ -408,64 +433,89 @@ impl<'a> I2cMaster<'a, Async> {
             return Ok(());
         }
 
-        if write.len() > 1 {
-            // After address is acknowledged, enable DMA
-            i2cregs.mstctl().write(|w| w.mstdma().enabled());
+        let transfer = dma::transfer::Transfer::new_write(
+            self.dma_ch.as_mut().unwrap(),
+            write,
+            i2cregs.mstdat().as_ptr() as *mut u8,
+            Default::default(),
+        );
 
-            let options = dma::transfer::TransferOptions::default();
-            self.dma_ch
-                .as_mut()
-                .unwrap()
-                .write_to_peripheral(write, i2cregs.mstdat().as_ptr() as *mut u8, options);
-            is_dma = true;
-        } else {
-            i2cregs.mstdat().write(|w|
-                // SAFETY: unsafe only due to .bits usage
-                unsafe { w.data().bits(write[0]) });
+        // According to sections 24.7.7.1 and 24.7.7.2, we should
+        // first program the DMA channel for carrying out a transfer
+        // and only then set MSTDMA bit.
+        //
+        // Additionally, at this point we know the slave has
+        // acknowledged the address.
+        i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-            i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
-        }
+        let res = select(
+            transfer,
+            poll_fn(|cx| {
+                I2C_WAKERS[self.info.index].register(cx.waker());
 
-        let res = self
-            .wait_on(
-                |me| {
-                    let stat = me.info.regs.stat().read();
+                i2cregs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
 
-                    if !is_dma && stat.mstpending().is_pending() || is_dma && stat.mststate().is_transmit_ready() {
-                        Poll::Ready(Ok(()))
-                    } else if stat.mstarbloss().is_arbitration_loss() {
-                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
-                    } else if stat.mstststperr().is_error() {
-                        Poll::Ready(Err(TransferError::StartStopError.into()))
-                    } else {
-                        Poll::Pending
-                    }
-                },
-                |me| {
-                    me.info.regs.intenset().write(|w| {
-                        w.mstpendingen()
-                            .set_bit()
-                            .mstarblossen()
-                            .set_bit()
-                            .mstststperren()
-                            .set_bit()
-                    });
-                },
-            )
-            .await;
+                let stat = i2cregs.stat().read();
 
-        // Here we're unconditionally disabling DMA, even if we have
-        // not used it. The only reason for doing this is to avoid an extra
-        // branch. We're assuming it's always okay to clear `MSTDMA' even if
-        // it's already cleared.
+                if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err::<(), Error>(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err::<(), Error>(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            }),
+        )
+        .await;
+
         i2cregs.mstctl().write(|w| w.mstdma().disabled());
 
-        res
+        if let Either::Second(e) = res {
+            e?;
+        }
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await
     }
 
     async fn stop(&mut self) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.info.regs;
+
+        if i2cregs.stat().read().mstpending().is_in_progress() {
+            return Err(TransferError::StartStopError.into());
+        }
 
         i2cregs.mstctl().write(|w| w.mststop().set_bit());
 
@@ -509,7 +559,6 @@ impl<'a> I2cMaster<'a, Async> {
 
             if r.is_pending() {
                 I2C_WAKERS[self.info.index].register(cx.waker());
-                self.dma_ch.as_ref().unwrap().get_waker().register(cx.waker());
 
                 g(self);
             }

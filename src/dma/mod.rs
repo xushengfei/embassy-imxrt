@@ -10,7 +10,7 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::clocks::enable_and_reset;
-use crate::dma::channel::{Channel, ChannelAndRequest, Request};
+use crate::dma::channel::Channel;
 use crate::peripherals::{self, DMA0};
 use crate::{interrupt, Peripheral};
 
@@ -57,11 +57,8 @@ pub enum Error {
     UnsupportedConfiguration,
 }
 
-#[allow(clippy::declare_interior_mutable_const)]
-const DMA_WAKER: AtomicWaker = AtomicWaker::new();
-
 // One waker per channel
-static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [DMA_WAKER; DMA_CHANNEL_COUNT];
+static DMA_WAKERS: [AtomicWaker; DMA_CHANNEL_COUNT] = [const { AtomicWaker::new() }; DMA_CHANNEL_COUNT];
 
 #[cfg(feature = "rt")]
 #[interrupt]
@@ -106,7 +103,7 @@ fn dma0_irq_handler<const N: usize>(wakers: &[AtomicWaker; N]) {
 }
 
 /// Initialize DMA controllers (DMA0 only, for now)
-pub fn init() {
+pub(crate) fn init() {
     // SAFETY: init should only be called once during HAL initialization
     let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
     let dmactl0 = unsafe { crate::pac::Dma0::steal() };
@@ -148,14 +145,11 @@ struct DmaInfo {
 
 impl<'d> Dma<'d> {
     /// Reserves a DMA channel for exclusive use
-    pub fn reserve_channel<T: Instance>(_inner: impl Peripheral<P = T> + 'd) -> ChannelAndRequest<'d> {
-        let request: Request = 0; //
-        let channel = Channel {
+    pub fn reserve_channel<T: Instance>(_inner: impl Peripheral<P = T> + 'd) -> Channel<'d> {
+        Channel {
             info: T::info(),
             _lifetime: PhantomData,
-        };
-
-        ChannelAndRequest { channel, request }
+        }
     }
 }
 

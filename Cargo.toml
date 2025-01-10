@@ -28,11 +28,16 @@ defmt = ["dep:defmt", "mimxrt685s-pac/defmt"]
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time"]
 ## Enable custom embassy time-driver implementation, using 1kHz RTC
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000"]
+time-driver = [
+    "dep:embassy-time-driver",
+    "embassy-time-driver?/tick-hz-1_000",
+    "dep:embassy-time-queue-utils",
+]
 
 [dependencies]
 embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", optional = true }
+embassy-time-queue-utils = { git = "https://github.com/embassy-rs/embassy", optional = true }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", optional = true }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", features = [
@@ -54,7 +59,11 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-mimxrt685s-pac = { version = "0.1.5" }
+mimxrt685s-pac = { version = "0.2.0", features = [
+    "rt",
+    "critical-section",
+    "defmt",
+] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
