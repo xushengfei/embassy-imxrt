@@ -1023,6 +1023,50 @@ impl embedded_io::Write for Uart<'_, Blocking> {
     }
 }
 
+impl embedded_io_async::ErrorType for UartRx<'_, Async> {
+    type Error = Error;
+}
+
+impl embedded_io_async::ErrorType for UartTx<'_, Async> {
+    type Error = Error;
+}
+
+impl embedded_io_async::ErrorType for Uart<'_, Async> {
+    type Error = Error;
+}
+
+impl embedded_io_async::Read for UartRx<'_, Async> {
+    async fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
+        self.read(buf).await.map(|_| buf.len())
+    }
+}
+
+impl embedded_io_async::Write for UartTx<'_, Async> {
+    async fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
+        self.write(buf).await.map(|_| buf.len())
+    }
+
+    async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
+        self.flush().await
+    }
+}
+
+impl embedded_io_async::Read for Uart<'_, Async> {
+    async fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
+        embedded_io_async::Read::read(&mut self.rx, buf).await
+    }
+}
+
+impl embedded_io_async::Write for Uart<'_, Async> {
+    async fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
+        embedded_io_async::Write::write(&mut self.tx, buf).await
+    }
+
+    async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
+        embedded_io_async::Write::flush(&mut self.tx).await
+    }
+}
+
 struct Info {
     regs: &'static crate::pac::usart0::RegisterBlock,
     index: usize,
