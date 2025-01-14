@@ -590,6 +590,17 @@ impl<'a> UartTx<'a, Async> {
 
                 let stat = self.info.regs.stat().read();
 
+                self.info.regs.stat().write(|w| {
+                    w.framerrint()
+                        .clear_bit_by_one()
+                        .parityerrint()
+                        .clear_bit_by_one()
+                        .rxnoiseint()
+                        .clear_bit_by_one()
+                        .aberr()
+                        .clear_bit_by_one()
+                });
+
                 if stat.framerrint().bit_is_set() {
                     Poll::Ready(Err(Error::Framing))
                 } else if stat.parityerrint().bit_is_set() {
@@ -705,6 +716,17 @@ impl<'a> UartRx<'a, Async> {
                 });
 
                 let stat = self.info.regs.stat().read();
+
+                self.info.regs.stat().write(|w| {
+                    w.framerrint()
+                        .clear_bit_by_one()
+                        .parityerrint()
+                        .clear_bit_by_one()
+                        .rxnoiseint()
+                        .clear_bit_by_one()
+                        .aberr()
+                        .clear_bit_by_one()
+                });
 
                 if stat.framerrint().bit_is_set() {
                     Poll::Ready(Err(Error::Framing))
