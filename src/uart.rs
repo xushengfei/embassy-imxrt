@@ -141,6 +141,30 @@ impl<'a, M: Mode> UartTx<'a, M> {
             _phantom: PhantomData,
         }
     }
+
+    /// Deinitializes a USART Tx instance.
+    pub fn deinit(&self) -> Result<()> {
+        // This function waits for TX complete, disables TX and RX.
+        while self.info.regs.stat().read().txidle().bit_is_clear() {
+            // When 0, indicates that the transmitter is currently in the process of sending data.
+        }
+
+        // Disable interrupts
+        self.info
+            .regs
+            .fifointenclr()
+            .modify(|_, w| w.txerr().set_bit().txlvl().set_bit());
+
+        // Disable dma requests
+        self.info.regs.fifocfg().modify(|_, w| w.dmatx().clear_bit());
+        Ok(())
+    }
+}
+
+impl<'a, M: Mode> Drop for UartTx<'a, M> {
+    fn drop(&mut self) {
+        self.deinit().unwrap();
+    }
 }
 
 impl<'a> UartTx<'a, Blocking> {
@@ -225,6 +249,25 @@ impl<'a, M: Mode> UartRx<'a, M> {
             _rx_dma,
             _phantom: PhantomData,
         }
+    }
+
+    /// Deinitializes a USART Rx instance.
+    pub fn deinit(&self) -> Result<()> {
+        // Disable interrupts
+        self.info
+            .regs
+            .fifointenclr()
+            .modify(|_, w| w.rxerr().set_bit().rxlvl().set_bit());
+
+        // Disable dma requests
+        self.info.regs.fifocfg().modify(|_, w| w.dmarx().clear_bit());
+        Ok(())
+    }
+}
+
+impl<'a, M: Mode> Drop for UartRx<'a, M> {
+    fn drop(&mut self) {
+        self.deinit().unwrap();
     }
 }
 
@@ -434,28 +477,8 @@ impl<'a, M: Mode> Uart<'a, M> {
 
     /// Deinitializes a USART instance.
     pub fn deinit(&self) -> Result<()> {
-        // This function waits for TX complete, disables TX and RX, and disables the USART clock
-        while self.info.regs.stat().read().txidle().bit_is_clear() {
-            // When 0, indicates that the transmitter is currently in the process of sending data.
-        }
-
-        // Disable interrupts
-        self.info.regs.fifointenclr().modify(|_, w| {
-            w.txerr()
-                .set_bit()
-                .rxerr()
-                .set_bit()
-                .txlvl()
-                .set_bit()
-                .rxlvl()
-                .set_bit()
-        });
-
-        // Disable dma requests
-        self.info
-            .regs
-            .fifocfg()
-            .modify(|_, w| w.dmatx().clear_bit().dmarx().clear_bit());
+        self.tx.deinit()?;
+        self.rx.deinit()?;
 
         // Disable peripheral
         self.info.regs.cfg().modify(|_, w| w.enable().disabled());
@@ -476,6 +499,8 @@ impl<'a, M: Mode> Uart<'a, M> {
         (&mut self.tx, &mut self.rx)
     }
 }
+
+//TODO: Uart cannot implement Drop trait for Uart due split function
 
 impl<'a> Uart<'a, Blocking> {
     /// Create a new blocking UART
