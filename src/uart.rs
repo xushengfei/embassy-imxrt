@@ -563,65 +563,69 @@ impl<'a> UartTx<'a, Async> {
     pub async fn write(&mut self, buf: &[u8]) -> Result<()> {
         let regs = self.info.regs;
 
-        regs.fifocfg().modify(|_, w| w.dmatx().enabled());
+        for chunk in buf.chunks(1024) {
+            regs.fifocfg().modify(|_, w| w.dmatx().enabled());
 
-        let transfer = Transfer::new_write(
-            self._tx_dma.as_ref().unwrap(),
-            buf,
-            regs.fifowr().as_ptr() as *mut u8,
-            Default::default(),
-        );
+            let transfer = Transfer::new_write(
+                self._tx_dma.as_ref().unwrap(),
+                chunk,
+                regs.fifowr().as_ptr() as *mut u8,
+                Default::default(),
+            );
 
-        let res = select(
-            transfer,
-            poll_fn(|cx| {
-                UART_WAKERS[self.info.index].register(cx.waker());
+            let res = select(
+                transfer,
+                poll_fn(|cx| {
+                    UART_WAKERS[self.info.index].register(cx.waker());
 
-                self.info.regs.intenset().write(|w| {
-                    w.framerren()
-                        .set_bit()
-                        .parityerren()
-                        .set_bit()
-                        .rxnoiseen()
-                        .set_bit()
-                        .aberren()
-                        .set_bit()
-                });
+                    self.info.regs.intenset().write(|w| {
+                        w.framerren()
+                            .set_bit()
+                            .parityerren()
+                            .set_bit()
+                            .rxnoiseen()
+                            .set_bit()
+                            .aberren()
+                            .set_bit()
+                    });
 
-                let stat = self.info.regs.stat().read();
+                    let stat = self.info.regs.stat().read();
 
-                self.info.regs.stat().write(|w| {
-                    w.framerrint()
-                        .clear_bit_by_one()
-                        .parityerrint()
-                        .clear_bit_by_one()
-                        .rxnoiseint()
-                        .clear_bit_by_one()
-                        .aberr()
-                        .clear_bit_by_one()
-                });
+                    self.info.regs.stat().write(|w| {
+                        w.framerrint()
+                            .clear_bit_by_one()
+                            .parityerrint()
+                            .clear_bit_by_one()
+                            .rxnoiseint()
+                            .clear_bit_by_one()
+                            .aberr()
+                            .clear_bit_by_one()
+                    });
 
-                if stat.framerrint().bit_is_set() {
-                    Poll::Ready(Err(Error::Framing))
-                } else if stat.parityerrint().bit_is_set() {
-                    Poll::Ready(Err(Error::Parity))
-                } else if stat.rxnoiseint().bit_is_set() {
-                    Poll::Ready(Err(Error::Noise))
-                } else if stat.aberr().bit_is_set() {
-                    Poll::Ready(Err(Error::Fail))
-                } else {
-                    Poll::Pending
-                }
-            }),
-        )
-        .await;
+                    if stat.framerrint().bit_is_set() {
+                        Poll::Ready(Err(Error::Framing))
+                    } else if stat.parityerrint().bit_is_set() {
+                        Poll::Ready(Err(Error::Parity))
+                    } else if stat.rxnoiseint().bit_is_set() {
+                        Poll::Ready(Err(Error::Noise))
+                    } else if stat.aberr().bit_is_set() {
+                        Poll::Ready(Err(Error::Fail))
+                    } else {
+                        Poll::Pending
+                    }
+                }),
+            )
+            .await;
 
-        regs.fifocfg().modify(|_, w| w.dmatx().disabled());
+            regs.fifocfg().modify(|_, w| w.dmatx().disabled());
 
-        match res {
-            Either::First(()) | Either::Second(Ok(())) => Ok(()),
-            Either::Second(e) => e,
+            match res {
+                Either::First(()) | Either::Second(Ok(())) => (),
+                Either::Second(e) => return e,
+            }
         }
+
+        Ok(())
     }
 
     /// Flush UART TX asynchronously.
@@ -690,65 +694,69 @@ impl<'a> UartRx<'a, Async> {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<()> {
         let regs = self.info.regs;
 
-        regs.fifocfg().modify(|_, w| w.dmarx().enabled());
+        for chunk in buf.chunks_mut(1024) {
+            regs.fifocfg().modify(|_, w| w.dmarx().enabled());
 
-        let transfer = Transfer::new_read(
-            self._rx_dma.as_ref().unwrap(),
-            regs.fiford().as_ptr() as *mut u8,
-            buf,
-            Default::default(),
-        );
+            let transfer = Transfer::new_read(
+                self._rx_dma.as_ref().unwrap(),
+                regs.fiford().as_ptr() as *mut u8,
+                chunk,
+                Default::default(),
+            );
 
-        let res = select(
-            transfer,
-            poll_fn(|cx| {
-                UART_WAKERS[self.info.index].register(cx.waker());
+            let res = select(
+                transfer,
+                poll_fn(|cx| {
+                    UART_WAKERS[self.info.index].register(cx.waker());
 
-                self.info.regs.intenset().write(|w| {
-                    w.framerren()
-                        .set_bit()
-                        .parityerren()
-                        .set_bit()
-                        .rxnoiseen()
-                        .set_bit()
-                        .aberren()
-                        .set_bit()
-                });
+                    self.info.regs.intenset().write(|w| {
+                        w.framerren()
+                            .set_bit()
+                            .parityerren()
+                            .set_bit()
+                            .rxnoiseen()
+                            .set_bit()
+                            .aberren()
+                            .set_bit()
+                    });
 
-                let stat = self.info.regs.stat().read();
+                    let stat = self.info.regs.stat().read();
 
-                self.info.regs.stat().write(|w| {
-                    w.framerrint()
-                        .clear_bit_by_one()
-                        .parityerrint()
-                        .clear_bit_by_one()
-                        .rxnoiseint()
-                        .clear_bit_by_one()
-                        .aberr()
-                        .clear_bit_by_one()
-                });
+                    self.info.regs.stat().write(|w| {
+                        w.framerrint()
+                            .clear_bit_by_one()
+                            .parityerrint()
+                            .clear_bit_by_one()
+                            .rxnoiseint()
+                            .clear_bit_by_one()
+                            .aberr()
+                            .clear_bit_by_one()
+                    });
 
-                if stat.framerrint().bit_is_set() {
-                    Poll::Ready(Err(Error::Framing))
-                } else if stat.parityerrint().bit_is_set() {
-                    Poll::Ready(Err(Error::Parity))
-                } else if stat.rxnoiseint().bit_is_set() {
-                    Poll::Ready(Err(Error::Noise))
-                } else if stat.aberr().bit_is_set() {
-                    Poll::Ready(Err(Error::Fail))
-                } else {
-                    Poll::Pending
-                }
-            }),
-        )
-        .await;
+                    if stat.framerrint().bit_is_set() {
+                        Poll::Ready(Err(Error::Framing))
+                    } else if stat.parityerrint().bit_is_set() {
+                        Poll::Ready(Err(Error::Parity))
+                    } else if stat.rxnoiseint().bit_is_set() {
+                        Poll::Ready(Err(Error::Noise))
+                    } else if stat.aberr().bit_is_set() {
+                        Poll::Ready(Err(Error::Fail))
+                    } else {
+                        Poll::Pending
+                    }
+                }),
+            )
+            .await;
 
-        regs.fifocfg().modify(|_, w| w.dmarx().disabled());
+            regs.fifocfg().modify(|_, w| w.dmarx().disabled());
 
-        match res {
-            Either::First(()) | Either::Second(Ok(())) => Ok(()),
-            Either::Second(e) => e,
+            match res {
+                Either::First(()) | Either::Second(Ok(())) => (),
+                Either::Second(e) => return e,
+            }
         }
+
+        Ok(())
     }
 }
 
