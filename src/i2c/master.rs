@@ -168,7 +168,50 @@ impl<'a> I2cMaster<'a, Blocking> {
         self.check_for_bus_errors()
     }
 
-    fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+    fn start_10bit(&mut self, address: u16, is_read: bool) -> Result<()> {
+        let i2cregs = self.info.regs;
+
+        self.poll_ready()?;
+
+        // cannot start if the the bus is already busy
+        if i2cregs.stat().read().mstpending().is_in_progress() {
+            return Err(TransferError::OtherBusError.into());
+        }
+
+        // Send the first part of the 10-bit address
+        let addr_high = ((address >> 8) as u8) | 0b11110;
+        i2cregs.mstdat().write(|w|
+            // SAFETY: only unsafe due to .bits usage
+            unsafe { w.data().bits(addr_high) });
+        i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+        self.poll_ready()?;
+        self.check_for_bus_errors()?;
+
+        // Send the second part of the 10-bit address
+        let addr_low = (address & 0xFF) as u8;
+        i2cregs.mstdat().write(|w|
+            // SAFETY: only unsafe due to .bits usage
+            unsafe { w.data().bits(addr_low) });
+        i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+
+        self.poll_ready()?;
+        self.check_for_bus_errors()?;
+
+        // If this is a read operation, send a repeated start with the read bit set
+        if is_read {
+            let addr_high_read = addr_high | 0b1;
+            i2cregs.mstdat().write(|w| unsafe { w.data().bits(addr_high_read) });
+            i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+            self.poll_ready()?;
+            self.check_for_bus_errors()?;
+        }
+
+        Ok(())
+    }
+
+    fn read_no_stop(&mut self, address: u16, read: &mut [u8]) -> Result<()> {
         let i2cregs = self.info.regs;
 
         // read of 0 size is not allowed according to i2c spec
@@ -176,7 +219,15 @@ impl<'a> I2cMaster<'a, Blocking> {
             return Err(TransferError::OtherBusError.into());
         }
 
-        self.start(address, true)?;
+        // check if the address is 10-bit
+        let is_10bit = address > 0x7F;
+
+        // start with the correct address
+        if is_10bit {
+            self.start_10bit(address, true)?;
+        } else {
+            self.start(address as u8, true)?;
+        }
 
         let read_len = read.len();
 
@@ -201,11 +252,19 @@ impl<'a> I2cMaster<'a, Blocking> {
         Ok(())
     }
 
-    fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
+    fn write_no_stop(&mut self, address: u16, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.info.regs;
 
-        self.start(address, false)?;
+        // check if the address is 10-bit
+        let is_10bit = address > 0x7F;
+
+        // start with the correct address
+        if is_10bit {
+            self.start_10bit(address, false)?;
+        } else {
+            self.start(address as u8, false)?;
+        }
 
         for byte in write {
             i2cregs.mstdat().write(|w|
@@ -337,7 +396,137 @@ impl<'a> I2cMaster<'a, Async> {
         .await
     }
 
-    async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+    async fn start_10bit(&mut self, address: u16, is_read: bool) -> Result<()> {
+        let i2cregs = self.info.regs;
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await?;
+
+        // Send the first part of the 10-bit address
+        let addr_high = ((address >> 8) as u8) | 0b11110;
+        i2cregs.mstdat().write(|w| unsafe { w.data().bits(addr_high) });
+        i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await?;
+
+        // Send the second part of the 10-bit address
+        let addr_low = (address & 0xFF) as u8;
+        i2cregs.mstdat().write(|w| unsafe { w.data().bits(addr_low) });
+        i2cregs.mstctl().write(|w| w.mstcontinue().set_bit());
+
+        self.wait_on(
+            |me| {
+                let stat = me.info.regs.stat().read();
+
+                if stat.mstpending().is_pending() {
+                    Poll::Ready(Ok::<(), Error>(()))
+                } else if stat.mstarbloss().is_arbitration_loss() {
+                    Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                } else if stat.mstststperr().is_error() {
+                    Poll::Ready(Err(TransferError::StartStopError.into()))
+                } else {
+                    Poll::Pending
+                }
+            },
+            |me| {
+                me.info.regs.intenset().write(|w| {
+                    w.mstpendingen()
+                        .set_bit()
+                        .mstarblossen()
+                        .set_bit()
+                        .mstststperren()
+                        .set_bit()
+                });
+            },
+        )
+        .await?;
+
+        // If this is a read operation, send a repeated start with the read bit set
+        if is_read {
+            let addr_high_read = addr_high | 0b1;
+            i2cregs.mstdat().write(|w| unsafe { w.data().bits(addr_high_read) });
+            i2cregs.mstctl().write(|w| w.mststart().set_bit());
+
+            self.wait_on(
+                |me| {
+                    let stat = me.info.regs.stat().read();
+
+                    if stat.mstpending().is_pending() {
+                        Poll::Ready(Ok::<(), Error>(()))
+                    } else if stat.mstarbloss().is_arbitration_loss() {
+                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                    } else if stat.mstststperr().is_error() {
+                        Poll::Ready(Err(TransferError::StartStopError.into()))
+                    } else {
+                        Poll::Pending
+                    }
+                },
+                |me| {
+                    me.info.regs.intenset().write(|w| {
+                        w.mstpendingen()
+                            .set_bit()
+                            .mstarblossen()
+                            .set_bit()
+                            .mstststperren()
+                            .set_bit()
+                    });
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn read_no_stop(&mut self, address: u16, read: &mut [u8]) -> Result<()> {
         let i2cregs = self.info.regs;
 
         // read of 0 size is not allowed according to i2c spec
@@ -345,7 +534,15 @@ impl<'a> I2cMaster<'a, Async> {
             return Err(TransferError::OtherBusError.into());
         }
 
-        self.start(address, true).await?;
+        // check if the address is 10-bit
+        let is_10bit = address > 0x7F;
+
+        // start with the correct address
+        if is_10bit {
+            self.start_10bit(address, true).await?;
+        } else {
+            self.start(address as u8, true).await?;
+        }
 
         let transfer = dma::transfer::Transfer::new_read(
             self.dma_ch.as_mut().unwrap(),
@@ -423,11 +620,19 @@ impl<'a> I2cMaster<'a, Async> {
         .await
     }
 
-    async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
+    async fn write_no_stop(&mut self, address: u16, write: &[u8]) -> Result<()> {
         // Procedure from 24.3.1.1 pg 545
         let i2cregs = self.info.regs;
 
-        self.start(address, false).await?;
+        // check if the address is 10-bit
+        let is_10bit = address > 0x7F;
+
+        // start with the correct address
+        if is_10bit {
+            self.start_10bit(address, false).await?;
+        } else {
+            self.start(address as u8, false).await?;
+        }
 
         if write.is_empty() {
             return Ok(());
@@ -597,18 +802,18 @@ impl<M: Mode> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, M> {
 // implement generic i2c interface for peripheral master type
 impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        self.read_no_stop(address, read)?;
+        self.read_no_stop(address.into(), read)?;
         self.stop()
     }
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        self.write_no_stop(address, write)?;
+        self.write_no_stop(address.into(), write)?;
         self.stop()
     }
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
-        self.write_no_stop(address, write)?;
-        self.read_no_stop(address, read)?;
+        self.write_no_stop(address.into(), write)?;
+        self.read_no_stop(address.into(), read)?;
         self.stop()
     }
 
@@ -618,10 +823,10 @@ impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
         for op in operations {
             match op {
                 embedded_hal_1::i2c::Operation::Read(read) => {
-                    self.read_no_stop(address, read)?;
+                    self.read_no_stop(address.into(), read)?;
                 }
                 embedded_hal_1::i2c::Operation::Write(write) => {
-                    self.write_no_stop(address, write)?;
+                    self.write_no_stop(address.into(), write)?;
                 }
             }
         }
@@ -636,22 +841,61 @@ impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
 
 impl embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress> for I2cMaster<'_, Async> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        self.read_no_stop(address, read).await?;
+        self.read_no_stop(address.into(), read).await?;
         self.stop().await
     }
 
     async fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        self.write_no_stop(address, write).await?;
+        self.write_no_stop(address.into(), write).await?;
         self.stop().await
     }
 
     async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+        self.write_no_stop(address.into(), write).await?;
+        self.read_no_stop(address.into(), read).await?;
+        self.stop().await
+    }
+
+    async fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
+        let needs_stop = !operations.is_empty();
+
+        for op in operations {
+            match op {
+                embedded_hal_1::i2c::Operation::Read(read) => {
+                    self.read_no_stop(address.into(), read).await?;
+                }
+                embedded_hal_1::i2c::Operation::Write(write) => {
+                    self.write_no_stop(address.into(), write).await?;
+                }
+            }
+        }
+
+        if needs_stop {
+            self.stop().await?;
+        }
+
+        Ok(())
+    }
+}
+
+impl embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::TenBitAddress> for I2cMaster<'_, Async> {
+    async fn read(&mut self, address: u16, read: &mut [u8]) -> Result<()> {
+        self.read_no_stop(address, read).await?;
+        self.stop().await
+    }
+
+    async fn write(&mut self, address: u16, write: &[u8]) -> Result<()> {
+        self.write_no_stop(address, write).await?;
+        self.stop().await
+    }
+
+    async fn write_read(&mut self, address: u16, write: &[u8], read: &mut [u8]) -> Result<()> {
         self.write_no_stop(address, write).await?;
         self.read_no_stop(address, read).await?;
         self.stop().await
     }
 
-    async fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
+    async fn transaction(&mut self, address: u16, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
         let needs_stop = !operations.is_empty();
 
         for op in operations {
