@@ -22,8 +22,14 @@
 //
 // CTimer[n] based PWM
 // ---
-// todo!()
+// RT6xx series has 4 Ctimer instances. Each Ctimer has 4 external match outputs.
+// PWM output can be configured on Ctimer MATn2:0 output pins
+// One additional match register determines PWM cycle length.
+// When match occurs in any of the other match registers, PWM out is set to high.
+// The timer is reset by the match register that is configured to set the PWM cycle length.
+// When the timer is reset to zero, all currently HIGH match outputs configured as PWM outputs are cleared
 
+use crate::timer::{PWMInstance, TimerChannelNum, TIMER_CHANNELS_ARR};
 /// include the traits that are implemented + exposed via this implementation
 use embassy_hal_internal::{Peripheral, PeripheralRef};
 /// include pac definitions for instancing
@@ -584,6 +590,100 @@ impl<T: sealed::SCTimer> embedded_hal_02::Pwm for SCTPwm<'_, T> {
         // update duty cycle match registers according to new scale factor
         for i in 0..CHANNELS.len() {
             self.set_duty(CHANNELS[i], duty_cycles[i]);
+        }
+    }
+}
+
+/// Basic PWM Object, Consumes a `CTimer` peripheral hardware instance on construction
+pub struct CTimerPwm<'p, U: PWMInstance> {
+    _p: PeripheralRef<'p, U>,
+    period: MicroSeconds,
+    count_max: u32,
+}
+
+impl<U: PWMInstance> embedded_hal_02::Pwm for CTimerPwm<'_, U> {
+    type Channel = TimerChannelNum;
+    type Time = MicroSeconds;
+    type Duty = CentiPercent;
+
+    fn disable(&mut self, _channel: Self::Channel) {
+        U::pwm_disable();
+    }
+
+    fn enable(&mut self, _channel: Self::Channel) {
+        U::pwm_enable();
+    }
+
+    fn get_period(&self) -> Self::Time {
+        self.period
+    }
+
+    fn get_duty(&self, _channel: Self::Channel) -> Self::Duty {
+        let scaled = U::pwm_get_match_register();
+        CentiPercent::from_scaled(self.count_max - scaled, self.count_max)
+    }
+
+    fn get_max_duty(&self) -> Self::Duty {
+        CentiPercent::MAX
+    }
+
+    fn set_duty(&mut self, _channel: Self::Channel, duty: Self::Duty) {
+        let scaled = duty.as_scaled(self.count_max);
+
+        // PWM output is low at the beginning of PWM cycle
+        // PWM output is set to high when timer count reaches match register value
+        // For active high PWM, set match register such that output is high for PWM cycle length*dutycycle
+        U::pwm_set_match_register(self.count_max - scaled);
+    }
+
+    fn set_period<P>(&mut self, period: P)
+    where
+        P: Into<Self::Time>,
+    {
+        let clock_rate = Hertz(U::pwm_get_clock_freq());
+        let requested_pwm_rate: Hertz = period.into().into();
+
+        // period cannot be faster than supplied PWM clock source
+        assert!(requested_pwm_rate.0 > 0);
+        assert!(requested_pwm_rate.0 <= clock_rate.0 / 10_000);
+
+        // record current duty cycles
+        let duty_cycles = TIMER_CHANNELS_ARR.map(|ch| self.get_duty(ch));
+
+        // update scale factor
+        self.count_max = clock_rate.0 / requested_pwm_rate.0;
+
+        // Set period through match register
+        U::pwm_configure(self.count_max);
+
+        // update duty cycle match registers according to new scale factor
+        for i in 0..TIMER_CHANNELS_ARR.len() {
+            self.set_duty(TIMER_CHANNELS_ARR[i], duty_cycles[i]);
+        }
+    }
+}
+
+impl<'p, U: PWMInstance> CTimerPwm<'p, U> {
+    /// Take the `CTimer` instance supplied and use it as a simple PWM driver. Function returns constructed Pwm instance.
+    pub fn new(tim: impl Peripheral<P = U> + 'p, period: MicroSeconds) -> Self {
+        let clock_rate = Hertz(U::pwm_get_clock_freq());
+
+        let requested_pwm_rate: Hertz = period.into();
+
+        // we cannot clock faster than the supplied clock rate
+        assert!(period.0 > 0);
+        // assure precision is possible (10_000 ticks within PWM minimum)
+        assert!(requested_pwm_rate.0 <= clock_rate.0 / 10_000);
+
+        // 10_000 clocks per period to achieve the desired precision.
+        let factor = clock_rate.0 / requested_pwm_rate.0;
+
+        U::pwm_configure(factor);
+
+        Self {
+            _p: tim.into_ref(),
+            period,
+            count_max: factor,
         }
     }
 }
