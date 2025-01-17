@@ -410,8 +410,8 @@ impl<'d, M: Mode> SpiController<'d, M> {
 
         // set phase
         spi_instance.info.regs.cfg().modify(|_, w| match configuration.phase {
-            Phase::CaptureOnFirstTransition => w.cpha().capture(),
-            Phase::CaptureOnSecondTransition => w.cpha().change(),
+            Phase::CaptureOnFirstTransition => w.cpha().change(),
+            Phase::CaptureOnSecondTransition => w.cpha().capture(),
         });
 
         // set polarity
@@ -565,7 +565,7 @@ impl<'d> SpiController<'d, Blocking> {
         let p = self.info.regs;
         let len = read.len().max(write.len());
 
-        // todo: add chip select management
+        // todo: add chip select management. currenly assuming ssel0 is asserted for the entire transfer
         
         for i in 0..len {
             let wb: u8 = write.get(i).copied().unwrap_or(0);
@@ -574,29 +574,31 @@ impl<'d> SpiController<'d, Blocking> {
             // write 1 byte to txfifo
 
             if (i < len - 1) {
+                // continue to tx, keep ssel asserted 
                 p.fifowr().write(|w| 
                     // SAFETY: only unsafe due to .bits usage
                     unsafe { w.txdata().bits(wb.into()).
                         // 8 bit data = len 7 
                         len().bits(7).
-                        // not eot 
+                        // not eot. keep ssel asserted
                         eot().clear_bit().
                         // not eof 
                         eof().clear_bit().
                         // assert ssel0
-                        txssel0_n().set_bit() });
+                        txssel0_n().clear_bit() });
             } else {
+                // clear ssel after this, last tx 
                 p.fifowr().write(|w| 
                     // SAFETY: only unsafe due to .bits usage
                     unsafe { w.txdata().bits(wb.into()).
                         // 8 bit data = len 7 
                         len().bits(7).
-                        // eot (clear ssel0 after this byte)
+                        // eot. clear ssel after this byte
                         eot().set_bit().
                         // not eof 
                         eof().clear_bit().
                         // assert ssel0
-                        txssel0_n().set_bit() });
+                        txssel0_n().clear_bit() });
             }
             
             // wait for rx data available
