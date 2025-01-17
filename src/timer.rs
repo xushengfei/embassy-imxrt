@@ -16,13 +16,18 @@ const CAPTURE_CHANNEL: usize = 20;
 const TOTAL_CHANNELS: usize = COUNT_CHANNEL + CAPTURE_CHANNEL;
 const CHANNEL_PER_MODULE: usize = 4;
 
-enum TimerChannelNum {
+/// Enum representing timer channels
+#[derive(Copy, Clone, Debug)]
+pub enum TimerChannelNum {
+    /// Timer channel 0
     Channel0,
+    /// Timer channel 1
     Channel1,
+    /// Timer channel 2
     Channel2,
+    /// Timer channel 3
     Channel3,
 }
-
 /// Enum representing the logical capture channel input.
 pub enum TriggerInput {
     /// Capture input 0
@@ -77,7 +82,8 @@ pub enum TriggerInput {
     TrigIn24,
 }
 
-const TIMER_CHANNELS_ARR: [TimerChannelNum; CHANNEL_PER_MODULE] = [
+/// Ctimer channel array
+pub const TIMER_CHANNELS_ARR: [TimerChannelNum; CHANNEL_PER_MODULE] = [
     TimerChannelNum::Channel0,
     TimerChannelNum::Channel1,
     TimerChannelNum::Channel2,
@@ -152,6 +158,23 @@ trait InterruptHandler {
 pub trait Instance: SealedInstance + Peripheral<P = Self> + 'static + Send + InterruptHandler {
     /// Interrupt for this SPI instance.
     type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+/// Trait for PWM function
+#[allow(private_bounds)]
+pub trait PWMInstance: Instance {
+    /// Get clock frequency
+    fn pwm_get_clock_freq() -> u32;
+    /// PWM disable
+    fn pwm_disable();
+    /// Configure PWM
+    fn pwm_configure(period: u32);
+    /// Enable PWM output on a channel
+    fn pwm_enable();
+    /// Set PWM duty cycle through match register
+    fn pwm_set_match_register(scaled: u32);
+    /// Get PWM duty cycle through match register
+    fn pwm_get_match_register() -> u32;
 }
 
 /// Interrupt handler for the CTimer modules.
@@ -377,6 +400,137 @@ macro_rules! impl_instance {
                     }
                 }
             }
+
+            impl PWMInstance for crate::peripherals::[<CTIMER $n _ COUNT _ CHANNEL $channel>] {
+
+                fn pwm_get_clock_freq() -> u32 {
+
+                    // TODO: Add getting clock frequency
+                    16_000_000
+                }
+                fn pwm_get_match_register() -> u32 {
+                    let ct = unsafe { &*crate::pac::[<Ctimer $n>]::steal() };
+                        ct.mr($channel).read().bits()
+                }
+
+
+                fn pwm_set_match_register(scaled: u32) {
+                    let ct = unsafe { &*crate::pac::[<Ctimer $n>]::steal() };
+                    unsafe {
+                        ct.mr($channel).write(|w| w.match_().bits(scaled));
+                    }
+                }
+
+                fn pwm_disable() {
+                    let ct = unsafe { &*crate::pac::[<Ctimer $n>]::steal() };
+                    let match_channel = $channel;
+
+                    match TIMER_CHANNELS_ARR[match_channel] {
+                        TimerChannelNum::Channel0 => {
+                            ct.pwmc().write(|w| w.pwmen0().clear_bit());
+
+                        }
+                        TimerChannelNum::Channel1 => {
+                            ct.pwmc().write(|w| w.pwmen1().clear_bit());
+                        }
+                        TimerChannelNum::Channel2 => {
+                            ct.pwmc().write(|w| w.pwmen2().clear_bit());
+
+                        }
+                        TimerChannelNum::Channel3 => {
+                            ct.pwmc().write(|w| w.pwmen3().clear_bit());
+                        }
+                    }
+                }
+
+                fn pwm_configure(period: u32) {
+                    let ct = unsafe { &*crate::pac::[<Ctimer $n>]::steal() };
+                    let match_channel = $channel;
+
+                    // Disable timer for configuration
+                    ct.tcr().write(|w| w.cen().clear_bit());
+
+                    // Use match channel 3 to set PWM cycle length
+                    // If match channel 3 is used for PWM output, select match channel 0
+                    let mut pwm_len_channel = 3;
+                    if match_channel == 3 {
+                        pwm_len_channel = 0;
+                    }
+                    unsafe {
+                        ct.mr(pwm_len_channel).write(|w| w.match_().bits(period));
+                        // Set match register for PWM output to go low
+                        ct.mr(match_channel).write(|w| w.match_().bits(period));
+                    }
+
+                    // Set MRnR bit to enable timer reset for register setting PWM length
+                    match TIMER_CHANNELS_ARR[pwm_len_channel] {
+
+                        TimerChannelNum::Channel0 => {
+
+                            ct.mcr().modify(|_, w| w.mr0r().set_bit());
+
+                        }
+                        TimerChannelNum::Channel1 => {
+
+                            ct.mcr().modify(|_, w| w.mr1r().set_bit());
+                        }
+                        TimerChannelNum::Channel2 => {
+
+                            ct.mcr().modify(|_, w| w.mr2r().set_bit());
+
+                        }
+                        TimerChannelNum::Channel3 => {
+
+                            ct.mcr().modify(|_, w| w.mr2r().set_bit());
+                        }
+
+
+                    }
+                }
+
+                fn pwm_enable() {
+                    let ct = unsafe { &*crate::pac::[<Ctimer $n>]::steal() };
+                    let match_channel = $channel;
+
+                    // Enable PWM mode for channel
+                    // Disable reset/stop on match
+                    match TIMER_CHANNELS_ARR[match_channel] {
+                        TimerChannelNum::Channel0 => {
+                            ct.pwmc().write(|w| w.pwmen0().set_bit());
+                            ct.mcr().modify(|_, w| w.mr0r().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr0s().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr0i().set_bit());
+
+                        }
+                        TimerChannelNum::Channel1 => {
+                            ct.pwmc().write(|w| w.pwmen1().set_bit());
+                            ct.mcr().modify(|_, w| w.mr1r().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr1s().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr1i().set_bit());
+                        }
+                        TimerChannelNum::Channel2 => {
+                            ct.pwmc().write(|w| w.pwmen2().set_bit());
+                            ct.mcr().modify(|_, w| w.mr2r().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr2s().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr2i().set_bit());
+
+                        }
+                        TimerChannelNum::Channel3 => {
+                            ct.pwmc().write(|w| w.pwmen3().set_bit());
+                            ct.mcr().modify(|_, w| w.mr3r().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr3s().clear_bit());
+                            ct.mcr().modify(|_, w| w.mr3i().set_bit());
+                        }
+                    }
+
+                    // Reset and enable timer
+                    ct.tcr().write(|w| w.crst().set_bit());
+                    ct.tcr().write(|w| w.crst().clear_bit());
+                    ct.tcr().write(|w| w.cen().set_bit());
+                }
+
+            }
+
         }
     };
 }
