@@ -3,7 +3,8 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_imxrt::timer::{CaptureChEdge, CaptureTimer, CountingTimer, TimerType, TriggerInput};
+use embassy_imxrt::clocks::ClockConfig;
+use embassy_imxrt::timer::{CaptureChEdge, CaptureTimer, CountingTimer, TriggerInput};
 use embassy_imxrt::{bind_interrupts, peripherals, timer};
 use embassy_time::Timer as Tmr;
 use {defmt_rtt as _, panic_probe as _};
@@ -31,32 +32,36 @@ async fn main(_spawner: Spawner) {
 
     _spawner.spawn(monitor_task()).unwrap();
 
-    let mut tmr1 = CountingTimer::new_blocking(p.CTIMER0_COUNT_CHANNEL0, false, TimerType::Counting);
-    let mut tmr2 = CountingTimer::new_async(p.CTIMER1_COUNT_CHANNEL0, true, TimerType::Counting);
+    let sfro = ClockConfig::crystal().sfro;
+    let mut tmr1 = CountingTimer::new_blocking(p.CTIMER0_COUNT_CHANNEL0, sfro);
 
-    tmr1.start(3000000, None, None); // 3 sec
-    tmr2.start(5000000, None, None); // 5 sec
+    let sfro = ClockConfig::crystal().sfro;
+    let mut tmr2 = CountingTimer::new_async(p.CTIMER1_COUNT_CHANNEL0, sfro);
 
-    tmr1.wait();
+    tmr1.wait(3000000); // 3 seoconds wait
     info!("First Counting timer expired");
 
-    tmr2.wait().await;
+    tmr2.wait(5000000).await; //  5 seconds wait
     info!("Second Counting timer expired");
 
     // Creating a separate block to test Timer Drop logic
     {
-        let mut cap_async_tmr = CaptureTimer::new_async(p.CTIMER0_CAPTURE_CHANNEL0, CaptureChEdge::Falling, false);
+        let sfro = ClockConfig::crystal().sfro;
+        let mut cap_async_tmr = CaptureTimer::new_async(p.CTIMER0_CAPTURE_CHANNEL0, sfro);
 
         // pass the input mux number user is interested in
         // Input mux details can be found in NXP user manual section 8.6.8 and Pin Function Table in section 7.5.3
-        cap_async_tmr.start(0, Some(TriggerInput::TrigIn9), None, p.PIO1_7);
+        cap_async_tmr.start(TriggerInput::TrigIn9, p.PIO1_7, CaptureChEdge::Falling);
 
         cap_async_tmr.wait().await;
-        info!("Capture timer expired");
+        info!(
+            "Capture timer expired in = {} ms",
+            cap_async_tmr.get_event_capture_time_ms()
+        );
     }
 
     loop {
-        tmr2.wait().await;
+        tmr2.wait(5000000).await;
         info!("Primary task running");
     }
 }

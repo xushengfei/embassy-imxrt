@@ -522,7 +522,7 @@ pub fn init(config: config::Config) -> Peripherals {
         time_driver::init(config.time_interrupt_priority);
         dma::init();
         gpio::init();
-        timer::init_timer_modules();
+        timer::init();
     }
 
     peripherals
