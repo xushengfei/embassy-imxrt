@@ -13,6 +13,9 @@ use super::{
 use crate::interrupts::interrupt::typelevel::Interrupt;
 use crate::{dma, interrupt, Peripheral};
 
+/// Ten bit addresses start with 11110
+const TEN_BIT_PREFIX: u8 = 0b11110 << 3;
+
 /// Bus speed (nominal SCL, no clock stretching)
 pub enum Speed {
     /// 100 kbit/s
@@ -178,8 +181,10 @@ impl<'a> I2cMaster<'a, Blocking> {
             return Err(TransferError::OtherBusError.into());
         }
 
-        // Send the first part of the 10-bit address
-        let addr_high = ((address >> 8) as u8) | 0b11110;
+        // The first byte of a 10-bit address is 11110XXX,
+        // where XXX are the 2 most significant bits of the 10-bit address
+        // followed by the read/write bit
+        let addr_high = TEN_BIT_PREFIX | (((address >> 8) as u8) << 1);
         i2cregs.mstdat().write(|w|
             // SAFETY: only unsafe due to .bits usage
             unsafe { w.data().bits(addr_high) });
@@ -426,8 +431,10 @@ impl<'a> I2cMaster<'a, Async> {
         )
         .await?;
 
-        // Send the first part of the 10-bit address
-        let addr_high = ((address >> 8) as u8) | 0b11110;
+        // The first byte of a 10-bit address is 11110XXX,
+        // where XXX are the 2 most significant bits of the 10-bit address
+        // followed by the read/write bit
+        let addr_high = TEN_BIT_PREFIX | (((address >> 8) as u8) << 1);
         i2cregs.mstdat().write(|w| unsafe { w.data().bits(addr_high) });
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 
