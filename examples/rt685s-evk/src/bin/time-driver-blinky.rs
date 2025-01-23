@@ -26,6 +26,10 @@ async fn main(_spawner: Spawner) -> ! {
     loop {
         info!("Toggling GPIO0_26 (Blue LED)");
         led.toggle();
+
+        #[cfg(feature = "test-parser")]
+        test_parser_macros::pass_test();
+
         Timer::after_millis(5000).await;
     }
 }

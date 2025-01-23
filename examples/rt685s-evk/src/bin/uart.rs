@@ -52,4 +52,7 @@ async fn main(spawner: Spawner) {
 
     let usart2 = UartTx::new_blocking(p.FLEXCOMM2, p.PIO0_15, Default::default()).unwrap();
     spawner.must_spawn(usart2_task(usart2));
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 }

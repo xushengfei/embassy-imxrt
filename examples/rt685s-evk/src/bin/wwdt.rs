@@ -23,6 +23,9 @@ async fn main(_spawner: Spawner) {
     wwdt.unleash();
     info!("Watchdog enabled!");
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     // Feed 5 times, afterwards watchdog will reset CPU
     let mut feed_count = 5;
     loop {

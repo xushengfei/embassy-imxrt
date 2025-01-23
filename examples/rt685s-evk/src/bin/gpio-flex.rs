@@ -90,6 +90,9 @@ async fn main(_spawner: Spawner) {
     // check pin level is high
     assert!(flex.is_high());
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     loop {
         Timer::after_millis(1000).await;
     }

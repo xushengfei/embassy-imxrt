@@ -181,6 +181,10 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("i2c example - Done!  Busy Loop...");
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     loop {
         Timer::after_millis(1000).await;
     }

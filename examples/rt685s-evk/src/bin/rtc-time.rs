@@ -14,6 +14,9 @@ async fn main(_spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
     let r = RtcDatetime::new(p.RTC);
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     let datetime = Datetime {
         year: 2024,
         month: 10,

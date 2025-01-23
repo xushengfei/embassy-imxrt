@@ -50,6 +50,9 @@ async fn main(spawner: Spawner) {
 
     let mut ticker = Ticker::every(Duration::from_millis(100));
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     spawner.spawn(monitor_task(monitor)).unwrap();
 
     loop {

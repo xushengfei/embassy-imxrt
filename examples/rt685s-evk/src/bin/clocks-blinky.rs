@@ -66,6 +66,10 @@ async fn main(_spawner: Spawner) {
     loop {
         info!("Toggling LED");
         led.toggle();
+
+        #[cfg(feature = "test-parser")]
+        test_parser_macros::pass_test();
+
         Timer::after_millis(1000).await;
     }
 }

@@ -22,6 +22,9 @@ async fn main(_spawner: Spawner) {
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut buf = [0u8; 65];
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     // Async interface
     unwrap!(rng.async_fill_bytes(&mut buf).await);
     info!("random bytes: {:02x}", buf);

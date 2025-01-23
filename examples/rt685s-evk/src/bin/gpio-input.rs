@@ -16,6 +16,9 @@ async fn main(_spawner: Spawner) {
 
     let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Inverter::Disabled);
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     loop {
         info!("Pin level is {}", monitor.get_level());
         Timer::after_millis(1000).await;

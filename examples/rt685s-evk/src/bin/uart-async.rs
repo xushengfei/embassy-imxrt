@@ -80,4 +80,7 @@ async fn main(spawner: Spawner) {
     )
     .unwrap();
     spawner.must_spawn(usart2_task(usart2));
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 }

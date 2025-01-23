@@ -74,4 +74,7 @@ async fn main(_spawner: Spawner) {
         ]
     );
     trace!("Hashes complete");
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 }

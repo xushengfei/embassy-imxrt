@@ -20,5 +20,8 @@ async fn main(_spawner: Spawner) {
 
     defmt::assert_eq!(output, 0xebfebe9a);
 
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
+
     cortex_m::asm::bkpt();
 }

@@ -98,6 +98,9 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(100).await;
         }
 
+        #[cfg(feature = "test-parser")]
+        test_parser_macros::pass_test();
+
         Timer::after_millis(1000).await;
     }
 }

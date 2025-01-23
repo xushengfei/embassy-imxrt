@@ -87,4 +87,7 @@ async fn main(_spawner: Spawner) {
     test_dma_channel!(p, DMA0_CH31, 31);
 
     info!("DMA transfer tests completed");
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 }
