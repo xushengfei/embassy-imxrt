@@ -462,7 +462,7 @@ impl<'r> RtcDatetime<'r> {
         // SAFETY: Clear RTC_EN bit before setting time to handle race condition
         //         when the count is in middle of a transition
         //         There is 21 mS inacurracy in the time set
-        //         Todo: https://github.com/pop-project/embassy-imxrt/issues/121
+        //         Todo: https://github.com/OpenDevicePartnership/embassy-imxrt/issues/121
         r.ctrl().modify(|_r, w| w.rtc_en().disable());
         self.is_valid_datetime(datetime)?;
         let secs = self.convert_datetime_to_secs(datetime);
