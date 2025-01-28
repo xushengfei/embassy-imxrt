@@ -1,8 +1,8 @@
 # embassy-imxrt
 
-[![no-std](https://github.com/pop-project/embassy-imxrt/actions/workflows/nostd.yml/badge.svg)](https://github.com/pop-project/embassy-imxrt/actions/workflows/nostd.yml)
-[![check](https://github.com/pop-project/embassy-imxrt/actions/workflows/check.yml/badge.svg)](https://github.com/pop-project/embassy-imxrt/actions/workflows/check.yml)
-[![rolling](https://github.com/pop-project/embassy-imxrt/actions/workflows/rolling.yml/badge.svg)](https://github.com/pop-project/embassy-imxrt/actions/workflows/rolling.yml)
+[![no-std](https://github.com/OpenDevicePartnership/embassy-imxrt/actions/workflows/nostd.yml/badge.svg)](https://github.com/OpenDevicePartnership/embassy-imxrt/actions/workflows/nostd.yml)
+[![check](https://github.com/OpenDevicePartnership/embassy-imxrt/actions/workflows/check.yml/badge.svg)](https://github.com/OpenDevicePartnership/embassy-imxrt/actions/workflows/check.yml)
+[![rolling](https://github.com/OpenDevicePartnership/embassy-imxrt/actions/workflows/rolling.yml/badge.svg)](https://github.com/OpenDevicePartnership/embassy-imxrt/actions/workflows/rolling.yml)
 [![LICENSE](https://img.shields.io/badge/License-MIT-blue)](./LICENSE)
 
 ## Introduction
