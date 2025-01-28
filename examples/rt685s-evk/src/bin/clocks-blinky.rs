@@ -8,7 +8,7 @@ use embassy_executor::Spawner;
 use embassy_imxrt::iopctl::IopctlPin;
 use embassy_imxrt::{clocks, gpio};
 use embassy_time::Timer;
-use {defmt_rtt as _, embassy_imxrt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_imxrt as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -66,6 +66,10 @@ async fn main(_spawner: Spawner) {
     loop {
         info!("Toggling LED");
         led.toggle();
+
+        #[cfg(feature = "test-parser")]
+        test_parser_macros::pass_test();
+
         Timer::after_millis(1000).await;
     }
 }

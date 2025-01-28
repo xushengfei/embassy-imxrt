@@ -5,11 +5,11 @@ extern crate embassy_imxrt_examples;
 
 use cortex_m::peripheral::NVIC;
 use defmt::{info, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::pac::{interrupt, Interrupt};
 use embassy_imxrt::wwdt::WindowedWatchdog;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -22,6 +22,9 @@ async fn main(_spawner: Spawner) {
 
     wwdt.unleash();
     info!("Watchdog enabled!");
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 
     // Feed 5 times, afterwards watchdog will reset CPU
     let mut feed_count = 5;

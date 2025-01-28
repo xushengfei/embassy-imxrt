@@ -28,6 +28,9 @@ async fn main(_spawner: Spawner) {
 
         info!("ADC sample = {:#x}", data);
 
+        #[cfg(feature = "test-parser")]
+        test_parser_macros::pass_test();
+
         Timer::after_millis(1000).await;
     }
 }

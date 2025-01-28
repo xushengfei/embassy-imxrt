@@ -4,10 +4,10 @@
 extern crate embassy_imxrt_examples;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::gpio;
 use embassy_time::{Duration, Ticker};
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn monitor_task(mut monitor: gpio::Input<'static>) {
@@ -49,6 +49,9 @@ async fn main(spawner: Spawner) {
     let monitor = gpio::Input::new(p.PIO1_0, gpio::Pull::None, gpio::Inverter::Disabled);
 
     let mut ticker = Ticker::every(Duration::from_millis(100));
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 
     spawner.spawn(monitor_task(monitor)).unwrap();
 

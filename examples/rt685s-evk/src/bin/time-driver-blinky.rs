@@ -7,7 +7,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_imxrt::gpio;
 use embassy_time::Timer;
-use {defmt_rtt as _, embassy_imxrt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_imxrt as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -26,6 +26,10 @@ async fn main(_spawner: Spawner) -> ! {
     loop {
         info!("Toggling GPIO0_26 (Blue LED)");
         led.toggle();
+
+        #[cfg(feature = "test-parser")]
+        test_parser_macros::pass_test();
+
         Timer::after_millis(5000).await;
     }
 }

@@ -2,12 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::dma::channel::Channel;
 use embassy_imxrt::dma::transfer::{Priority, Transfer, TransferOptions, Width};
 use embassy_imxrt::dma::Dma;
 use embassy_imxrt::peripherals::*;
-use {defmt_rtt as _, panic_probe as _};
 
 const TEST_LEN: usize = 16;
 
@@ -87,4 +87,7 @@ async fn main(_spawner: Spawner) {
     test_dma_channel!(p, DMA0_CH31, 31);
 
     info!("DMA transfer tests completed");
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 }

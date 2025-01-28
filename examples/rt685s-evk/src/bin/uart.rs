@@ -4,10 +4,10 @@
 extern crate embassy_imxrt_examples;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::uart::{Blocking, Uart, UartRx, UartTx};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn usart4_task(mut uart: UartRx<'static, Blocking>) {
@@ -52,4 +52,7 @@ async fn main(spawner: Spawner) {
 
     let usart2 = UartTx::new_blocking(p.FLEXCOMM2, p.PIO0_15, Default::default()).unwrap();
     spawner.must_spawn(usart2_task(usart2));
+
+    #[cfg(feature = "test-parser")]
+    test_parser_macros::pass_test();
 }
