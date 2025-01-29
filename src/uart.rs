@@ -135,11 +135,75 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {
     fn new_inner<T: Instance>(_tx_dma: Option<Channel<'a>>) -> Self {
+        increment_uart_instance(T::info().index);
         Self {
             info: T::info(),
             _tx_dma,
             _phantom: PhantomData,
         }
+    }
+
+    /// Deinitializes a USART Tx instance.
+    pub fn deinit(&self) -> Result<()> {
+        decrement_uart_instance(self.info.index);
+        // This function waits for TX complete, disables TX and RX, and disables the USART clock
+        //while self.info.regs.stat().read().txidle().bit_is_clear() {
+        // When 0, indicates that the transmitter is currently in the process of sending data.
+        //}
+        if self.info.regs.stat().read().txidle().bit_is_clear() {
+            panic!("TX is not idle");
+        }
+
+        // Disable fifo interrupts
+        self.info
+            .regs
+            .fifointenclr()
+            .modify(|_, w| w.txerr().set_bit().txlvl().set_bit());
+
+        // Disable other interrupts
+        self.info.regs.intenclr().write(|w| {
+            w.txidleclr()
+                .set_bit()
+                .framerrclr()
+                .set_bit()
+                .parityerrclr()
+                .set_bit()
+                .aberrclr()
+                .set_bit()
+        });
+
+        // Disable dma requests
+        self.info.regs.fifocfg().modify(|_, w| w.dmatx().clear_bit());
+
+        // Disable FIFOs
+        self.info.regs.fifocfg().modify(|_, w| w.enabletx().disabled());
+
+        if get_uart_instance(self.info.index) == 0 {
+            info!("TESTING: UartTx disabling peripheral");
+            // Note: If Rx, Tx are split, then one of them going out of scope will disable the peripheral.
+            // To prevent that, we need to keep a count of the uart instances (Rx, Tx )being used
+
+            // Disable peripheral
+            self.info.regs.cfg().modify(|_, w| w.enable().disabled());
+
+            // TODO: Cannot call without access to T
+            /*
+            T::disable();
+            T::into_no_periph_selected(); // build fails
+             */
+        }
+
+        Ok(())
+    }
+}
+
+impl<M: Mode> Drop for UartTx<'_, M> {
+    fn drop(&mut self) {
+        match self.deinit() {
+            Ok(value) => value,
+            Err(e) => panic!("Error in deinit: {:?}", e),
+        }
+        info!("TESTING: UartTx dropped");
     }
 }
 
@@ -220,14 +284,68 @@ impl<'a> UartTx<'a, Blocking> {
 
 impl<'a, M: Mode> UartRx<'a, M> {
     fn new_inner<T: Instance>(_rx_dma: Option<Channel<'a>>) -> Self {
+        increment_uart_instance(T::info().index);
         Self {
             info: T::info(),
             _rx_dma,
             _phantom: PhantomData,
         }
     }
+
+    /// Deinitializes a USART Rx instance.
+    pub fn deinit(&self) -> Result<()> {
+        decrement_uart_instance(self.info.index);
+        // Disable fifo interrupts
+        self.info
+            .regs
+            .fifointenclr()
+            .modify(|_, w| w.rxerr().set_bit().rxlvl().set_bit());
+
+        // Disable other interrupts
+        self.info.regs.intenclr().write(|w| {
+            w.framerrclr()
+                .set_bit()
+                .parityerrclr()
+                .set_bit()
+                .rxnoiseclr()
+                .set_bit()
+                .aberrclr()
+                .set_bit()
+        });
+
+        // Disable dma requests
+        self.info.regs.fifocfg().modify(|_, w| w.dmarx().clear_bit());
+
+        // Disable RxFIFOs
+        self.info.regs.fifocfg().modify(|_, w| w.enablerx().disabled());
+        // Disable peripheral
+
+        if get_uart_instance(self.info.index) == 0 {
+            info!("TESTING: UartRx disabling peripheral");
+            // Note: If Rx, Tx are split, then one of them going out of scope will disable the peripheral.
+            // To prevent that, we need to keep a count of the uart instances (Rx, Tx )being used
+            self.info.regs.cfg().modify(|_, w| w.enable().disabled());
+
+            // TODO: Cannot call without access to T
+            /*
+            T::disable();
+            T::into_no_periph_selected(); // build fails
+             */
+        }
+
+        Ok(())
+    }
 }
 
+impl<M: Mode> Drop for UartRx<'_, M> {
+    fn drop(&mut self) {
+        match self.deinit() {
+            Ok(value) => value,
+            Err(e) => panic!("Error in deinit: {:?}", e),
+        }
+        info!("TESTING: UartRx dropped");
+    }
+}
 impl<'a> UartRx<'a, Blocking> {
     /// Create a new blocking UART which can only receive data
     pub fn new_blocking<T: Instance>(
@@ -430,37 +548,6 @@ impl<'a, M: Mode> Uart<'a, M> {
         });
 
         regs.cfg().modify(|_, w| w.enable().enabled());
-    }
-
-    /// Deinitializes a USART instance.
-    pub fn deinit(&self) -> Result<()> {
-        // This function waits for TX complete, disables TX and RX, and disables the USART clock
-        while self.info.regs.stat().read().txidle().bit_is_clear() {
-            // When 0, indicates that the transmitter is currently in the process of sending data.
-        }
-
-        // Disable interrupts
-        self.info.regs.fifointenclr().modify(|_, w| {
-            w.txerr()
-                .set_bit()
-                .rxerr()
-                .set_bit()
-                .txlvl()
-                .set_bit()
-                .rxlvl()
-                .set_bit()
-        });
-
-        // Disable dma requests
-        self.info
-            .regs
-            .fifocfg()
-            .modify(|_, w| w.dmatx().clear_bit().dmarx().clear_bit());
-
-        // Disable peripheral
-        self.info.regs.cfg().modify(|_, w| w.enable().disabled());
-
-        Ok(())
     }
 
     /// Split the Uart into a transmitter and receiver, which is particularly
@@ -1112,8 +1199,45 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
+/// Uart Errors
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UartInstances {
+    /// Uart is not initialised
+    None,
+
+    /// Either Tx or Rx is initialised
+    EitherTxOrRx,
+
+    /// Both Rx and Tx are initialised
+    BothTxAndRx,
+}
+
+impl From<UartInstances> for u32 {
+    fn from(instance: UartInstances) -> Self {
+        match instance {
+            UartInstances::None => 0,
+            UartInstances::EitherTxOrRx => 1,
+            UartInstances::BothTxAndRx => 2,
+        }
+    }
+}
+
+impl TryFrom<u32> for UartInstances {
+    type Error = ();
+
+    fn try_from(value: u32) -> core::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(UartInstances::None),
+            1 => Ok(UartInstances::EitherTxOrRx),
+            2 => Ok(UartInstances::BothTxAndRx),
+            _ => Err(()),
+        }
+    }
+}
 const UART_COUNT: usize = 8;
 static UART_WAKERS: [AtomicWaker; UART_COUNT] = [const { AtomicWaker::new() }; UART_COUNT];
+static mut UART_INSTANCES: [UartInstances; UART_COUNT] = [UartInstances::None; UART_COUNT];
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
@@ -1231,6 +1355,52 @@ macro_rules! impl_pin_trait {
 	    )*
         }
     };
+}
+
+fn increment_uart_instance(index: usize) {
+    unsafe {
+        let uart_instance = &mut UART_INSTANCES[index];
+        let mut value: u32 = (*uart_instance).into();
+        value += 1;
+        match UartInstances::try_from(value) {
+            Ok(instance) => {
+                UART_INSTANCES[index] = instance;
+            }
+            Err(_) => error!("Invalid value for UartInstances"),
+        }
+
+        info!(
+            "TESTING: Uart instance {} incremented: val = {}",
+            index, UART_INSTANCES[index]
+        );
+    }
+}
+
+fn decrement_uart_instance(index: usize) {
+    unsafe {
+        let uart_instance = &mut UART_INSTANCES[index];
+        let mut value: u32 = (*uart_instance).into();
+        value -= 1;
+        match UartInstances::try_from(value) {
+            Ok(instance) => {
+                UART_INSTANCES[index] = instance;
+            }
+            Err(_) => error!("Invalid value for UartInstances"),
+        }
+        info!(
+            "TESTING: Uart instance {} decremented: val = {}",
+            index, UART_INSTANCES[index]
+        );
+    }
+}
+
+fn get_uart_instance(index: usize) -> usize {
+    unsafe {
+        info!("TESTING: Uart instance {} value: {}", index, UART_INSTANCES[index]);
+        let uart_instance = &mut UART_INSTANCES[index];
+        let value: u32 = (*uart_instance).into();
+        value as usize
+    }
 }
 
 // FLEXCOMM0

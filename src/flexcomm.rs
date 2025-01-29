@@ -3,7 +3,7 @@
 use embassy_hal_internal::Peripheral;
 use paste::paste;
 
-use crate::clocks::{enable_and_reset, SysconPeripheral};
+use crate::clocks::{disable, enable_and_reset, SysconPeripheral};
 use crate::pac;
 use crate::peripherals::{FLEXCOMM0, FLEXCOMM1, FLEXCOMM2, FLEXCOMM3, FLEXCOMM4, FLEXCOMM5, FLEXCOMM6, FLEXCOMM7};
 
@@ -44,6 +44,9 @@ pub(crate) trait FlexcommLowLevel:
 
     // set the clock select for this flexcomm instance and remove from reset
     fn enable(clk: Clock);
+
+    // disable the clock selected for this flexcomm instance and remove from reset
+    fn disable();
 }
 
 macro_rules! impl_flexcomm {
@@ -90,7 +93,16 @@ macro_rules! impl_flexcomm {
 
 			enable_and_reset::<[<FLEXCOMM $idx>]>();
 		    }
-		}
+
+            fn disable() {
+                // SAFETY: safe from single executor
+                let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+
+                disable::<[<FLEXCOMM $idx>]>(); // disable peripheral
+                clkctl1.flexcomm($idx).frgclksel().write(|w| w.sel().none());
+                clkctl1.flexcomm($idx).fcfclksel().write(|w| w.sel().none());
+		    }
+        }
 	    }
         )*
     }
@@ -154,6 +166,19 @@ impl_into_mode!(
 declare_into_mode!(i2s_receive);
 impl_into_mode!(
     i2s_receive,
+    FLEXCOMM0,
+    FLEXCOMM1,
+    FLEXCOMM2,
+    FLEXCOMM3,
+    FLEXCOMM4,
+    FLEXCOMM5,
+    FLEXCOMM6,
+    FLEXCOMM7
+);
+
+declare_into_mode!(no_periph_selected);
+impl_into_mode!(
+    no_periph_selected,
     FLEXCOMM0,
     FLEXCOMM1,
     FLEXCOMM2,
