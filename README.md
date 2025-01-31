@@ -17,7 +17,6 @@ Embassy official repository,
 * ADC
 * I2C
 * eSPI
-  * Need more investigation, ignore for now
 * SPI
 * GPIO
 * Timer
@@ -28,11 +27,3 @@ Embassy official repository,
 * Watchdog
 * PWM
 * DMA
-
-## Plan
-
-We will focus on Asyn HALs first. Blocking HAL can be optional.
-
-Considering various degrees of familiarity with Rust + Embadded HAL,
-before you start on a HAL piece, feel free to reach out to Felipe
-Balbi, Jerry Xie, Jimi Huard, or Madeleyne to sketch out your ideas.
