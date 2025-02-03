@@ -27,7 +27,7 @@ pub(crate) unsafe fn init() {
         });
 
         // Clear instruction and data pipeline
-        cortex_m::asm::isb();
         cortex_m::asm::dsb();
+        cortex_m::asm::isb();
     })
 }
