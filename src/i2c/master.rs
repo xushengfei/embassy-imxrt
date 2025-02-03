@@ -330,6 +330,8 @@ impl<'a> I2cMaster<'a, Async> {
                         Poll::Ready(Err(TransferError::ReadFail.into()))
                     } else if !is_read && stat.mstpending().is_pending() && !stat.mststate().is_transmit_ready() {
                         Poll::Ready(Err(TransferError::WriteFail.into()))
+                    } else if stat.mstarbloss().is_arbitration_loss() {
+                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
                     } else if stat.mstststperr().is_error() {
                         Poll::Ready(Err(TransferError::StartStopError.into()))
                     } else {
