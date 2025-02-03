@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_futures::select::{select, Either};
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::into_ref;
 
 use super::{
@@ -299,42 +300,61 @@ impl<'a> I2cMaster<'a, Async> {
         )
         .await?;
 
+        // Sentinel to perform corrective action if future is dropped
+        let on_drop = OnDrop::new(|| {
+            // Disable and re-enable master mode to clear out stalled HW state
+            // if we failed to complete sending of the address
+            // In practice, this seems to be only way to recover. Engaging with
+            // NXP to see if there is better way to handle this.
+            i2cregs.cfg().write(|w| w.msten().disabled());
+            i2cregs.cfg().write(|w| w.msten().enabled());
+        });
+
         i2cregs.mstdat().write(|w|
             // SAFETY: only unsafe due to .bits usage
             unsafe { w.data().bits(address << 1 | u8::from(is_read)) });
 
         i2cregs.mstctl().write(|w| w.mststart().set_bit());
 
-        self.wait_on(
-            |me| {
-                let stat = me.info.regs.stat().read();
+        let res = self
+            .wait_on(
+                |me| {
+                    let stat = me.info.regs.stat().read();
 
-                if is_read && stat.mststate().is_receive_ready() || !is_read && stat.mststate().is_transmit_ready() {
-                    Poll::Ready(Ok(()))
-                } else if stat.mststate().is_nack_address() {
-                    Poll::Ready(Err(TransferError::AddressNack.into()))
-                } else if is_read && stat.mstpending().is_pending() && !stat.mststate().is_receive_ready() {
-                    Poll::Ready(Err(TransferError::ReadFail.into()))
-                } else if !is_read && stat.mstpending().is_pending() && !stat.mststate().is_transmit_ready() {
-                    Poll::Ready(Err(TransferError::WriteFail.into()))
-                } else if stat.mstststperr().is_error() {
-                    Poll::Ready(Err(TransferError::StartStopError.into()))
-                } else {
-                    Poll::Pending
-                }
-            },
-            |me| {
-                me.info.regs.intenset().write(|w| {
-                    w.mstpendingen()
-                        .set_bit()
-                        .mstarblossen()
-                        .set_bit()
-                        .mstststperren()
-                        .set_bit()
-                });
-            },
-        )
-        .await
+                    if is_read && stat.mststate().is_receive_ready() || !is_read && stat.mststate().is_transmit_ready()
+                    {
+                        Poll::Ready(Ok::<(), Error>(()))
+                    } else if stat.mststate().is_nack_address() {
+                        Poll::Ready(Err(TransferError::AddressNack.into()))
+                    } else if is_read && stat.mstpending().is_pending() && !stat.mststate().is_receive_ready() {
+                        Poll::Ready(Err(TransferError::ReadFail.into()))
+                    } else if !is_read && stat.mstpending().is_pending() && !stat.mststate().is_transmit_ready() {
+                        Poll::Ready(Err(TransferError::WriteFail.into()))
+                    } else if stat.mstarbloss().is_arbitration_loss() {
+                        Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
+                    } else if stat.mstststperr().is_error() {
+                        Poll::Ready(Err(TransferError::StartStopError.into()))
+                    } else {
+                        Poll::<Result<()>>::Pending
+                    }
+                },
+                |me| {
+                    me.info.regs.intenset().write(|w| {
+                        w.mstpendingen()
+                            .set_bit()
+                            .mstarblossen()
+                            .set_bit()
+                            .mstststperren()
+                            .set_bit()
+                    });
+                },
+            )
+            .await;
+
+        // Defuse the sentinel if future is not dropped
+        on_drop.defuse();
+
+        res
     }
 
     async fn read_no_stop(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
