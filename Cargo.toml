@@ -59,7 +59,7 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-mimxrt685s-pac = { version = "0.2.0", features = [
+mimxrt685s-pac = { version = "0.2.2", features = [
     "rt",
     "critical-section",
     "defmt",
