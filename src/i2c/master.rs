@@ -617,18 +617,26 @@ impl<M: Mode> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, M> {
 // implement generic i2c interface for peripheral master type
 impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        self.read_no_stop(address, read)?;
+        for chunk in read.chunks_mut(1024) {
+            self.read_no_stop(address, chunk)?;
+        }
         self.stop()
     }
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        self.write_no_stop(address, write)?;
+        for chunk in write.chunks(1024) {
+            self.write_no_stop(address, chunk)?;
+        }
         self.stop()
     }
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
-        self.write_no_stop(address, write)?;
-        self.read_no_stop(address, read)?;
+        for chunk in write.chunks(1024) {
+            self.write_no_stop(address, chunk)?;
+        }
+        for chunk in read.chunks_mut(1024) {
+            self.read_no_stop(address, chunk)?;
+        }
         self.stop()
     }
 
@@ -656,18 +664,26 @@ impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
 
 impl embedded_hal_async::i2c::I2c<embedded_hal_async::i2c::SevenBitAddress> for I2cMaster<'_, Async> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        self.read_no_stop(address, read).await?;
+        for chunk in read.chunks_mut(1024) {
+            self.read_no_stop(address, chunk).await?;
+        }
         self.stop().await
     }
 
     async fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        self.write_no_stop(address, write).await?;
+        for chunk in write.chunks(1024) {
+            self.write_no_stop(address, chunk).await?;
+        }
         self.stop().await
     }
 
     async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
-        self.write_no_stop(address, write).await?;
-        self.read_no_stop(address, read).await?;
+        for chunk in write.chunks(1024) {
+            self.write_no_stop(address, chunk).await?;
+        }
+        for chunk in read.chunks_mut(1024) {
+            self.read_no_stop(address, chunk).await?;
+        }
         self.stop().await
     }
 
