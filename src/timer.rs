@@ -404,7 +404,7 @@ impl_instance!(4, 1); // CTIMER4 Channel 1
 impl_instance!(4, 2); // CTIMER4 Channel 2
 impl_instance!(4, 3); // CTIMER4 Channel 3
 
-impl From<TriggerInput> for mimxrt685s_pac::inputmux::ct32bit_cap::ct32bit_cap_sel::CapnSel {
+impl From<TriggerInput> for crate::pac::inputmux::ct32bit_cap::ct32bit_cap_sel::CapnSel {
     fn from(input: TriggerInput) -> Self {
         match input {
             TriggerInput::TrigIn0 => Self::CtInp0,

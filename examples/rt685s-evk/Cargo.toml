@@ -17,6 +17,8 @@ embassy-imxrt = { version = "0.1.0", path = "../../", features = [
     "defmt",
     "time-driver",
     "time",
+    "mimxrt685s",
+    "unstable-pac",
 ] }
 
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = [
