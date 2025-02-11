@@ -321,15 +321,20 @@ impl<'a> I2cMaster<'a, Async> {
                 |me| {
                     let stat = me.info.regs.stat().read();
 
-                    if is_read && stat.mststate().is_receive_ready() || !is_read && stat.mststate().is_transmit_ready()
-                    {
-                        Poll::Ready(Ok::<(), Error>(()))
-                    } else if stat.mststate().is_nack_address() {
-                        Poll::Ready(Err(TransferError::AddressNack.into()))
-                    } else if is_read && stat.mstpending().is_pending() && !stat.mststate().is_receive_ready() {
-                        Poll::Ready(Err(TransferError::ReadFail.into()))
-                    } else if !is_read && stat.mstpending().is_pending() && !stat.mststate().is_transmit_ready() {
-                        Poll::Ready(Err(TransferError::WriteFail.into()))
+                    if stat.mstpending().is_pending() {
+                        if is_read && stat.mststate().is_receive_ready()
+                            || !is_read && stat.mststate().is_transmit_ready()
+                        {
+                            Poll::Ready(Ok::<(), Error>(()))
+                        } else if stat.mststate().is_nack_address() {
+                            Poll::Ready(Err(TransferError::AddressNack.into()))
+                        } else if is_read && !stat.mststate().is_receive_ready() {
+                            Poll::Ready(Err(TransferError::ReadFail.into()))
+                        } else if !is_read && !stat.mststate().is_transmit_ready() {
+                            Poll::Ready(Err(TransferError::WriteFail.into()))
+                        } else {
+                            Poll::<Result<()>>::Pending
+                        }
                     } else if stat.mstarbloss().is_arbitration_loss() {
                         Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
                     } else if stat.mstststperr().is_error() {
@@ -543,7 +548,7 @@ impl<'a> I2cMaster<'a, Async> {
             |me| {
                 let stat = me.info.regs.stat().read();
 
-                if stat.mststate().is_idle() {
+                if stat.mstpending().is_pending() && stat.mststate().is_idle() {
                     Poll::Ready(Ok(()))
                 } else if stat.mstarbloss().is_arbitration_loss() {
                     Poll::Ready(Err(TransferError::ArbitrationLoss.into()))
