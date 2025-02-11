@@ -11,7 +11,7 @@ use super::{
     Async, Blocking, Error, Info, Instance, InterruptHandler, MasterDma, Mode, Result, SclPin, SdaPin, TransferError,
     I2C_WAKERS,
 };
-use crate::interrupts::interrupt::typelevel::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::{dma, interrupt, Peripheral};
 
 /// Bus speed (nominal SCL, no clock stretching)
