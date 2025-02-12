@@ -9,6 +9,8 @@ use embassy_imxrt::{bind_interrupts, i2c, peripherals};
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 
+const NACK_ADDR: u8 = 0x07;
+
 const ACC_ADDR: u8 = 0x1E;
 
 const ACC_ID_REG: u8 = 0x0D;
@@ -94,7 +96,33 @@ async fn main(_spawner: Spawner) {
     )
     .unwrap();
 
-    // Read WHO_AM_I register, 0x0D to get value 0xC7 (1100 0111)
+    info!("i2c example - write nack check");
+    let result = i2c.write(NACK_ADDR, &[ACC_ID_REG]).await;
+    if result.is_err_and(|e| e == i2c::TransferError::AddressNack.into()) {
+        info!("i2c example - write nack check gets the right error");
+    } else {
+        error!("i2c example - write nack check error did not get the error {}", result);
+    }
+
+    info!("i2c example - read nack check");
+    let mut reg = [0u8; 1];
+    let result = i2c.read(NACK_ADDR, &mut reg).await;
+    if result.is_err_and(|e| e == i2c::TransferError::AddressNack.into()) {
+        info!("i2c example - write nack check gets the right error");
+    } else {
+        error!("i2c example - write nack check error did not get the error {}", result);
+    }
+
+    info!("i2c example - write_read nack check");
+    let mut reg = [0u8; 1];
+    reg[0] = 0xAA;
+    let result = i2c.write_read(NACK_ADDR, &[ACC_ID_REG], &mut reg).await;
+    if result.is_err_and(|e| e == i2c::TransferError::AddressNack.into()) {
+        info!("i2c example - write nack check gets the right error");
+    } else {
+        error!("i2c example - write nack check error did not get the error {}", result);
+    }
+
     info!("i2c example - ACC WHO_AM_I register check");
     let mut reg = [0u8; 1];
     reg[0] = 0xAA;
