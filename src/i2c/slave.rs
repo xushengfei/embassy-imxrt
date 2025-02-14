@@ -277,6 +277,43 @@ impl I2cSlave<'_, Blocking> {
         //Block until we know it is read or write
         self.poll()?;
 
+        if let Some(ten_bit_address) = self.ten_bit_info {
+            // For 10 bit address, the first byte received is the second byte of the address
+            if i2c.slvdat().read().data().bits() == ten_bit_address.second_byte {
+                i2c.slvctl().write(|w| w.slvcontinue().continue_());
+                self.poll()?;
+            } else {
+                // If the second byte of the 10 bit address is not received, then nack the address.
+                i2c.slvctl().write(|w| w.slvnack().nack());
+                return Ok(Command::Probe);
+            }
+
+            // Check slave is still selected, master has not sent a stop
+            if i2c.stat().read().slvsel().is_selected() {
+                // Check for a restart
+                if i2c.stat().read().slvstate().is_slave_address() {
+                    // Check if first byte of 10 bit address is received again with read bit set
+                    if i2c.slvdat().read().data().bits() == ten_bit_address.first_byte | 1 {
+                        i2c.slvctl().write(|w| w.slvcontinue().continue_());
+                        self.poll()?;
+                    } else {
+                        // If the first byte of the 10 bit address is not received again, then nack the address.
+                        i2c.slvctl().write(|w| w.slvnack().nack());
+                        return Ok(Command::Probe);
+                    }
+                    // Check slave is ready for transmit
+                    if !i2c.stat().read().slvstate().is_slave_transmit() {
+                        return Err(TransferError::WriteFail.into());
+                    }
+                } else {
+                    // Check slave is ready to receive
+                    if !i2c.stat().read().slvstate().is_slave_receive() {
+                        return Err(TransferError::ReadFail.into());
+                    }
+                }
+            }
+        }
+
         // We are already deselected, so it must be an 0 byte write transaction
         if i2c.stat().read().slvdesel().is_deselected() {
             // Clear the deselected bit
