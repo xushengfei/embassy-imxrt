@@ -16,12 +16,23 @@ pub struct Crc<'d> {
 
 /// CRC configuration
 pub struct Config {
-    polynomial: Polynomial,
-    bit_order_input_reverse: bool,
-    input_complement: bool,
-    bit_order_crc_reverse: bool,
-    crc_complement: bool,
-    seed: u32,
+    /// Polynomial to be used
+    pub polynomial: Polynomial,
+
+    /// Reverse bit order of input?
+    pub bit_order_input_reverse: bool,
+
+    /// 1's complement input?
+    pub input_complement: bool,
+
+    /// Reverse CRC bit order?
+    pub bit_order_crc_reverse: bool,
+
+    /// 1's complement CRC?
+    pub crc_complement: bool,
+
+    /// CRC Seed
+    pub seed: u32,
 }
 
 impl Config {
@@ -54,7 +65,7 @@ impl Default for Config {
             input_complement: false,
             bit_order_crc_reverse: false,
             crc_complement: false,
-            seed: 0xffff_ffff,
+            seed: 0xffff,
         }
     }
 }
@@ -63,11 +74,11 @@ impl Default for Config {
 #[derive(Debug, Copy, Clone, Default)]
 pub enum Polynomial {
     /// CRC-32: 0x04C11DB7
-    #[default]
     Crc32,
     /// CRC-16: 0x8005
     Crc16,
     /// CRC-CCITT: 0x1021
+    #[default]
     CrcCcitt,
 }
 
@@ -102,33 +113,15 @@ impl<'d> Crc<'d> {
     /// Reconfigured the CRC peripheral.
     fn reconfigure(&mut self) {
         self.info.regs.mode().write(|w| {
-            if self._config.bit_order_input_reverse {
-                w.bit_rvs_wr().set_bit();
-            } else {
-                w.bit_rvs_wr().clear_bit();
-            }
-
-            if self._config.input_complement {
-                w.cmpl_wr().set_bit();
-            } else {
-                w.cmpl_wr().clear_bit();
-            }
-
-            if self._config.bit_order_crc_reverse {
-                w.bit_rvs_sum().set_bit();
-            } else {
-                w.bit_rvs_sum().clear_bit();
-            }
-
-            if self._config.crc_complement {
-                w.bit_rvs_sum().set_bit();
-            } else {
-                w.bit_rvs_sum().clear_bit();
-            }
-
-            unsafe { w.crc_poly().bits(self._config.polynomial.into()) };
-
-            w
+            unsafe { w.crc_poly().bits(self._config.polynomial.into()) }
+                .bit_rvs_wr()
+                .variant(self._config.bit_order_input_reverse)
+                .cmpl_wr()
+                .variant(self._config.input_complement)
+                .bit_rvs_sum()
+                .variant(self._config.bit_order_crc_reverse)
+                .cmpl_sum()
+                .variant(self._config.crc_complement)
         });
 
         // Init CRC value
@@ -140,21 +133,25 @@ impl<'d> Crc<'d> {
 
     /// Feeds a byte into the CRC peripheral. Returns the computed checksum.
     pub fn feed_byte(&mut self, byte: u8) -> u32 {
-        self.info
-            .regs
-            .wr_data()
-            .write(|w| unsafe { w.crc_wr_data().bits(u32::from(byte)) });
+        self.info.regs.wr_data8().write(|w| unsafe { w.bits(byte) });
 
         self.info.regs.sum().read().bits()
     }
 
     /// Feeds an slice of bytes into the CRC peripheral. Returns the computed checksum.
     pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
-        for byte in bytes {
-            self.info
-                .regs
-                .wr_data()
-                .write(|w| unsafe { w.crc_wr_data().bits(u32::from(*byte)) });
+        let (prefix, data, suffix) = unsafe { bytes.align_to::<u32>() };
+
+        for b in prefix {
+            self.info.regs.wr_data8().write(|w| unsafe { w.bits(*b) });
+        }
+
+        for d in data {
+            self.info.regs.wr_data32().write(|w| unsafe { w.bits(*d) });
+        }
+
+        for b in suffix {
+            self.info.regs.wr_data8().write(|w| unsafe { w.bits(*b) });
         }
 
         self.info.regs.sum().read().bits()
@@ -162,10 +159,7 @@ impl<'d> Crc<'d> {
 
     /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
-        self.info
-            .regs
-            .wr_data()
-            .write(|w| unsafe { w.crc_wr_data().bits(u32::from(halfword)) });
+        self.info.regs.wr_data16().write(|w| unsafe { w.bits(halfword) });
 
         self.info.regs.sum().read().bits()
     }
@@ -173,10 +167,7 @@ impl<'d> Crc<'d> {
     /// Feeds an slice of halfwords into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
         for halfword in halfwords {
-            self.info
-                .regs
-                .wr_data()
-                .write(|w| unsafe { w.crc_wr_data().bits(u32::from(*halfword)) });
+            self.info.regs.wr_data16().write(|w| unsafe { w.bits(*halfword) });
         }
 
         self.info.regs.sum().read().bits()
@@ -184,10 +175,7 @@ impl<'d> Crc<'d> {
 
     /// Feeds a words into the CRC peripheral. Returns the computed checksum.
     pub fn feed_word(&mut self, word: u32) -> u32 {
-        self.info
-            .regs
-            .wr_data()
-            .write(|w| unsafe { w.crc_wr_data().bits(word) });
+        self.info.regs.wr_data32().write(|w| unsafe { w.bits(word) });
 
         self.info.regs.sum().read().bits()
     }
@@ -195,10 +183,7 @@ impl<'d> Crc<'d> {
     /// Feeds an slice of words into the CRC peripheral. Returns the computed checksum.
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
-            self.info
-                .regs
-                .wr_data()
-                .write(|w| unsafe { w.crc_wr_data().bits(*word) });
+            self.info.regs.wr_data32().write(|w| unsafe { w.bits(*word) });
         }
 
         self.info.regs.sum().read().bits()
