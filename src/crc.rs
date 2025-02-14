@@ -16,12 +16,12 @@ pub struct Crc<'d> {
 
 /// CRC configuration
 pub struct Config {
-    polynomial: Polynomial,
-    bit_order_input_reverse: bool,
-    input_complement: bool,
-    bit_order_crc_reverse: bool,
-    crc_complement: bool,
-    seed: u32,
+    pub polynomial: Polynomial,
+    pub bit_order_input_reverse: bool,
+    pub input_complement: bool,
+    pub bit_order_crc_reverse: bool,
+    pub crc_complement: bool,
+    pub seed: u32,
 }
 
 impl Config {
