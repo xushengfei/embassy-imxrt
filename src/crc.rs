@@ -20,16 +20,16 @@ pub struct Config {
     pub polynomial: Polynomial,
 
     /// Reverse bit order of input?
-    pub bit_order_input_reverse: bool,
+    pub reverse_in: bool,
 
     /// 1's complement input?
-    pub input_complement: bool,
+    pub complement_in: bool,
 
     /// Reverse CRC bit order?
-    pub bit_order_crc_reverse: bool,
+    pub reverse_out: bool,
 
     /// 1's complement CRC?
-    pub crc_complement: bool,
+    pub complement_out: bool,
 
     /// CRC Seed
     pub seed: u32,
@@ -40,18 +40,18 @@ impl Config {
     #[must_use]
     pub fn new(
         polynomial: Polynomial,
-        bit_order_input_reverse: bool,
-        input_complement: bool,
-        bit_order_crc_reverse: bool,
-        crc_complement: bool,
+        reverse_in: bool,
+        complement_in: bool,
+        reverse_out: bool,
+        complement_out: bool,
         seed: u32,
     ) -> Self {
         Config {
             polynomial,
-            bit_order_input_reverse,
-            input_complement,
-            bit_order_crc_reverse,
-            crc_complement,
+            reverse_in,
+            complement_in,
+            reverse_out,
+            complement_out,
             seed,
         }
     }
@@ -61,10 +61,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             polynomial: Polynomial::default(),
-            bit_order_input_reverse: false,
-            input_complement: false,
-            bit_order_crc_reverse: false,
-            crc_complement: false,
+            reverse_in: false,
+            complement_in: false,
+            reverse_out: false,
+            complement_out: false,
             seed: 0xffff,
         }
     }
@@ -115,13 +115,13 @@ impl<'d> Crc<'d> {
         self.info.regs.mode().write(|w| {
             unsafe { w.crc_poly().bits(self._config.polynomial.into()) }
                 .bit_rvs_wr()
-                .variant(self._config.bit_order_input_reverse)
+                .variant(self._config.reverse_in)
                 .cmpl_wr()
-                .variant(self._config.input_complement)
+                .variant(self._config.complement_in)
                 .bit_rvs_sum()
-                .variant(self._config.bit_order_crc_reverse)
+                .variant(self._config.reverse_out)
                 .cmpl_sum()
-                .variant(self._config.crc_complement)
+                .variant(self._config.complement_out)
         });
 
         // Init CRC value
