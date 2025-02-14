@@ -1532,6 +1532,13 @@ fn init_clock_hw(config: ClockConfig) -> Result<(), ClockError> {
     // SAFETY: unsafe needed to take pointers to Clkctl0
     let cc0 = unsafe { pac::Clkctl0::steal() };
     cc0.flexspifclksel().write(|w| w.sel().ffro_clk());
+
+    // Move ESPI clock source to FFRO
+    #[cfg(feature = "_espi")]
+    {
+        cc0.espiclksel().write(|w| w.sel().use_48_60m());
+    }
+
     init_syscpuahb_clk();
 
     if let Err(e) = config.main_clk.enable_and_reset() {
@@ -1634,6 +1641,10 @@ impl_perph_clk!(CTIMER4_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 4);
 impl_perph_clk!(DMA0, Clkctl1, pscctl1, Rstctl1, prstctl1, 23);
 impl_perph_clk!(DMA1, Clkctl1, pscctl1, Rstctl1, prstctl1, 24);
 impl_perph_clk!(DMIC0, Clkctl1, pscctl0, Rstctl1, prstctl0, 24);
+
+#[cfg(feature = "_espi")]
+impl_perph_clk!(ESPI, Clkctl0, pscctl1, Rstctl0, prstctl1, 7);
+
 impl_perph_clk!(FLEXCOMM0, Clkctl1, pscctl0, Rstctl1, prstctl0, 8);
 impl_perph_clk!(FLEXCOMM1, Clkctl1, pscctl0, Rstctl1, prstctl0, 9);
 impl_perph_clk!(FLEXCOMM14, Clkctl1, pscctl0, Rstctl1, prstctl0, 22);

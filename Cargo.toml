@@ -19,7 +19,7 @@ flavors = [{ name = "imxrt685s", target = "thumbv8m.main-none-eabihf" }]
 features = ["defmt", "unstable-pac", "time-driver"]
 
 [features]
-default = ["mimxrt685s", "rt"]
+default = ["rt"]
 
 ## Enable the rt feature of
 ## [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the
@@ -54,7 +54,10 @@ unstable-pac = []
 # to be enabled by other crates, and are not covered by semver guarantees.
 
 _mimxrt685s = []
-_mimxrt633s = []
+_mimxrt633s = ["_espi"]
+
+# Peripherals
+_espi = []
 
 [dependencies]
 embassy-sync = { git = "https://github.com/embassy-rs/embassy" }
@@ -93,7 +96,7 @@ paste = "1.0"
 
 # PACs
 mimxrt685s-pac = { version = "0.2.2", optional = true, features = ["rt", "critical-section", "defmt"] }
-mimxrt633s-pac = { version = "0.2.0", optional = true, features = ["rt", "critical-section", "defmt"] }
+mimxrt633s-pac = { version = "0.2.3", optional = true, features = ["rt", "critical-section", "defmt"] }
 
 [dev-dependencies]
 embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
