@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::into_ref;
 
 use crate::clocks::{enable_and_reset, SysconPeripheral};
+pub use crate::pac::crc_engine::mode::CrcPolynomial as Polynomial;
 use crate::{peripherals, Peripheral};
 
 /// CRC driver.
@@ -60,34 +61,12 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            polynomial: Polynomial::default(),
+            polynomial: Polynomial::CrcCcitt,
             reverse_in: false,
             complement_in: false,
             reverse_out: false,
             complement_out: false,
             seed: 0xffff,
-        }
-    }
-}
-
-/// CRC polynomial
-#[derive(Debug, Copy, Clone, Default)]
-pub enum Polynomial {
-    /// CRC-32: 0x04C11DB7
-    Crc32,
-    /// CRC-16: 0x8005
-    Crc16,
-    /// CRC-CCITT: 0x1021
-    #[default]
-    CrcCcitt,
-}
-
-impl From<Polynomial> for u8 {
-    fn from(polynomial: Polynomial) -> u8 {
-        match polynomial {
-            Polynomial::Crc16 => 1,
-            Polynomial::CrcCcitt => 0,
-            _ => 2,
         }
     }
 }
@@ -113,7 +92,8 @@ impl<'d> Crc<'d> {
     /// Reconfigured the CRC peripheral.
     fn reconfigure(&mut self) {
         self.info.regs.mode().write(|w| {
-            unsafe { w.crc_poly().bits(self._config.polynomial.into()) }
+            w.crc_poly()
+                .variant(self._config.polynomial)
                 .bit_rvs_wr()
                 .variant(self._config.reverse_in)
                 .cmpl_wr()
