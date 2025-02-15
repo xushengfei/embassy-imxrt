@@ -130,7 +130,7 @@ pub enum Error {
     /// TX Busy
     TxBusy,
 }
-/// shorthand for -> Result<T>
+/// shorthand for -> `Result<T>`
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl<'a, M: Mode> UartTx<'a, M> {

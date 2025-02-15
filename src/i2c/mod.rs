@@ -16,7 +16,7 @@ pub mod master;
 /// I2C Slave Driver
 pub mod slave;
 
-/// shorthand for -> Result<T>
+/// shorthand for -> `Result<T>`
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Bus speed (nominal SCL, no clock stretching)
