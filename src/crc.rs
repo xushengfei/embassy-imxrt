@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::into_ref;
 
 use crate::clocks::{enable_and_reset, SysconPeripheral};
+pub use crate::pac::crc_engine::mode::CrcPolynomial as Polynomial;
 use crate::{peripherals, Peripheral};
 
 /// CRC driver.
@@ -20,16 +21,16 @@ pub struct Config {
     pub polynomial: Polynomial,
 
     /// Reverse bit order of input?
-    pub bit_order_input_reverse: bool,
+    pub reverse_in: bool,
 
     /// 1's complement input?
-    pub input_complement: bool,
+    pub complement_in: bool,
 
     /// Reverse CRC bit order?
-    pub bit_order_crc_reverse: bool,
+    pub reverse_out: bool,
 
     /// 1's complement CRC?
-    pub crc_complement: bool,
+    pub complement_out: bool,
 
     /// CRC Seed
     pub seed: u32,
@@ -40,18 +41,18 @@ impl Config {
     #[must_use]
     pub fn new(
         polynomial: Polynomial,
-        bit_order_input_reverse: bool,
-        input_complement: bool,
-        bit_order_crc_reverse: bool,
-        crc_complement: bool,
+        reverse_in: bool,
+        complement_in: bool,
+        reverse_out: bool,
+        complement_out: bool,
         seed: u32,
     ) -> Self {
         Config {
             polynomial,
-            bit_order_input_reverse,
-            input_complement,
-            bit_order_crc_reverse,
-            crc_complement,
+            reverse_in,
+            complement_in,
+            reverse_out,
+            complement_out,
             seed,
         }
     }
@@ -60,34 +61,12 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            polynomial: Polynomial::default(),
-            bit_order_input_reverse: false,
-            input_complement: false,
-            bit_order_crc_reverse: false,
-            crc_complement: false,
+            polynomial: Polynomial::CrcCcitt,
+            reverse_in: false,
+            complement_in: false,
+            reverse_out: false,
+            complement_out: false,
             seed: 0xffff,
-        }
-    }
-}
-
-/// CRC polynomial
-#[derive(Debug, Copy, Clone, Default)]
-pub enum Polynomial {
-    /// CRC-32: 0x04C11DB7
-    Crc32,
-    /// CRC-16: 0x8005
-    Crc16,
-    /// CRC-CCITT: 0x1021
-    #[default]
-    CrcCcitt,
-}
-
-impl From<Polynomial> for u8 {
-    fn from(polynomial: Polynomial) -> u8 {
-        match polynomial {
-            Polynomial::Crc16 => 1,
-            Polynomial::CrcCcitt => 0,
-            _ => 2,
         }
     }
 }
@@ -113,15 +92,16 @@ impl<'d> Crc<'d> {
     /// Reconfigured the CRC peripheral.
     fn reconfigure(&mut self) {
         self.info.regs.mode().write(|w| {
-            unsafe { w.crc_poly().bits(self._config.polynomial.into()) }
+            w.crc_poly()
+                .variant(self._config.polynomial)
                 .bit_rvs_wr()
-                .variant(self._config.bit_order_input_reverse)
+                .variant(self._config.reverse_in)
                 .cmpl_wr()
-                .variant(self._config.input_complement)
+                .variant(self._config.complement_in)
                 .bit_rvs_sum()
-                .variant(self._config.bit_order_crc_reverse)
+                .variant(self._config.reverse_out)
                 .cmpl_sum()
-                .variant(self._config.crc_complement)
+                .variant(self._config.complement_out)
         });
 
         // Init CRC value
