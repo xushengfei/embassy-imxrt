@@ -436,11 +436,10 @@ impl<M: Mode> CaptureTimer<M> {
     /// Captured clock = (Capture value - previous counter value)
     fn get_event_capture_time_us(&self) -> u32 {
         let time_float = (self.event_clock_counts as f32 / self.clk_freq as f32) * 1000000.0;
-        time_float as u32
-        // let time_int = time_float as u32 as f32;
-        // let interger_part = time_int as u32;
-        // let decimal_part = ((time_float - time_int) * 1000000.0) as u32;
-        // interger_part + decimal_part
+        let time_int = time_float as u32 as f32;
+        let interger_part = time_int as u32;
+        let decimal_part = ((time_float - time_int) * 1000000.0) as u32;
+        interger_part + decimal_part
     }
 
     fn reset_and_enable(&self) {
