@@ -533,6 +533,7 @@ impl CaptureTimer<Async> {
         .await
     }
 
+    /// Trigger capture twice, return time us between these two capture
     pub async fn capture_cycle_time_us(
         &mut self,
         event_input: TriggerInput,
@@ -549,11 +550,13 @@ impl CaptureTimer<Async> {
             WAKERS[self.id].register(cx.waker());
 
             if self.info.input_event_captured() {
+                // First time capture, store data into timer hist and reenable interrupt
                 if self.timer_hist == 0 {
                     self.timer_hist = reg.cr(self.info.channel).read().bits();
                     self.info.cap_timer_interrupt_enable();
                     Poll::Pending
                 } else {
+                    // Second time capture, and minus timer hist to calculate event_clock_counts
                     let curr_event_clock_count = reg.cr(self.info.channel).read().bits();
                     if curr_event_clock_count < self.timer_hist {
                         self.event_clock_counts = (u32::MAX - self.timer_hist) + curr_event_clock_count + 1_u32;
