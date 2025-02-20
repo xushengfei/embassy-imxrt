@@ -622,26 +622,18 @@ impl<M: Mode> embedded_hal_1::i2c::ErrorType for I2cMaster<'_, M> {
 // implement generic i2c interface for peripheral master type
 impl embedded_hal_1::i2c::I2c for I2cMaster<'_, Blocking> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
-        for chunk in read.chunks_mut(1024) {
-            self.read_no_stop(address, chunk)?;
-        }
+        self.read_no_stop(address, read)?;
         self.stop()
     }
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<()> {
-        for chunk in write.chunks(1024) {
-            self.write_no_stop(address, chunk)?;
-        }
+        self.write_no_stop(address, write)?;
         self.stop()
     }
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
-        for chunk in write.chunks(1024) {
-            self.write_no_stop(address, chunk)?;
-        }
-        for chunk in read.chunks_mut(1024) {
-            self.read_no_stop(address, chunk)?;
-        }
+        self.write_no_stop(address, write)?;
+        self.read_no_stop(address, read)?;
         self.stop()
     }
 
