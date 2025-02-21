@@ -498,7 +498,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int1().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(1).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -509,7 +509,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int2().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(2).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -520,7 +520,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int3().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(3).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -531,7 +531,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int4().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(4).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
