@@ -760,6 +760,7 @@ impl<'d> Espi<'d> {
         self.wait_for(
             |me| {
                 if me.info.regs.mstat().read().irq_upd().bit_is_set() {
+                    me.info.regs.mstat().write(|w| w.irq_upd().clear_bit_by_one());
                     Poll::Ready(())
                 } else {
                     Poll::Pending
