@@ -61,159 +61,6 @@ impl From<Length> for u8 {
     }
 }
 
-/// eSPI Command
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Command {
-    /// Put a posted or completion header and optional data.
-    PutPc,
-
-    /// Put a non-posted header and optional data.
-    PutNp,
-
-    /// Get a posted or completion header and optional data.
-    GetPc,
-
-    /// Get a non-posted header and optional data.
-    GetNp,
-
-    /// Put a short (1, 2, or 4 bytes) non-posted I/O read packet.
-    PutIoRdShort(Length),
-
-    /// Put a short (1, 2, or 4 bytes) non-posted I/O write packet.
-    PutIoWrShort(Length),
-
-    /// Put a short (1, 2, or 4 bytes) non-posted memory read packet.
-    PutMemRd32Short(Length),
-
-    /// Put a short (1, 2, or 4 bytes) non-posted memory write packet.
-    PutMemWr32Short(Length),
-
-    /// Put a tunneled virtual wire packet.
-    PutVwire,
-
-    /// Get a tunneled virtual wire packet.
-    GetVwire,
-
-    /// Put an OOB (tunneled SMBus) message.
-    PutOob,
-
-    /// Get an OOB (tunneled SMBus) message.
-    GetOob,
-
-    /// Put a flash access completion.
-    PutFlashC,
-
-    /// Get a non-posted flash access request.
-    GetFlashNp,
-
-    /// Read the status register of the slave.
-    GetStatus,
-
-    /// Set the capabilities of the slave as part of the
-    /// initialization.
-    SetConfiguration,
-
-    /// Get the capabilities of the slave as part of the
-    /// initialization.
-    GetConfiguration,
-
-    /// In-band reset command.
-    Reset,
-}
-
-impl From<Command> for u8 {
-    fn from(cmd: Command) -> u8 {
-        match cmd {
-            Command::PutPc => 0b0000_0000,
-            Command::PutNp => 0b0000_0010,
-            Command::GetPc => 0b0000_0001,
-            Command::GetNp => 0b0000_0011,
-            Command::PutIoRdShort(l) => 0b0100_0000 | u8::from(l),
-            Command::PutIoWrShort(l) => 0b0100_0100 | u8::from(l),
-            Command::PutMemRd32Short(l) => 0b0100_1000 | u8::from(l),
-            Command::PutMemWr32Short(l) => 0b0100_1100 | u8::from(l),
-            Command::PutVwire => 0b0000_0100,
-            Command::GetVwire => 0b0000_0101,
-            Command::PutOob => 0b0000_0110,
-            Command::GetOob => 0b0000_0111,
-            Command::PutFlashC => 0b0000_1000,
-            Command::GetFlashNp => 0b0000_1001,
-            Command::GetStatus => 0b0010_0101,
-            Command::SetConfiguration => 0b0010_0010,
-            Command::GetConfiguration => 0b0010_0001,
-            Command::Reset => 0b1111_1111,
-        }
-    }
-}
-
-/// eSPI Response Modifier
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Modifier {
-    /// No Append.
-    NoAppend,
-
-    /// Peripheral (channel 0) completion is appended.
-    Peripheral,
-
-    /// Virtual Wire (channel 1) packet is appended.
-    VirtualWire,
-
-    /// Flash Access (channel 3) completion is appended.
-    FlashAccess,
-}
-
-impl From<Modifier> for u8 {
-    fn from(m: Modifier) -> u8 {
-        match m {
-            Modifier::NoAppend => 0b00,
-            Modifier::Peripheral => 0b01,
-            Modifier::VirtualWire => 0b10,
-            Modifier::FlashAccess => 0b11,
-        }
-    }
-}
-
-/// eSPI Response
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Response {
-    /// Command was successfully received.
-    Accept(Modifier),
-
-    /// A non-posted command was successfully received. Completing the
-    /// non-posted transaction is deferred to a future split
-    /// completion.
-    Defer,
-
-    /// The received command had an error with non-fatal severity.
-    NonFatalError,
-
-    /// The received command had an error with fatal severity.
-    FatalError,
-
-    /// Adds one byte-time of delay when responding to a transaction
-    /// on the bus.
-    WaitState,
-
-    /// No Response.
-    NoResponse,
-}
-
-impl From<Response> for u8 {
-    fn from(response: Response) -> u8 {
-        match response {
-            Response::Accept(m) => u8::from(m) << 6 | 0b0000_1000,
-            Response::Defer => 0b0000_0001,
-            Response::NonFatalError => 0b0000_0010,
-            Response::FatalError => 0b0000_0011,
-            Response::WaitState => 0b0000_1111,
-            Response::NoResponse => 0b1111_1111,
-        }
-    }
-}
-
 /// eSPI interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
@@ -651,7 +498,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int1().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(1).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -662,7 +509,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int2().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(2).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -673,7 +520,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int3().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(3).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -684,7 +531,7 @@ impl<'d> Espi<'d> {
                         direction,
                     })))
                 } else if me.info.regs.mstat().read().port_int4().bit_is_set() {
-                    let datain = self.info.regs.port(0).datain().read();
+                    let datain = self.info.regs.port(4).datain().read();
                     let offset = datain.idx().bits() as usize;
                     let length = datain.data_len().bits() as usize + 1;
                     let direction = datain.dir().bit_is_set();
@@ -760,6 +607,7 @@ impl<'d> Espi<'d> {
         self.wait_for(
             |me| {
                 if me.info.regs.mstat().read().irq_upd().bit_is_set() {
+                    me.info.regs.mstat().write(|w| w.irq_upd().clear_bit_by_one());
                     Poll::Ready(())
                 } else {
                     Poll::Pending
