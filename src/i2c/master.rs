@@ -372,52 +372,57 @@ impl<'a> I2cMaster<'a, Async> {
 
         self.start(address, true).await?;
 
-        let transfer = dma::transfer::Transfer::new_read(
-            self.dma_ch.as_mut().unwrap(),
-            i2cregs.mstdat().as_ptr() as *mut u8,
-            read,
-            Default::default(),
-        );
+        // Read one byte less using DMA and then read the last byte manually
+        let (dma_read, last_byte) = read.split_at_mut(read.len() - 1);
 
-        // According to sections 24.7.7.1 and 24.7.7.2, we should
-        // first program the DMA channel for carrying out a transfer
-        // and only then set MSTDMA bit.
-        //
-        // Additionally, at this point we know the slave has
-        // acknowledged the address.
-        i2cregs.mstctl().write(|w| w.mstdma().enabled());
+        if !dma_read.is_empty() {
+            let transfer = dma::transfer::Transfer::new_read(
+                self.dma_ch.as_mut().unwrap(),
+                i2cregs.mstdat().as_ptr() as *mut u8,
+                dma_read,
+                Default::default(),
+            );
 
-        let res = select(
-            transfer,
-            poll_fn(|cx| {
-                I2C_WAKERS[self.info.index].register(cx.waker());
+            // According to sections 24.7.7.1 and 24.7.7.2, we should
+            // first program the DMA channel for carrying out a transfer
+            // and only then set MSTDMA bit.
+            //
+            // Additionally, at this point we know the slave has
+            // acknowledged the address.
+            i2cregs.mstctl().write(|w| w.mstdma().enabled());
 
-                i2cregs.intenset().write(|w| {
-                    w.mstpendingen()
-                        .set_bit()
-                        .mstarblossen()
-                        .set_bit()
-                        .mstststperren()
-                        .set_bit()
-                });
+            let res = select(
+                transfer,
+                poll_fn(|cx| {
+                    I2C_WAKERS[self.info.index].register(cx.waker());
 
-                let stat = i2cregs.stat().read();
+                    i2cregs.intenset().write(|w| {
+                        w.mstpendingen()
+                            .set_bit()
+                            .mstarblossen()
+                            .set_bit()
+                            .mstststperren()
+                            .set_bit()
+                    });
 
-                if stat.mstarbloss().is_arbitration_loss() {
-                    Poll::Ready(Err::<(), Error>(TransferError::ArbitrationLoss.into()))
-                } else if stat.mstststperr().is_error() {
-                    Poll::Ready(Err::<(), Error>(TransferError::StartStopError.into()))
-                } else {
-                    Poll::Pending
-                }
-            }),
-        )
-        .await;
+                    let stat = i2cregs.stat().read();
 
-        i2cregs.mstctl().write(|w| w.mstdma().disabled());
+                    if stat.mstarbloss().is_arbitration_loss() {
+                        Poll::Ready(Err::<(), Error>(TransferError::ArbitrationLoss.into()))
+                    } else if stat.mstststperr().is_error() {
+                        Poll::Ready(Err::<(), Error>(TransferError::StartStopError.into()))
+                    } else {
+                        Poll::Pending
+                    }
+                }),
+            )
+            .await;
 
-        if let Either::Second(e) = res {
-            e?;
+            i2cregs.mstctl().write(|w| w.mstdma().disabled());
+
+            if let Either::Second(e) = res {
+                e?;
+            }
         }
 
         self.wait_on(
@@ -445,7 +450,12 @@ impl<'a> I2cMaster<'a, Async> {
                 });
             },
         )
-        .await
+        .await?;
+
+        // Read the last byte
+        last_byte[0] = i2cregs.mstdat().read().data().bits();
+
+        Ok(())
     }
 
     async fn write_no_stop(&mut self, address: u8, write: &[u8]) -> Result<()> {
