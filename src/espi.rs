@@ -142,7 +142,21 @@ pub enum PortConfig {
     },
 
     /// Mailbox Split
-    MailboxSplit,
+    MailboxSplit {
+        /// Port Direction
+        direction: Direction,
+
+        /// Offset from 0 or the selected mapped base for matching
+        /// memory or IO
+        addr: u16,
+
+        /// Word-aligned offset into the RAM
+        offset: u16,
+
+        /// This is the length of the mailbox or mastering area per
+        /// direction.
+        length: Len,
+    },
 
     /// Put Posted/Completion Mem32
     PutPcMem32,
@@ -168,7 +182,7 @@ impl Into<Type> for PortConfig {
             PortConfig::AcpiIndex => Type::AcpiIndex,
             PortConfig::MailboxShared { .. } => Type::MailboxShared,
             PortConfig::MailboxSingle { .. } => Type::MailboxSingle,
-            PortConfig::MailboxSplit => Type::MailboxSplit,
+            PortConfig::MailboxSplit { .. } => Type::MailboxSplit,
             PortConfig::PutPcMem32 => Type::MailboxShared,
             PortConfig::MailboxSplitOOB => Type::MailboxOobSplit,
             PortConfig::SlaveFlash => Type::BusMFlashS,
@@ -557,6 +571,15 @@ impl<'d> Espi<'d> {
             }
 
             PortConfig::MailboxSingle {
+                direction,
+                addr,
+                offset,
+                length,
+            } => {
+                self.mailbox(port, config.into(), direction, addr, offset, length);
+            }
+
+            PortConfig::MailboxSplit {
                 direction,
                 addr,
                 offset,
