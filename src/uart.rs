@@ -76,6 +76,7 @@ pub struct Config {
     pub loopback_mode: Loop,
     /// Source clock in Hz
     pub source_clock_hz: u32,
+    pub clock: crate::flexcomm::Clock,
 }
 
 impl Default for Config {
@@ -92,6 +93,7 @@ impl Default for Config {
             continuous_clock: Cc::ClockOnCharacter,
             loopback_mode: Loop::Normal,
             source_clock_hz: 16_000_000,
+            clock: crate::flexcomm::Clock::Sfro,
         }
     }
 }
@@ -311,8 +313,8 @@ impl<'a, M: Mode> Uart<'a, M> {
         config: Config,
     ) -> Result<()> {
         // TODO - clock integration
-        let clock = crate::flexcomm::Clock::Ffro;
-        T::enable(clock);
+        //let clock = crate::flexcomm::Clock::Ffro;
+        T::enable(config.clock);
         T::into_usart();
 
         let regs = T::info().regs;
