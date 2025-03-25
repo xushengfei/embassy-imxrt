@@ -34,9 +34,9 @@ impl Mode for Async {}
 
 /// Uart driver.
 pub struct Uart<'a, M: Mode> {
-    pub info: Info,
-    pub tx: UartTx<'a, M>,
-    pub rx: UartRx<'a, M>,
+    info: Info,
+    tx: UartTx<'a, M>,
+    rx: UartRx<'a, M>,
 }
 
 /// Uart TX driver.
@@ -1099,9 +1099,9 @@ impl embedded_io_async::Write for Uart<'_, Async> {
     }
 }
 
-pub struct Info {
-    pub regs: &'static crate::pac::usart0::RegisterBlock,
-    pub index: usize,
+struct Info {
+    regs: &'static crate::pac::usart0::RegisterBlock,
+    index: usize,
 }
 
 trait SealedInstance {
