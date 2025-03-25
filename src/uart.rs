@@ -74,6 +74,8 @@ pub struct Config {
     pub continuous_clock: Cc,
     /// Normal/ loopback mode
     pub loopback_mode: Loop,
+    /// Source clock in Hz
+    pub source_clock_hz: u32,
 }
 
 impl Default for Config {
