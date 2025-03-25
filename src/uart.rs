@@ -311,7 +311,7 @@ impl<'a, M: Mode> Uart<'a, M> {
         config: Config,
     ) -> Result<()> {
         // TODO - clock integration
-        let clock = crate::flexcomm::Clock::Sfro;
+        let clock = crate::flexcomm::Clock::Ffro;
         T::enable(clock);
         T::into_usart();
 
