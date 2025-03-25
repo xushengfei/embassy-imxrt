@@ -372,12 +372,11 @@ impl<'a, M: Mode> Uart<'a, M> {
             let (_, osr, brg) = (8..16).rev().fold(
                 (u32::MAX, u32::MAX, u32::MAX),
                 |(best_diff, best_osr, best_brg), osrval| {
-                    let brgval = (source_clock_hz / ((osrval + 1) * baudrate)) - 1;
-                    let diff;
-
-                    if brgval > 65535 {
+                    if source_clock_hz < ((osrval + 1) * baudrate) {
                         (best_diff, best_osr, best_brg)
                     } else {
+                        let brgval = (source_clock_hz / ((osrval + 1) * baudrate)) - 1;
+                        let diff;
                         // Calculate the baud rate based on the BRG value
                         let candidate = source_clock_hz / ((osrval + 1) * (brgval + 1));
 
