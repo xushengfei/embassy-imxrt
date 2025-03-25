@@ -76,6 +76,7 @@ pub struct Config {
     pub loopback_mode: Loop,
     /// Source clock in Hz
     pub source_clock_hz: u32,
+    /// Clock type
     pub clock: crate::flexcomm::Clock,
 }
 
@@ -312,8 +313,6 @@ impl<'a, M: Mode> Uart<'a, M> {
         cts: Option<PeripheralRef<'_, AnyPin>>,
         config: Config,
     ) -> Result<()> {
-        // TODO - clock integration
-        //let clock = crate::flexcomm::Clock::Ffro;
         T::enable(config.clock);
         T::into_usart();
 
@@ -341,13 +340,6 @@ impl<'a, M: Mode> Uart<'a, M> {
         Self::set_uart_config::<T>(config);
 
         Ok(())
-    }
-
-    fn get_fc_freq() -> u32 {
-        // Todo: Make it generic for any clock
-        // Since the FC clock is hardcoded to Sfro, this freq is returned.
-        // sfro : 16MHz, // ffro: 48MHz
-        16_000_000
     }
 
     fn set_baudrate_inner<T: Instance>(baudrate: u32, source_clock_hz: u32) -> Result<()> {
