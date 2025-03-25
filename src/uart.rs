@@ -89,6 +89,7 @@ impl Default for Config {
             sync_mode_master_select: Syncmst::Slave,
             continuous_clock: Cc::ClockOnCharacter,
             loopback_mode: Loop::Normal,
+            source_clock_hz: 16_000_000,
         }
     }
 }
@@ -332,7 +333,7 @@ impl<'a, M: Mode> Uart<'a, M> {
             regs.cfg().modify(|_, w| w.ctsen().enabled());
         }
 
-        Self::set_baudrate_inner::<T>(config.baudrate)?;
+        Self::set_baudrate_inner::<T>(config.baudrate, config.source_clock_hz)?;
         Self::set_uart_config::<T>(config);
 
         Ok(())
@@ -345,9 +346,7 @@ impl<'a, M: Mode> Uart<'a, M> {
         16_000_000
     }
 
-    fn set_baudrate_inner<T: Instance>(baudrate: u32) -> Result<()> {
-        let source_clock_hz = Self::get_fc_freq();
-
+    fn set_baudrate_inner<T: Instance>(baudrate: u32, source_clock_hz: u32) -> Result<()> {
         if baudrate == 0 || source_clock_hz == 0 {
             return Err(Error::InvalidArgument);
         }
