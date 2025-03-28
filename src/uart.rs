@@ -74,10 +74,6 @@ pub struct Config {
     pub continuous_clock: Cc,
     /// Normal/ loopback mode
     pub loopback_mode: Loop,
-    /// Source clock in Hz
-    pub source_clock_hz: u32,
-    /// Clock type
-    pub clock: crate::flexcomm::Clock,
 }
 
 impl Default for Config {
@@ -93,8 +89,6 @@ impl Default for Config {
             sync_mode_master_select: Syncmst::Slave,
             continuous_clock: Cc::ClockOnCharacter,
             loopback_mode: Loop::Normal,
-            source_clock_hz: 16_000_000,
-            clock: crate::flexcomm::Clock::Sfro,
         }
     }
 }
@@ -313,7 +307,9 @@ impl<'a, M: Mode> Uart<'a, M> {
         cts: Option<PeripheralRef<'_, AnyPin>>,
         config: Config,
     ) -> Result<()> {
-        T::enable(config.clock);
+        // TODO - clock integration
+        let clock = crate::flexcomm::Clock::Sfro;
+        T::enable(clock);
         T::into_usart();
 
         let regs = T::info().regs;
@@ -336,13 +332,22 @@ impl<'a, M: Mode> Uart<'a, M> {
             regs.cfg().modify(|_, w| w.ctsen().enabled());
         }
 
-        Self::set_baudrate_inner::<T>(config.baudrate, config.source_clock_hz)?;
+        Self::set_baudrate_inner::<T>(config.baudrate)?;
         Self::set_uart_config::<T>(config);
 
         Ok(())
     }
 
-    fn set_baudrate_inner<T: Instance>(baudrate: u32, source_clock_hz: u32) -> Result<()> {
+    fn get_fc_freq() -> u32 {
+        // Todo: Make it generic for any clock
+        // Since the FC clock is hardcoded to Sfro, this freq is returned.
+        // sfro : 16MHz, // ffro: 48MHz
+        16_000_000
+    }
+
+    fn set_baudrate_inner<T: Instance>(baudrate: u32) -> Result<()> {
+        let source_clock_hz = Self::get_fc_freq();
+
         if baudrate == 0 || source_clock_hz == 0 {
             return Err(Error::InvalidArgument);
         }
@@ -366,11 +371,12 @@ impl<'a, M: Mode> Uart<'a, M> {
             let (_, osr, brg) = (8..16).rev().fold(
                 (u32::MAX, u32::MAX, u32::MAX),
                 |(best_diff, best_osr, best_brg), osrval| {
-                    if source_clock_hz < ((osrval + 1) * baudrate) {
+                    let brgval = (source_clock_hz / ((osrval + 1) * baudrate)) - 1;
+                    let diff;
+
+                    if brgval > 65535 {
                         (best_diff, best_osr, best_brg)
                     } else {
-                        let brgval = (source_clock_hz / ((osrval + 1) * baudrate)) - 1;
-                        let diff;
                         // Calculate the baud rate based on the BRG value
                         let candidate = source_clock_hz / ((osrval + 1) * (brgval + 1));
 
